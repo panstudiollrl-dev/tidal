@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Reference material kept locally; do not publish downloaded papers or videos.
+meditation/
+

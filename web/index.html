@@ -1,0 +1,2119 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tidal — 節奏調和海浪聲景</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #050b0d;
+    --panel: rgba(5, 14, 17, .18);
+    --panel2: rgba(255, 255, 255, .045);
+    --line: rgba(219, 237, 231, .10);
+    --text: #e6efeb;
+    --muted: #9aada8;
+    --sea: #76b7aa;
+    --foam: #d8d2b0;
+    --warn: #e5bc78;
+    --soft: #9fbfbd;
+    --core-scale: 1;
+    --core-glow: .28;
+    --core-tide: .2;
+    --core-drift: 0px;
+    --core-rot: 0deg;
+    --cue-fill: 0;
+    --breath-phase: .5;
+    --heart-weather: .45;
+    --session-water: 0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; min-height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+  }
+  canvas#sea {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    background: #050b0d;
+  }
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    background:
+      radial-gradient(70% 62% at 50% 42%, rgba(100, 149, 142, .14), transparent 64%),
+      linear-gradient(180deg, rgba(4, 9, 11, .18), rgba(4, 9, 11, .72));
+    pointer-events: none;
+  }
+  .app {
+    position: relative;
+    z-index: 2;
+    width: 100vw;
+    margin: 0 auto;
+    min-height: 100vh;
+    padding: 0;
+    display: grid;
+    align-content: stretch;
+  }
+  header {
+    display: none;
+    min-height: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 0 0 18px;
+  }
+  h1 { margin: 0; font-size: 18px; line-height: 1; font-weight: 650; letter-spacing: 0; }
+  .tagline { display: none; }
+  .status { text-align: right; color: var(--muted); font-size: 12px; line-height: 1.7; min-width: 176px; opacity: .72; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: #52656b; margin-right: 7px; }
+  .dot.on { background: var(--sea); box-shadow: 0 0 18px rgba(72, 196, 189, .8); }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 0; align-items: stretch; min-height: 100vh; }
+  .panel {
+    background: var(--panel);
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  .panel h2 { display: none; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
+  button {
+    appearance: none;
+    border: 1px solid rgba(205, 229, 221, .18);
+    background: rgba(30, 58, 58, .52);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 13px;
+    font: inherit;
+    font-weight: 610;
+    cursor: pointer;
+    min-height: 42px;
+  }
+  button:hover { background: rgba(48, 77, 75, .66); }
+  button:disabled { opacity: .44; cursor: not-allowed; }
+  button.ghost { background: rgba(255,255,255,.035); border-color: var(--line); color: var(--muted); }
+  button.icon { width: 42px; padding: 0; display: inline-grid; place-items: center; font-size: 18px; }
+  .hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
+  .warning { color: var(--warn); }
+  .balls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .ball {
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    min-width: 0;
+  }
+  .ball-title { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; margin-bottom: 10px; }
+  .role { color: var(--muted); }
+  .meter { height: 10px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .meter span { display: block; height: 100%; width: 0%; border-radius: inherit; background: linear-gradient(90deg, var(--sea), var(--foam)); transition: width .08s linear; }
+  .readout { margin-top: 8px; display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; gap: 8px; }
+  .rhythm {
+    display: grid;
+    grid-template-columns: 112px 1fr;
+    gap: 14px;
+    align-items: center;
+  }
+  .orb {
+    width: 112px;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 1px solid rgba(216, 246, 246, .24);
+    background:
+      radial-gradient(circle at 35% 32%, rgba(230, 244, 219, .96), rgba(72, 196, 189, .62) 33%, rgba(34, 86, 95, .5) 66%, rgba(9, 22, 28, .8));
+    box-shadow: inset 0 0 30px rgba(255,255,255,.11), 0 0 40px rgba(72,196,189,.22);
+    transform: scale(var(--orb-scale, 1));
+    transition: transform .35s ease;
+  }
+  .mode { font-size: 26px; line-height: 1.15; font-weight: 650; margin-bottom: 7px; }
+  .mode-detail { color: var(--muted); line-height: 1.55; font-size: 14px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+  .stat { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .stat b { display: block; font-size: 20px; margin-bottom: 3px; color: var(--text); }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .rating {
+    display: grid;
+    grid-template-columns: 42px 1fr 42px;
+    gap: 8px;
+    align-items: center;
+  }
+  input[type="range"] { width: 100%; accent-color: var(--sea); }
+  textarea, input[type="text"] {
+    width: 100%;
+    border: 1px solid var(--line);
+    background: rgba(0, 0, 0, .18);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px;
+    font: inherit;
+    resize: vertical;
+  }
+  .flow { display: grid; gap: 10px; }
+  .diagnostics { display: none; }
+  .experience {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 0;
+    min-height: 100vh;
+    align-content: center;
+    text-align: center;
+  }
+  .experience-panel {
+    display: none;
+    order: 2;
+    opacity: .82;
+  }
+  .experience-panel .hint {
+    max-width: 580px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .logline { text-align: center; }
+  .phase { display: none; }
+  .phase.active { display: grid; }
+  .guide-panel {
+    order: 1;
+    position: relative;
+    width: 100vw;
+    min-height: 100vh;
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: clamp(18px, 3.4vh, 34px);
+    padding: clamp(22px, 5vw, 64px);
+    opacity: 1;
+    transition: opacity .72s ease, filter .72s ease;
+  }
+  .guide-panel.scene-dim {
+    opacity: 0;
+    filter: blur(12px);
+  }
+  .core-orb {
+    position: relative;
+    width: min(34vw, 230px);
+    min-width: 154px;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    transform: translateX(var(--core-drift)) scale(var(--core-scale));
+    transition: transform .45s ease;
+    background:
+      linear-gradient(to top, rgba(104, 151, 149, .42) 0 calc(var(--cue-fill) * 100%), rgba(104, 151, 149, 0) calc(var(--cue-fill) * 100%)),
+      radial-gradient(circle, rgba(225, 218, 183, .20) 0 2px, transparent 3px),
+      radial-gradient(circle at 50% 50%, rgba(224, 217, 184, .08), rgba(88, 128, 120, .09) 34%, rgba(7, 19, 22, .14) 72%, transparent 74%);
+    box-shadow:
+      inset 0 0 32px rgba(230, 223, 190, .06),
+      0 0 calc(34px + 62px * var(--core-glow)) rgba(123, 169, 160, calc(.14 + .25 * var(--core-glow)));
+    opacity: .94;
+  }
+  .core-orb::before,
+  .core-orb::after {
+    content: "";
+    position: absolute;
+    inset: 9%;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .core-orb::before {
+    inset: 5%;
+    border:
+      1px solid rgba(224, 218, 185, calc(.18 + .22 * var(--core-tide)));
+    transform: scale(calc(.92 + .04 * var(--core-tide))) rotate(var(--core-rot));
+    box-shadow:
+      inset 0 0 0 18px rgba(224, 218, 185, .018),
+      inset 0 0 0 42px rgba(118, 159, 151, .022),
+      0 0 34px rgba(143, 184, 174, calc(.10 + .14 * var(--core-tide)));
+  }
+  .core-orb::after {
+    inset: 18%;
+    background:
+      repeating-conic-gradient(from 0deg, rgba(225, 218, 185, .16) 0deg 2deg, transparent 2deg 15deg),
+      radial-gradient(circle, transparent 42%, rgba(199, 211, 191, .16) 43%, transparent 45%, transparent 61%, rgba(199, 211, 191, .12) 62%, transparent 64%);
+    opacity: calc(.28 + .34 * var(--core-tide));
+    transform: rotate(var(--core-rot));
+  }
+  .core-orb.cue-on {
+    transform: translateX(var(--core-drift)) scale(calc(var(--core-scale) * 1.08));
+    box-shadow:
+      inset 0 0 34px rgba(230, 223, 190, .10),
+      0 0 112px rgba(213, 205, 162, .42);
+  }
+  .core-orb.cue-off {
+    opacity: .46;
+  }
+  .core-orb.cue-success {
+    box-shadow:
+      inset 0 0 38px rgba(210, 225, 207, .16),
+      0 0 118px rgba(136, 184, 176, .46);
+  }
+  #phaseSession .core-orb {
+    background:
+      linear-gradient(to top, rgba(104, 151, 149, .46) 0 calc(var(--session-water) * 100%), rgba(104, 151, 149, 0) calc(var(--session-water) * 100%)),
+      radial-gradient(circle at 50% calc(56% - 22% * var(--breath-phase)), rgba(225, 218, 183, calc(.09 + .18 * var(--breath-phase))), transparent 35%),
+      radial-gradient(circle at 50% 50%, rgba(224, 217, 184, .08), rgba(88, 128, 120, calc(.08 + .08 * var(--heart-weather))) 34%, rgba(7, 19, 22, .15) 72%, transparent 74%);
+  }
+  #phaseSession .core-orb::after {
+    opacity: calc(.24 + .38 * var(--breath-phase) + .16 * var(--heart-weather));
+  }
+  .arrival-title { font-size: clamp(24px, 4vw, 38px); font-weight: 650; margin: 4px 0 10px; line-height: 1.18; }
+  .arrival-copy { color: var(--text); line-height: 1.85; font-size: 16px; max-width: 620px; }
+  .arrival-copy p { margin: 0 0 9px; }
+  #arrivalIntro,
+  #arrivalConnect,
+  #arrivalPrelude,
+  #arrivalHandCue,
+  #arrivalBreath,
+  #arrivalHold,
+  #arrivalReport {
+    width: min(680px, calc(100vw - 40px));
+    justify-items: center;
+  }
+  .countdown {
+    font-size: clamp(64px, 14vw, 132px);
+    line-height: .9;
+    font-weight: 520;
+    color: rgba(232, 235, 219, .92);
+    margin: 6px 0 8px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 38px rgba(130, 170, 160, .24);
+  }
+  .scene-action {
+    margin-top: 14px;
+  }
+  .arrival-progress {
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+    overflow: hidden;
+    margin: 18px auto 10px;
+    max-width: 360px;
+  }
+  .arrival-progress span {
+    display: block;
+    height: 100%;
+    width: 0%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--sea), var(--foam));
+    transition: width .12s linear;
+  }
+  .report {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+    width: min(560px, 100%);
+  }
+  .report-row {
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    line-height: 1.55;
+  }
+  .report-row b { display: block; color: var(--text); font-size: 14px; margin-bottom: 2px; }
+  .report-row span { color: var(--muted); font-size: 13px; }
+  .confirm-choice {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.7;
+    margin-top: 12px;
+    min-height: 24px;
+  }
+  .session-stage {
+    width: min(720px, calc(100vw - 40px));
+    display: grid;
+    justify-items: center;
+    gap: 14px;
+  }
+  .session-preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .preset-btn {
+    min-height: 36px;
+    padding: 8px 11px;
+    border-color: rgba(215, 229, 218, .14);
+    background: rgba(255,255,255,.035);
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .preset-btn.active {
+    background: rgba(116, 158, 150, .22);
+    color: var(--text);
+    border-color: rgba(225, 218, 185, .28);
+    box-shadow: 0 0 28px rgba(123, 169, 160, .16);
+  }
+  .breath-word {
+    min-height: 30px;
+    font-size: clamp(22px, 3.6vw, 34px);
+    line-height: 1.15;
+    color: rgba(232, 235, 219, .92);
+    font-weight: 560;
+  }
+  .session-metrics {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .session-metrics span {
+    padding: 5px 8px;
+    border: 1px solid rgba(219, 237, 231, .09);
+    border-radius: 999px;
+    background: rgba(255,255,255,.025);
+  }
+  .logline {
+    margin-top: 10px;
+    min-height: 22px;
+    color: var(--muted);
+    font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+  }
+  .footer { display: none; margin: 16px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  @media (max-width: 820px) {
+    header, .grid, .balls, .stats { grid-template-columns: 1fr; display: grid; }
+    header { min-height: auto; }
+    .status { text-align: left; }
+    .experience { min-height: 72vh; }
+    .core-orb { width: 56vw; min-width: 152px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="sea"></canvas>
+<div class="scrim"></div>
+
+<main class="app">
+  <header>
+    <div>
+      <h1>Tidal</h1>
+      <div class="tagline">一片可被雙手塑形的海。握力與揮動不是控制命令，而是身體節奏；聲音回應它，慢慢把緊繃導回可呼吸、可停留的節奏彈性。</div>
+    </div>
+    <div class="status">
+      <div><span id="audioDot" class="dot"></span><span id="audioStatus">聲音未啟動</span></div>
+      <div><span id="hidDot" class="dot"></span><span id="hidStatus">握力球未連接</span></div>
+      <div id="runtimeStatus">localhost + Chrome/Edge 最穩</div>
+    </div>
+  </header>
+
+  <section class="grid">
+    <div class="flow experience">
+      <section class="panel experience-panel">
+        <h2>體驗</h2>
+        <div class="controls">
+          <button id="btnAudio">啟動聲音</button>
+          <button id="btnBall" disabled>連接握力球</button>
+          <button id="btnStartSession" disabled>開始抵達</button>
+          <button id="btnEndSession" class="ghost" disabled>結束</button>
+          <button id="btnCsv" class="ghost" disabled>下載 CSV</button>
+        </div>
+        <div id="browserWarn" class="hint warning" style="display:none; margin-top:10px"></div>
+        <div class="hint" style="margin-top:10px">
+          無球時可用空白鍵代替按壓。戴耳機，讓畫面停在中央就好。
+        </div>
+        <div id="log" class="logline"></div>
+      </section>
+
+      <section class="panel phase guide-panel active" id="phaseBefore">
+        <h2>抵達</h2>
+        <div id="guideOrb" class="core-orb" aria-hidden="true"></div>
+        <div id="arrivalIntro">
+          <div class="arrival-title">正在準備</div>
+          <div class="arrival-copy">
+            <p>聲音會先保持安靜。</p>
+          </div>
+        </div>
+        <div id="arrivalConnect" style="display:none">
+          <div class="arrival-title">連接握力球</div>
+          <div class="arrival-copy">
+            <p id="connectCopy">接下來會用兩隻手的按壓，記錄呼吸和此刻的力道。</p>
+          </div>
+          <div class="controls scene-action">
+            <button id="btnConnectInline">連接握力球</button>
+          </div>
+          <div class="hint" style="margin-top:12px">如果只是測試，也可以用空白鍵代替按壓。</div>
+        </div>
+        <div id="arrivalPrelude" style="display:none">
+          <div class="arrival-title">準備</div>
+          <div class="countdown"><span id="preludeClock">5</span></div>
+          <div class="arrival-copy">
+            <p>等一下三十秒，不用調整呼吸。</p>
+          </div>
+        </div>
+        <div id="arrivalHandCue" style="display:none">
+          <div class="arrival-title" id="handCueTitle">左手</div>
+          <div class="arrival-copy">
+            <p>亮起時按住，暗下時放開。</p>
+          </div>
+          <div class="hint" id="handCueHint">&nbsp;</div>
+        </div>
+        <div id="arrivalBreath" style="display:none">
+          <div class="arrival-title">聽見呼吸</div>
+          <div class="countdown"><span id="breathClock">30</span></div>
+          <div class="arrival-copy">
+            <p>發現吸氣，按一下。發現呼氣，也按一下。</p>
+          </div>
+          <div class="arrival-progress"><span id="breathProgress"></span></div>
+          <div class="hint">已收到 <span id="breathCount">0</span> 次呼吸標記</div>
+        </div>
+        <div id="arrivalHold" style="display:none">
+          <div class="arrival-title">把現在交給手</div>
+          <div class="arrival-copy">
+            <p>現在，請用手表示你此刻的緊張、情緒或能量有多大。</p>
+            <p>越用力，代表越滿、越緊、越澎湃；越輕，代表越平靜。握住一下，讓它被看見。</p>
+          </div>
+          <div class="arrival-progress"><span id="holdProgress"></span></div>
+          <div class="hint" id="holdHint">準備好時，握住一下。</div>
+        </div>
+        <div id="arrivalReport" style="display:none">
+          <div class="arrival-title">小小回顧</div>
+          <div class="arrival-copy">
+            <p>這不是判斷，只是這次開始前，手和呼吸留下的一點線索。</p>
+          </div>
+          <div class="report" id="arrivalReportRows"></div>
+          <div class="arrival-copy" style="margin-top:14px">
+            <p>我們先這樣理解你此刻的狀態。你覺得像嗎？</p>
+          </div>
+          <div class="confirm-choice" id="arrivalConfirmHint">像的話，輕握 Ball 1。不太像的話，輕握 Ball 2。</div>
+          <div class="controls" style="margin-top:12px">
+            <button id="btnEnterSession">進入引導 session</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel phase guide-panel" id="phaseSession">
+        <h2>Session</h2>
+        <div class="core-orb" aria-hidden="true"></div>
+        <div class="session-stage">
+          <div class="arrival-title" id="sessionTitle">海潮呼吸</div>
+          <div class="breath-word" id="breathWord">聽它靠近</div>
+          <div class="arrival-copy">
+            <p id="sessionCopy">先讓海跟著你，再讓它慢慢邀請你。握住是漲潮，放開是退潮。</p>
+          </div>
+          <div class="session-metrics">
+            <span id="breathMetric">呼吸週期 10.0s</span>
+            <span id="heartMetric">心跳天氣 平穩</span>
+            <span id="gripMetric">握力水位 0%</span>
+          </div>
+          <div class="session-preset-row" aria-label="呼吸場景">
+            <button class="preset-btn active" data-preset="resonance">海潮</button>
+            <button class="preset-btn" data-preset="alternate">左右潮</button>
+            <button class="preset-btn" data-preset="hold478">4-7-8</button>
+            <button class="preset-btn" data-preset="bellows">風箱</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel phase guide-panel" id="phaseAfter">
+        <h2>結束後</h2>
+        <div class="core-orb" aria-hidden="true"></div>
+        <div class="hint">回看身體，而不是評分好壞。哪一刻有被推著走？哪一刻可以停留？</div>
+        <div style="margin:14px 0 8px">現在的緊張程度 <b id="postValue">5</b>/10</div>
+        <div class="rating">
+          <button class="icon ghost" id="postMinus">−</button>
+          <input id="postRange" type="range" min="0" max="10" value="5" />
+          <button class="icon ghost" id="postPlus">＋</button>
+        </div>
+        <div style="margin:12px 0 8px">這段有多像「被節奏推著走」？ <b id="pushedValue">5</b>/10</div>
+        <input id="pushedRange" type="range" min="0" max="10" value="5" />
+        <div style="margin:12px 0 8px">有多能停留、呼吸、觀察？ <b id="stayValue">5</b>/10</div>
+        <input id="stayRange" type="range" min="0" max="10" value="5" />
+        <div style="margin:12px 0 8px">聲音有多像可被你塑形？ <b id="agencyValue">5</b>/10</div>
+        <input id="agencyRange" type="range" min="0" max="10" value="5" />
+        <div style="margin:12px 0 8px">一句筆記</div>
+        <textarea id="rhythmNote" rows="3" placeholder="例如：一開始被拍石嚇到，後來潮汐變慢時比較能停。"></textarea>
+        <div class="controls" style="margin-top:12px">
+          <button id="btnSaveAfter">儲存這次紀錄</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="flow diagnostics" aria-hidden="true">
+      <section class="panel">
+        <h2>狀態</h2>
+        <div class="stats">
+          <div class="stat"><b id="sessionClock">0s</b><span>session</span></div>
+          <div class="stat"><b id="impactCount">0</b><span>拍石</span></div>
+          <div class="stat"><b id="swingReadout">0.00</b><span>揮動</span></div>
+          <div class="stat"><b id="tideReadout">0%</b><span>潮汐</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>握力球</h2>
+        <div class="balls">
+          <div class="ball">
+            <div class="ball-title"><span>Ball 1</span><span class="role">潮汐 / 能量</span></div>
+            <div class="meter"><span id="m1"></span></div>
+            <div class="readout"><span id="s1">未連接</span><span id="v1">0%</span></div>
+          </div>
+          <div class="ball">
+            <div class="ball-title"><span>Ball 2</span><span class="role">鵝卵石 / 空間</span></div>
+            <div class="meter"><span id="m2"></span></div>
+            <div class="readout"><span id="s2">未連接</span><span id="v2">0%</span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <div class="footer">本頁只做本機探索紀錄，不上傳。EEG/生理訊號若未來接入，也只作探索性量測，不作醫療或療效宣稱。</div>
+</main>
+
+<script>
+"use strict";
+
+const VENDOR_ID = 0x08E2;
+const PRODUCT_ID = 0x0101;
+const MODE_9DOF_GRIP = 3;
+const AUTO_ONSET_DELTA = 450;
+// 浮動握力校正（Pan 2026-07-09：固定滿刻度太高，很用力才到 30%）。滿刻度會自動追蹤你的握力範圍。
+const GRIP_MIN_SPAN = 300;         // 滿刻度最小跨距（避免雜訊時過度靈敏）
+const GRIP_MAX_SPAN = 1400;        // 滿刻度上限（避免異常大值）
+const GRIP_HEADROOM = 0.82;        // 達到「你觀察到的最大握力」的 82% 就算 100%（不必每次死命握到頂）
+const GRIP_SPAN_DECAY = 0.99975;   // 觀察到的最大握力慢慢遺忘、重新適應（每筆 report 乘一次）
+const GRIP_GAMMA = 0.75;           // 握力→聲音% 曲線：<1＝中低握就有明顯變化；=1 線性；>1＝要更用力才變化
+const HARD_GRIP = 0.7;
+const SWING_MIN = 0.5;
+const STRONG_SWING = 1.4;
+const ARRIVAL_BREATH_SECONDS = 30;
+const ARRIVAL_HOLD_SECONDS = 1.2;
+const ARRIVAL_PRELUDE_SECONDS = 5;
+const ARRIVAL_PRESS_ON = 0.18;
+const ARRIVAL_PRESS_OFF = 0.08;
+const HAND_CUE_REPS = 3;
+const HAND_CUE_READY_MS = 1800;
+const HAND_CUE_ON_MS = 1800;
+const HAND_CUE_OFF_MS = 2500;
+
+const $ = (id) => document.getElementById(id);
+const clamp = (v, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
+const log = (m) => $("log").textContent = m;
+
+const state = {
+  phase: "before",
+  pre: 5,
+  post: 5,
+  pushed: 5,
+  stay: 5,
+  agency: 5,
+  note: "",
+  sessionStart: null,
+  sessionEnd: null,
+  samples: [],
+  sessions: [],
+  impactCount: 0,
+  lastImpactAt: 0,
+  dominantMode: "unknown",
+  motion: 0,
+  motionSmoothed: 0,
+  azimuth: 0,
+  audioFadedIn: false,
+  grip: { 1: 0, 2: 0 },
+  connected: { 1: false, 2: false },
+  ready: { 1: false, 2: false },
+  lastGripReportAt: { 1: 0, 2: 0 },
+  handMap: { left: null, right: null },
+  guided: {
+    preset: "resonance",
+    startedAt: null,
+    phase: 0,
+    phaseName: "inhale",
+    period: 10,
+    heartWeather: 0.45,
+    heartLabel: "平穩",
+  },
+  arrival: {
+    step: "intro",
+    preludeStart: null,
+    breathStart: null,
+    holdStart: null,
+    holdComplete: false,
+    events: [],
+    holdSamples: [],
+    lastGrip: { 1: 0, 2: 0 },
+    activePress: { 1: false, 2: false },
+    lastEventAt: 0,
+    confirmation: "",
+    confirmationAt: null,
+    handCue: {
+      hand: "left",
+      cueOn: false,
+      rep: 0,
+      startedAt: null,
+      scores: { 1: 0, 2: 0 },
+      completed: false,
+      lastRep: -1,
+      successThisRep: false,
+      fill: 0,
+      successSoundAt: 0,
+    },
+    report: null,
+  },
+};
+
+class GripCalibrator {
+  constructor(){ this.baseline = null; this.span = GRIP_MIN_SPAN; this.level = 0; }
+  update(raw){
+    if(this.baseline === null){ this.baseline = raw; return 0; }
+    const delta = raw - this.baseline;
+    const posDelta = Math.max(0, delta);
+    // 浮動滿刻度：追蹤觀察到的最大握力，慢慢適應；有界
+    this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
+    this.span = clamp(this.span, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
+    // 慢漂移併入 baseline：門檻「相對於你的握力範圍」而非固定值，小範圍球才不會被吃掉太多
+    if(delta < this.span * 0.15) this.baseline += (raw - this.baseline) * 0.08;
+    const effScale = this.span * GRIP_HEADROOM;                 // 到你握力範圍的 82% 就算滿
+    const rawLevel = clamp(posDelta / effScale);
+    const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA）
+    this.level += (shaped - this.level) * 0.15;                 // 平滑
+    return this.level;
+  }
+}
+
+class OceanEngine {
+  constructor(ctx){
+    this.ctx = ctx;
+    this.master = ctx.createGain();
+    this.master.gain.value = 0;
+    this.clip = ctx.createWaveShaper();
+    this.clip.curve = OceanEngine.tanhCurve();
+
+    this.panner = ctx.createPanner();
+    this.panner.panningModel = "HRTF";
+    this.panner.distanceModel = "inverse";
+    this.panner.refDistance = 1;
+    this.panner.maxDistance = 20;
+    this.panner.rolloffFactor = 1.2;
+    this.panner.positionZ.value = -1;
+
+    this.convolver = ctx.createConvolver();
+    this.dry = ctx.createGain();
+    this.wet = ctx.createGain();
+    this.dry.gain.value = 1;
+    this.wet.gain.value = 0;
+    this.busIn = ctx.createGain();
+    this.busIn.connect(this.panner);
+    this.panner.connect(this.dry);
+    this.dry.connect(this.clip);
+    this.panner.connect(this.convolver);
+    this.convolver.connect(this.wet);
+    this.wet.connect(this.clip);
+    this.clip.connect(this.master);
+    this.master.connect(ctx.destination);
+    this.loadIR(["../assets/ir/room.wav", "/assets/ir/room.wav", "assets/ir/room.wav", "../../assets/ir/room.wav"]);
+
+    this.noise = OceanEngine.noiseSource(ctx);
+    this.surgeLP = ctx.createBiquadFilter();
+    this.surgeLP.type = "lowpass";
+    this.surgeLP.frequency.value = 800;
+    this.surgeGain = ctx.createGain();
+    this.surgeGain.gain.value = 0.18;
+    this.noise.connect(this.surgeLP);
+    this.surgeLP.connect(this.surgeGain);
+    this.surgeGain.connect(this.busIn);
+
+    this.noise2 = OceanEngine.noiseSource(ctx);
+    this.foamHP = ctx.createBiquadFilter();
+    this.foamHP.type = "highpass";
+    this.foamHP.frequency.value = 1500;   // 錄音幾乎無高頻，泡沫嘶聲壓低頻段
+    this.foamGain = ctx.createGain();
+    this.foamGain.gain.value = 0;
+    this.noise2.connect(this.foamHP);
+    this.foamHP.connect(this.foamGain);
+    this.foamGain.connect(this.busIn);
+
+    // 鵝卵石沿岸：退浪時海水捲動大量石頭的沙沙／喀啦聲（Pan 2026-07-09）。
+    // 預生成密集小石撞擊的循環紋理 → bandpass 塑成石質 → 由「退浪閘門」與能量調變，與海濤呼應。
+    this.pebble = ctx.createBufferSource();
+    this.pebble.buffer = OceanEngine.pebbleBuffer(ctx, 4.5);
+    this.pebble.loop = true;
+    this.pebbleBP = ctx.createBiquadFilter();
+    this.pebbleBP.type = "lowpass";              // 低通：保留大圓石的低頻滾動，去掉高頻沙沙
+    this.pebbleBP.frequency.value = 700;
+    this.pebbleBP.Q.value = 0.6;
+    this.pebbleGain = ctx.createGain();
+    this.pebbleGain.gain.value = 0;
+    this.pebble.connect(this.pebbleBP);
+    this.pebbleBP.connect(this.pebbleGain);
+    this.pebbleGain.connect(this.busIn);
+
+    // 低頻包覆床（阿朗壹「被低頻與天地包圍」的壓感）：非定位——直接進 clip、不過 panner，
+    // 低頻本就無方向性，繞過 HRTF 讓它裹住整個聲場而非指向某處。
+    this.sub = OceanEngine.noiseSource(ctx);
+    this.subLP = ctx.createBiquadFilter();
+    this.subLP.type = "lowpass";
+    this.subLP.frequency.value = 130;
+    this.subLP.Q.value = 0.4;
+    this.subGain = ctx.createGain();
+    this.subGain.gain.value = 0;
+    this.sub.connect(this.subLP);
+    this.subLP.connect(this.subGain);
+    this.subGain.connect(this.clip);
+
+    this.fxBus = ctx.createGain();
+    this.fxBus.connect(this.clip);
+    this.impactPanner = ctx.createPanner();
+    this.impactPanner.panningModel = "HRTF";
+    this.impactPanner.distanceModel = "inverse";
+    this.impactPanner.refDistance = 1;
+    this.impactPanner.maxDistance = 20;
+    this.impactPanner.rolloffFactor = 1.2;
+    this.impactVerb = ctx.createConvolver();
+    this.impactVerb.buffer = OceanEngine.reverbIR(ctx, 3.4);   // 長殘響尾巴（拍岸的空間餘韻，尾巴隨時間變暗）
+    this.impactPre = ctx.createDelay(0.2);
+    this.impactPre.delayTime.value = 0.04;                     // 前置延遲：尾巴略晚於瞬態綻放，更空間
+    this.impactDry = ctx.createGain();
+    this.impactWet = ctx.createGain();
+    this.impactDry.gain.value = 0.8;
+    this.impactWet.gain.value = 0.6;                           // 尾巴更明顯、更有質感
+    this.impactPanner.connect(this.impactDry);
+    this.impactDry.connect(this.fxBus);
+    this.impactPanner.connect(this.impactPre);
+    this.impactPre.connect(this.impactVerb);
+    this.impactVerb.connect(this.impactWet);
+    this.impactWet.connect(this.fxBus);
+    this.cuePanner = ctx.createPanner();
+    this.cuePanner.panningModel = "HRTF";
+    this.cuePanner.distanceModel = "inverse";
+    this.cuePanner.refDistance = 1;
+    this.cuePanner.maxDistance = 20;
+    this.cuePanner.rolloffFactor = 1.1;
+    this.cueDry = ctx.createGain();
+    this.cueWet = ctx.createGain();
+    this.cueDry.gain.value = 0.72;
+    this.cueWet.gain.value = 0.24;
+    this.cuePanner.connect(this.cueDry);
+    this.cueDry.connect(this.fxBus);
+    this.cuePanner.connect(this.cueWet);
+    this.cueWet.connect(this.impactVerb);
+
+    this.noise.start();
+    this.noise2.start();
+    this.pebble.start();
+    this.sub.start();
+    this.tide = 0;
+    this.spread = 0;
+    this.azimuth = 0;
+    this.azTarget = 0;
+    this.gripPan = 0;
+    this.breathGuide = { phase: 0.5, influence: 0, period: 10, pan: 0, heart: 0.45, activate: 0 };
+    this.azEase = 0.02;
+    this.t0 = ctx.currentTime;
+    this.lastSwing = 0;
+    this.lastImpact = 0;
+    this.rw = 0;      // 有界隨機漫步（讓巨觀動態不機械、像千層浪的隨機性）
+    this.rw2 = 0;
+    this.metrics = { swell: 0, energy: 0.15, foam: 0, cutoff: 800, rw: 0, rw2: 0 };
+    this.loop();
+  }
+
+  fadeIn(){
+    const now = this.ctx.currentTime;
+    this.master.gain.cancelScheduledValues(now);
+    this.master.gain.setValueAtTime(this.master.gain.value, now);
+    this.master.gain.linearRampToValueAtTime(0.9, now + 2.8);
+  }
+
+  async loadIR(urls){
+    const candidates = Array.isArray(urls) ? urls : [urls];
+    for(const url of candidates){
+      try{
+        const res = await fetch(url);
+        if(!res.ok) continue;                       // 這個路徑沒有，試下一個
+        const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+        this.convolver.buffer = buf;
+        this.wet.gain.setTargetAtTime(0.8, this.ctx.currentTime, 0.5);
+        this.dry.gain.setTargetAtTime(0.4, this.ctx.currentTime, 0.5);
+        log("已載入 MeshRIR room.wav（"+url+"）。");
+        return;
+      }catch(_err){ /* 試下一個候選路徑 */ }
+    }
+    // 全部候選都拿不到（多半是 server 從 web/ 開，assets 在上一層）：以 HRTF 乾聲運行，海仍成立。
+    log("未載入 IR，先以 HRTF 乾聲運行（room.wav 需從 Tidal/ 這層開 server）。");
+  }
+
+  static tanhCurve(){
+    const n = 1024;
+    const c = new Float32Array(n);
+    for(let i = 0; i < n; i++){
+      const x = (i / (n - 1)) * 2 - 1;
+      c[i] = Math.tanh(2 * x);
+    }
+    return c;
+  }
+
+  static pebbleBuffer(ctx, dur){
+    // 大圓石灘（阿朗壹／南田石）：每顆石＝低頻共振的「咚」＋一點顆粒摩擦，較長較悶、密度較疏。
+    // 立體聲去相關 → 循環播放即成大卵石被海水翻滾的低沉滾動聲。
+    const rate = ctx.sampleRate;
+    const len = Math.max(1, Math.floor(rate * dur));
+    const buf = ctx.createBuffer(2, len, rate);
+    for(let ch = 0; ch < 2; ch++){
+      const d = buf.getChannelData(ch);
+      let i = 0;
+      while(i < len){
+        const gap = Math.floor(rate * (0.008 + Math.random() * 0.030));   // 每 8–38ms 一顆（~40/s，貼近錄音的石頭密度、可辨）
+        const dl  = Math.floor(rate * (0.012 + Math.random() * 0.038));   // 12–50ms（大石較悶，但別糊成一片）
+        const amp = 0.25 + 0.75 * Math.random();
+        const f   = 70 + Math.random() * 260;                            // 圓石低頻共振 70–330Hz
+        const w   = 2 * Math.PI * f / rate;
+        for(let j = 0; j < dl && i + j < len; j++){
+          const e = Math.exp(-j / (dl * 0.28));
+          const tone = Math.sin(w * j);                                  // 石頭的低頻「咚」
+          const grit = (Math.random() * 2 - 1) * 0.5;                    // 顆粒摩擦
+          d[i + j] += (0.72 * tone + 0.28 * grit) * amp * e;
+        }
+        i += gap;
+      }
+      let pk = 0; for(let k = 0; k < len; k++){ const v = Math.abs(d[k]); if(v > pk) pk = v; }
+      if(pk > 0){ const kk = 0.7 / pk; for(let k = 0; k < len; k++) d[k] *= kk; }
+    }
+    return buf;
+  }
+
+  static noiseSource(ctx){
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    s.loop = true;
+    return s;
+  }
+
+  static reverbIR(ctx, dur){
+    const rate = ctx.sampleRate;
+    const len = Math.max(1, Math.floor(rate * dur));
+    const buf = ctx.createBuffer(2, len, rate);
+    for(let ch = 0; ch < 2; ch++){
+      const d = buf.getChannelData(ch);
+      let lp = 0;                                     // 一極 lowpass 狀態
+      for(let i = 0; i < len; i++){
+        const tt = i / len;
+        const env = Math.exp(-5.5 * tt);              // 指數長衰減（平滑收尾，非硬截）
+        const a = 0.9 - 0.84 * tt;                    // 尾巴隨時間變暗：lowpass 截止逐漸降低
+        lp = lp + a * ((Math.random() * 2 - 1) - lp);
+        d[i] = lp * env;
+      }
+      let peak = 0;                                    // 正規化避免 convolution 後過響
+      for(let i = 0; i < len; i++){ const v = Math.abs(d[i]); if(v > peak) peak = v; }
+      if(peak > 0){ const k = 0.5 / peak; for(let i = 0; i < len; i++) d[i] *= k; }
+    }
+    return buf;
+  }
+
+  swell(t){
+    // 多層不可公約 LFO + 有界隨機漫步 → 巨觀動態不機械（像千層浪的隨機性）
+    const set = 0.5 + 0.20 * Math.sin(t * 2 * Math.PI / 47)
+                    + 0.16 * Math.sin(t * 2 * Math.PI / 71)
+                    + 0.10 * Math.sin(t * 2 * Math.PI / 113)
+                    + 0.08 * this.rw;
+    const guide = this.breathGuide || { influence: 0, period: 10, activate: 0 };
+    const naturalPeriod = 11 - 3 * this.tide + 2.2 * this.rw;            // 錄音浪週期~4-5s但很不規則→折中 ~8-11s＋隨機漂移（比全 18s 接近現場、又不嚇人）
+    const swellPeriod = clamp(naturalPeriod * (1 - guide.influence) + guide.period * guide.influence - 2.2 * guide.activate, 3.2, 16);
+    const swell = 0.5 + 0.40 * Math.sin(t * 2 * Math.PI / swellPeriod)
+                      + 0.12 * Math.sin(t * 2 * Math.PI / (swellPeriod * 1.9) + 1.3)  // 疊一層較慢的浪組
+                      + 0.06 * this.rw2;
+    return { set: clamp(set), swell: clamp(swell) };
+  }
+
+  loop(){
+    const now = this.ctx.currentTime;
+    const t = now - this.t0;
+    // 有界隨機漫步（均值回歸、限幅）：巨觀動態、亮度、泡沫時機都帶一點不規則，去機械感
+    this.rw  += (Math.random() * 2 - 1) * 0.03; this.rw  = Math.max(-1, Math.min(1, this.rw  * 0.995));
+    this.rw2 += (Math.random() * 2 - 1) * 0.02; this.rw2 = Math.max(-1, Math.min(1, this.rw2 * 0.99));
+    const { set, swell } = this.swell(t);
+    const guided = this.breathGuide || { phase: 0.5, influence: 0, period: 10, pan: 0, heart: 0.45, activate: 0 };
+    const breathLift = guided.influence * (0.14 + 0.10 * guided.phase);
+    const heartSoftening = guided.influence * (0.10 - 0.08 * guided.heart);
+    const energy = clamp(0.15 + 0.85 * this.tide + breathLift + guided.activate * 0.10);
+    const sp = Math.pow(clamp(this.spread), 0.55);            // Ball1 grip 響應曲線：不用很用力就有感
+    const cutoff = 250 + 700 * energy * (0.5 + 0.5 * swell) + 200 * sp + 100 * this.rw - 80 * heartSoftening;  // 依阿朗壹錄音頻譜對齊（合成中心~450Hz vs 錄音~430Hz）
+    const gate = Math.max(0, swell - 0.55) * energy * (0.82 + 0.18 * this.rw2);           // 泡沫時機不規則
+    this.metrics = { swell, set, energy, foam: gate, cutoff, spread: sp, rw: this.rw, rw2: this.rw2 };
+
+    this.surgeLP.frequency.setTargetAtTime(cutoff, now, 1.2);
+    this.surgeGain.gain.setTargetAtTime(0.10 + 0.22 * energy * (0.6 + 0.4 * swell * set) + 0.12 * sp + 0.02 * this.rw2, now, 1.0); // 握→更有存在感
+    this.foamGain.gain.setTargetAtTime(0.045 * gate, now, 0.5);   // 錄音 2-6kHz 僅 1.3%、6k+ ~0% → 泡沫嘶聲大幅降低
+
+    // 鵝卵石捲動：由 Ball2 grip（this.spread）主控其「量」，退浪相位給節奏（Pan 2026-07-09 置換後為 Ball2）。
+    const stoneAmt = Math.pow(clamp(this.spread), 0.6);                       // Ball2 grip → 石頭捲動量
+    const roll = 0.35 + 0.65 * clamp((0.55 - swell) * 2.0);                   // 退浪相位滾得最盛
+    this.pebbleGain.gain.setTargetAtTime((0.015 + 0.34 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.30);
+    this.pebbleBP.frequency.setTargetAtTime(380 + 420 * stoneAmt, now, 1.0);  // 石頭壓在低-中頻（錄音主體 120-2000Hz）
+    // 低頻包覆床：錄音 sub(20-120Hz) 佔 ~21% → 低頻包覆更明顯
+    this.subGain.gain.setTargetAtTime(0.13 + 0.26 * energy * (0.55 + 0.45 * swell), now, 1.4);
+    this.metrics.pebble = stoneAmt * roll;
+
+    if(now - this.lastSwing > 0.3) this.azTarget *= 0.985;
+    this.azimuth += (this.azTarget - this.azimuth) * this.azEase;
+    const panAz = clamp(this.azimuth * 0.38 + this.gripPan * 0.44 + guided.pan * guided.influence * 0.30, -1, 1);
+    const rad = panAz * Math.PI / 2;
+    const dist = Math.max(1.3, 6.5 - 2.0 * energy - 3.6 * sp);  // Ball1 握→海更近更滿；放鬆→遠而寬而柔
+    this.panner.positionX.setTargetAtTime(Math.sin(rad) * dist, now, 0.4);
+    this.panner.positionZ.setTargetAtTime(-Math.cos(rad) * dist, now, 0.4);
+    requestAnimationFrame(() => this.loop());
+  }
+
+  setSwing(dir, motion){
+    this.lastSwing = this.ctx.currentTime;
+    this.azTarget = clamp(dir, -1, 1);
+    this.azEase = 0.02 + 0.10 * clamp(motion);
+    state.azimuth = this.azTarget;
+  }
+
+  setSpread(level){ this.spread += (level - this.spread) * 0.05; }
+  setTide(level){ this.tide += (level - this.tide) * 0.018; }   // Pan 2026-07-09：潮汐動態放慢，湧近更溫和不嚇人
+  setGripPan(pan){ this.gripPan = clamp(pan, -1, 1); }
+  setBreathGuide(guide){
+    this.breathGuide = Object.assign({}, this.breathGuide, guide);
+  }
+
+  cueWave(pan = 0){
+    const now = this.ctx.currentTime;
+    const src = OceanEngine.noiseSource(this.ctx);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.setValueAtTime(360, now);
+    bp.frequency.linearRampToValueAtTime(820, now + 0.36);
+    bp.frequency.setTargetAtTime(430, now + 0.36, 0.42);
+    bp.Q.value = 0.55;
+    const g = this.ctx.createGain();
+    g.gain.value = 0;
+    const rad = clamp(pan, -1, 1) * Math.PI / 2;
+    const dist = 2.9;
+    this.cuePanner.positionX.setValueAtTime(Math.sin(rad) * dist, now);
+    this.cuePanner.positionZ.setValueAtTime(-Math.cos(rad) * dist, now);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(this.cuePanner);
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(0.14, now + 0.36);
+    g.gain.setTargetAtTime(0, now + 0.62, 0.88);
+    src.start(now);
+    src.stop(now + 2.4);
+  }
+
+  impact(){
+    const now = this.ctx.currentTime;
+    if(now - this.lastImpact < 1.5) return false;
+    this.lastImpact = now;
+    const src = OceanEngine.noiseSource(this.ctx);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 0.6;
+    const g = this.ctx.createGain();
+    g.gain.value = 0;
+    const rad = this.azimuth * Math.PI / 2;
+    const dist = 2.5;
+    this.impactPanner.positionX.setValueAtTime(Math.sin(rad) * dist, now);
+    this.impactPanner.positionZ.setValueAtTime(-Math.cos(rad) * dist, now);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(this.impactPanner);
+    const swellT = 0.55;                                  // 蓄積時間：不是一開始就拍擊
+    const peak = 0.22 + 0.22 * this.tide;                 // 有界峰值
+    // 頻率隨蓄積上掃（越蓄越亮，像鈸漸強），破碎後回落變暗
+    bp.frequency.setValueAtTime(300 + 200 * this.tide, now);
+    bp.frequency.linearRampToValueAtTime(1400 + 600 * this.tide, now + swellT);
+    bp.frequency.setTargetAtTime(500 + 300 * this.tide, now + swellT, 0.8);
+    // 蓄積包絡：ease-in 漸強到峰值，再長衰減（像管弦樂團的鈸 swell / 浪湧上再破碎）
+    const N = 48;
+    const curve = new Float32Array(N);
+    for(let i = 0; i < N; i++){ const x = i / (N - 1); curve[i] = peak * x * x; }
+    g.gain.setValueAtTime(0, now);
+    g.gain.setValueCurveAtTime(curve, now, swellT);
+    g.gain.setTargetAtTime(0, now + swellT, 1.1);         // 破碎後較長的直接聲衰減，再接殘響長尾
+    src.start(now);
+    src.stop(now + swellT + 3.6);                         // 蓋住蓄積 + 尾巴激勵
+    state.impactCount += 1;
+    state.lastImpactAt = performance.now() + swellT * 1000; // 視覺濺起對齊「破碎」時刻
+    return true;
+  }
+}
+
+let audioCtx = null;
+let engine = null;
+const calib = { 1: new GripCalibrator(), 2: new GripCalibrator() };
+const devices = { 1: null, 2: null };
+const accBaseline = { 1: null, 2: null };
+const lastHaptic = { 1: 0, 2: 0 };
+
+const HAPTICS_ENABLED = false;   // Pan 2026-07-09：先撤掉所有震動回饋，之後再想過。設 true 即恢復。
+function sendHaptic(slot, intensity, duration){
+  if(!HAPTICS_ENABLED) return;
+  const dev = devices[slot];
+  if(!dev) return;
+  const now = performance.now();
+  if(now - lastHaptic[slot] < 100) return;
+  lastHaptic[slot] = now;
+  const p = new Uint8Array(26);
+  p[0] = 11;
+  p[1] = 0x03;
+  p[2] = 0x04;
+  p[3] = 0x00;
+  p[4] = 0x01;
+  p[5] = clamp(intensity, 0, 255) | 0;
+  p[6] = clamp(duration, 0, 255) | 0;
+  dev.sendReport(1, p).catch(() => {});
+}
+
+function resetArrival(){
+  state.arrival = {
+    step: "intro",
+    preludeStart: null,
+    breathStart: null,
+    holdStart: null,
+    holdComplete: false,
+    events: [],
+    holdSamples: [],
+    lastGrip: { 1: 0, 2: 0 },
+    activePress: { 1: false, 2: false },
+    lastEventAt: 0,
+    lastHoldSampleAt: 0,
+    confirmation: "",
+    confirmationAt: null,
+    handCue: {
+      hand: "left",
+      cueOn: false,
+      rep: 0,
+      startedAt: null,
+      scores: { 1: 0, 2: 0 },
+      completed: false,
+      lastRep: -1,
+      successThisRep: false,
+      fill: 0,
+      successSoundAt: 0,
+    },
+    report: null,
+  };
+  showArrivalStep("intro");
+}
+
+function showArrivalStep(step, animate = true){
+  const panel = $("phaseBefore");
+  if(animate && panel.classList.contains("active")){
+    panel.classList.add("scene-dim");
+    setTimeout(() => {
+      showArrivalStep(step, false);
+      requestAnimationFrame(() => panel.classList.remove("scene-dim"));
+    }, 720);
+    return;
+  }
+  state.arrival.step = step;
+  $("arrivalIntro").style.display = step === "intro" ? "block" : "none";
+  $("arrivalConnect").style.display = step === "connect" ? "block" : "none";
+  $("arrivalHandCue").style.display = step === "handCue" ? "block" : "none";
+  $("arrivalPrelude").style.display = step === "prelude" ? "block" : "none";
+  $("arrivalBreath").style.display = step === "breath" ? "block" : "none";
+  $("arrivalHold").style.display = step === "hold" ? "block" : "none";
+  $("arrivalReport").style.display = step === "report" ? "block" : "none";
+}
+
+function beginPrelude(){
+  state.phase = "before";
+  state.arrival.preludeStart = performance.now();
+  state.arrival.breathStart = null;
+  showArrivalStep("prelude");
+  setPhase();
+  log("準備開始。");
+}
+
+function startArrival(){
+  resetArrival();
+  beginPrelude();
+}
+
+function connectedCount(){
+  return Object.values(state.connected).filter(Boolean).length;
+}
+
+function readyCount(){
+  return Object.values(state.ready).filter(Boolean).length;
+}
+
+function showConnectOrStart(){
+  const n = connectedCount();
+  if(n >= 2) beginHandCue("left");
+  else if(!("hid" in navigator)) beginPrelude();
+  else {
+    showArrivalStep("connect");
+    updateConnectScene();
+  }
+}
+
+function updateConnectScene(){
+  const connected = connectedCount();
+  const ready = readyCount();
+  $("btnConnectInline").textContent = connected === 0 ? "連接握力球" : "再連接另一顆握力球";
+  $("connectCopy").textContent = connected === 0
+    ? "接下來會用兩隻手的按壓，記錄呼吸和此刻的力道。"
+    : connected === 1
+      ? "已經連到一顆。請再連接另一顆。"
+      : `兩顆握力球已連接${ready < 2 ? "，等等會用亮暗回應來確認左右手。" : "。"}`;
+}
+
+function maybeAdvanceFromConnect(){
+  if(state.arrival.step !== "connect") return;
+  if(connectedCount() >= 2) beginHandCue("left");
+  else updateConnectScene();
+}
+
+function beginHandCue(hand){
+  const cue = state.arrival.handCue;
+  cue.hand = hand;
+  cue.cueOn = false;
+  cue.rep = 0;
+  cue.startedAt = performance.now();
+  cue.scores = { 1: 0, 2: 0 };
+  cue.completed = false;
+  cue.lastRep = -1;
+  cue.successThisRep = false;
+  cue.fill = 0;
+  cue.successSoundAt = 0;
+  $("handCueTitle").textContent = hand === "left" ? "左手" : "右手";
+  $("handCueHint").textContent = "";
+  document.documentElement.style.setProperty("--cue-fill", "0");
+  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success");
+  showArrivalStep("handCue");
+}
+
+async function bootExperience(){
+  resetArrival();
+  await startAudio({ resume: false }).catch(() => {});
+  if("hid" in navigator) await syncBalls().catch(() => {});
+  showConnectOrStart();
+}
+
+function handleArrivalGrip(slot, level){
+  const arrival = state.arrival;
+  const now = performance.now();
+  if(state.phase !== "before") return;
+  if(arrival.step === "report"){
+    handleArrivalConfirmation(slot, level, now);
+    return;
+  }
+  if(arrival.step !== "breath") return;
+  if(level >= ARRIVAL_PRESS_ON && !arrival.activePress[slot] && now - arrival.lastEventAt > 260){
+    arrival.events.push({
+      t: (now - arrival.breathStart) / 1000,
+      slot,
+      level,
+    });
+    arrival.lastEventAt = now;
+    arrival.activePress[slot] = true;
+  }
+  if(level <= ARRIVAL_PRESS_OFF) arrival.activePress[slot] = false;
+}
+
+function handleArrivalConfirmation(slot, level, now){
+  const arrival = state.arrival;
+  if(level <= ARRIVAL_PRESS_OFF) arrival.activePress[slot] = false;
+  if(level < ARRIVAL_PRESS_ON || arrival.activePress[slot]) return;
+  arrival.activePress[slot] = true;
+  arrival.confirmation = slot === 1 ? "yes" : "no";
+  arrival.confirmationAt = now;
+  const text = slot === 1
+    ? "謝謝你。那我們就從這個理解開始，慢慢進入海。"
+    : "謝謝你告訴我。那我們把它先當成一個不完全準確的線索，繼續聽身體。";
+  $("arrivalConfirmHint").textContent = text;
+  log(slot === 1 ? "使用者確認：這段理解接近。" : "使用者確認：這段理解不太像。");
+}
+
+function updateArrival(){
+  const arrival = state.arrival;
+  if(state.phase !== "before") return;
+  const now = performance.now();
+  if(arrival.step === "handCue"){
+    updateHandCue(now);
+  }
+  if(arrival.step === "prelude" && arrival.preludeStart){
+    const elapsed = (now - arrival.preludeStart) / 1000;
+    const remain = Math.max(0, ARRIVAL_PRELUDE_SECONDS - elapsed);
+    $("preludeClock").textContent = Math.ceil(remain);
+    if(elapsed >= ARRIVAL_PRELUDE_SECONDS){
+      arrival.breathStart = performance.now();
+      showArrivalStep("breath");
+      log("三十秒。只要發現吸氣或呼氣，就輕輕按一下。");
+    }
+  }
+  if(arrival.step === "breath" && arrival.breathStart){
+    const elapsed = (now - arrival.breathStart) / 1000;
+    const remain = Math.max(0, ARRIVAL_BREATH_SECONDS - elapsed);
+    $("breathProgress").style.width = Math.round(clamp(elapsed / ARRIVAL_BREATH_SECONDS) * 100) + "%";
+    $("breathClock").textContent = Math.ceil(remain);
+    $("breathCount").textContent = arrival.events.length;
+    if(elapsed >= ARRIVAL_BREATH_SECONDS){
+      showArrivalStep("hold");
+      log("現在換下一步：用手握出此刻的情緒或緊張強度。");
+    }
+  }
+
+  if(arrival.step === "hold" && !arrival.holdComplete){
+    const level = Math.max(state.grip[1], state.grip[2]);
+    if(!arrival.holdStart){
+      $("holdProgress").style.width = "0%";
+      $("holdHint").textContent = "準備好時，握住一下。";
+      if(level >= ARRIVAL_PRESS_ON){
+        arrival.holdStart = now;
+        arrival.holdSamples = [];
+        arrival.lastHoldSampleAt = 0;
+      }
+      return;
+    }
+    const elapsed = (now - arrival.holdStart) / 1000;
+    if(level <= ARRIVAL_PRESS_OFF && elapsed < ARRIVAL_HOLD_SECONDS){
+      arrival.holdStart = null;
+      arrival.holdSamples = [];
+      $("holdHint").textContent = "沒關係，再握一次，讓它停留一下。";
+      return;
+    }
+    if(now - arrival.lastHoldSampleAt > 35){
+      arrival.holdSamples.push({ t: elapsed, level, b1: state.grip[1], b2: state.grip[2] });
+      arrival.lastHoldSampleAt = now;
+    }
+    $("holdProgress").style.width = Math.round(clamp(elapsed / ARRIVAL_HOLD_SECONDS) * 100) + "%";
+    $("holdHint").textContent = "留在這個力道裡，讓它穩一下。";
+    if(elapsed >= ARRIVAL_HOLD_SECONDS){
+      arrival.holdComplete = true;
+      finishArrival();
+    }
+  }
+}
+
+function updateHandCue(now){
+  const cue = state.arrival.handCue;
+  if(!cue.startedAt) cue.startedAt = now;
+  const cycle = HAND_CUE_ON_MS + HAND_CUE_OFF_MS;
+  const elapsed = now - cue.startedAt;
+  if(elapsed < HAND_CUE_READY_MS){
+    cue.cueOn = false;
+    $("guideOrb").classList.remove("cue-on", "cue-success");
+    $("guideOrb").classList.add("cue-off");
+    return;
+  }
+  const cueElapsed = elapsed - HAND_CUE_READY_MS;
+  const rep = Math.floor(cueElapsed / cycle);
+  const doneAt = HAND_CUE_READY_MS + HAND_CUE_REPS * cycle;
+  if(elapsed >= doneAt){
+    finishHandCue();
+    return;
+  }
+  const inOn = (cueElapsed % cycle) < HAND_CUE_ON_MS;
+  cue.rep = rep;
+  cue.cueOn = inOn;
+  if(inOn && cue.lastRep !== rep){
+    cue.lastRep = rep;
+    cue.successThisRep = false;
+    cue.fill = 0;
+    document.documentElement.style.setProperty("--cue-fill", "0");
+    $("guideOrb").classList.remove("cue-success");
+    if(engine){
+      if(!state.audioFadedIn){
+        state.audioFadedIn = true;
+        if(audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+        engine.fadeIn();
+      }
+      engine.cueWave(cue.hand === "left" ? -0.58 : 0.58);
+    }
+  }
+  if(!inOn){
+    cue.fill = Math.max(0, cue.fill - 0.018);
+    document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
+  }
+  $("guideOrb").classList.toggle("cue-on", inOn);
+  $("guideOrb").classList.toggle("cue-off", !inOn);
+  $("guideOrb").classList.toggle("cue-success", cue.fill > 0.12);
+}
+
+function finishHandCue(){
+  const cue = state.arrival.handCue;
+  if(cue.completed) return;
+  cue.completed = true;
+  document.documentElement.style.setProperty("--cue-fill", "0");
+  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success");
+  const picked = cue.scores[2] > cue.scores[1] ? 2 : 1;
+  if(cue.hand === "left"){
+    state.handMap.left = picked;
+    beginHandCue("right");
+  } else {
+    state.handMap.right = picked === state.handMap.left ? (picked === 1 ? 2 : 1) : picked;
+    beginPrelude();
+  }
+}
+
+function finishArrival(){
+  const report = buildArrivalReport();
+  state.arrival.report = report;
+  state.pre = report.pre_tension_estimate;
+  $("arrivalReportRows").innerHTML = report.rows.map(row =>
+    `<div class="report-row"><b>${row.title}</b><span>${row.body}</span></div>`
+  ).join("");
+  showArrivalStep("report");
+  log("抵達完成。看一下這段小回看，準備好就進入 session。");
+}
+
+function buildArrivalReport(){
+  const events = state.arrival.events;
+  const samples = state.arrival.holdSamples;
+  const levels = samples.map(s => s.level).filter(Number.isFinite);
+  const peak = levels.length ? Math.max(...levels) : 0;
+  const mean = avg(levels);
+  const peakIndex = levels.indexOf(peak);
+  const timeToPeak = peakIndex >= 0 ? samples[peakIndex].t : 0;
+  const stableSlice = samples.filter(s => s.t >= 0.7 && s.t <= ARRIVAL_HOLD_SECONDS);
+  const stableLevels = stableSlice.map(s => s.level);
+  const stability = stableLevels.length ? stddev(stableLevels) : 0;
+  const auc = levels.length ? levels.reduce((a, b) => a + b, 0) / levels.length : 0;
+  const first = levels[0] || 0;
+  const rise = timeToPeak > 0 ? (peak - first) / timeToPeak : peak;
+  const intervals = [];
+  for(let i = 1; i < events.length; i++) intervals.push(events[i].t - events[i - 1].t);
+  const intervalMean = avg(intervals);
+  const intervalVar = stddev(intervals);
+  const breathRate = events.length ? events.length / ARRIVAL_BREATH_SECONDS * 60 : 0;
+  const preEstimate = Math.round(clamp(peak, 0, 1) * 10);
+
+  const breathBody = events.length < 4
+    ? "剛開始標記得比較少，也許還在慢慢注意自己的呼吸。"
+    : intervalVar > 1.2
+      ? "標記的間隔有快有慢，代表這段呼吸不是固定節拍。"
+      : "標記的間隔相對穩定，手有跟上呼吸的變化。";
+  const forceBody = peak > 0.72
+    ? "這次一開始的力道偏強。"
+    : peak < 0.32
+      ? "這次一開始的力道偏輕。"
+      : "這次一開始的力道在中間。";
+  const riseBody = rise > 0.9
+    ? "你很快就握到主要力道。"
+    : timeToPeak > 1.4
+      ? "你的力道是慢慢加上去的。"
+      : "你的力道上來得不急不慢。";
+  const stabilityBody = stability > 0.11
+    ? "握住時有一些細微起伏。"
+    : "握住時相對穩定。";
+
+  return {
+    event_count: events.length,
+    breath_mark_rate: breathRate,
+    breath_interval_mean: intervalMean,
+    breath_interval_sd: intervalVar,
+    hold_peak: peak,
+    hold_mean: mean,
+    hold_auc: auc,
+    hold_time_to_peak: timeToPeak,
+    hold_stability_sd: stability,
+    hold_rise_slope: rise,
+    pre_tension_estimate: preEstimate,
+    rows: [
+      { title: "呼吸", body: `你標記了 ${events.length} 次。${breathBody}` },
+      { title: "力道", body: `${forceBody}最高大約是 ${Math.round(peak * 100)}%。` },
+      { title: "用力的速度", body: `${riseBody}` },
+      { title: "握住時的穩定", body: `${stabilityBody}` },
+    ],
+  };
+}
+
+function stddev(xs){
+  const valid = xs.filter(Number.isFinite);
+  if(valid.length < 2) return 0;
+  const m = avg(valid);
+  return Math.sqrt(valid.reduce((a, b) => a + Math.pow(b - m, 2), 0) / valid.length);
+}
+
+function setGrip(slot, level){
+  state.grip[slot] = level;
+  const cue = state.arrival.handCue;
+  if(state.arrival.step === "handCue" && cue.cueOn && level >= ARRIVAL_PRESS_ON){
+    cue.scores[slot] += level;
+    cue.fill = clamp(Math.max(cue.fill, 0.20) + level * 0.08, 0, 1);
+    cue.successThisRep = true;
+    document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
+    $("guideOrb").classList.add("cue-success");
+    const now = performance.now();
+    if(engine && now - cue.successSoundAt > 650){
+      cue.successSoundAt = now;
+      if(audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+      engine.cueWave(cue.hand === "left" ? -0.58 : 0.58);
+    }
+  }
+  if(engine && !state.audioFadedIn && level >= ARRIVAL_PRESS_ON){
+    state.audioFadedIn = true;
+    if(audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    engine.fadeIn();
+    log("聲音開始進來。");
+  }
+  handleArrivalGrip(slot, level);
+  $("m" + slot).style.width = Math.round(level * 100) + "%";
+  $("v" + slot).textContent = Math.round(level * 100) + "%";
+  if(!engine) return;
+  if(slot === 1) engine.setTide(level);       // Ball 1 grip → 潮汐能量（Pan 2026-07-09 置換）
+  else engine.setSpread(level);               // Ball 2 grip → 鵝卵石捲動量（+ 聲場空間為輔）
+  const leftSlot = state.handMap.left || 1;
+  const rightSlot = state.handMap.right || 2;
+  const leftGrip = state.grip[leftSlot] || 0;
+  const rightGrip = state.grip[rightSlot] || 0;
+  const total = leftGrip + rightGrip;
+  const gripPan = total > 0.04 ? (rightGrip - leftGrip) / (total + 0.12) : 0;
+  engine.setGripPan(gripPan);
+}
+
+async function startAudio(options = {}){
+  if(engine){
+    if(options.resume && audioCtx && audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
+    return;
+  }
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(options.resume) await audioCtx.resume().catch(() => {});
+  engine = new OceanEngine(audioCtx);
+  state.audioFadedIn = false;
+  $("audioDot").classList.add("on");
+  $("audioStatus").textContent = "聲音已準備";
+  $("btnBall").disabled = !("hid" in navigator);
+  $("btnStartSession").disabled = false;
+  resetArrival();
+  log(("hid" in navigator) ? "聲音已準備。第一次按下握力球時，海會慢慢進來。" : "聲音已準備。第一次按空白鍵時，海會慢慢進來。");
+}
+
+// —— 動態偵測 + 去重的握力球連線（修正「兩顆球 mapping 成同一顆」）——
+function deviceSlot(dev){ return devices[1] === dev ? 1 : (devices[2] === dev ? 2 : null); }
+function freeSlot(){ return !devices[1] ? 1 : (!devices[2] ? 2 : null); }
+
+function updateHidStatus(){
+  const n = Object.values(state.connected).filter(Boolean).length;
+  const r = readyCount();
+  $("hidDot").classList.toggle("on", n > 0);
+  $("hidStatus").textContent = n ? `握力球已連接 ×${n} / 已回應 ×${r}` : "握力球未連接";
+}
+
+async function registerDevice(dev, slot){
+  if(!dev.opened) await dev.open();
+  devices[slot] = dev;
+  state.connected[slot] = true;
+  state.ready[slot] = false;
+  state.lastGripReportAt[slot] = 0;
+  calib[slot] = new GripCalibrator();          // 每顆球獨立、重新自適應（各自校正施力範圍）
+  accBaseline[slot] = null;
+  try{
+    const cmd = new Uint8Array(26);
+    cmd[0] = 1;
+    cmd[1] = MODE_9DOF_GRIP;
+    await dev.sendReport(1, cmd);
+  }catch(err){ log("設定模式送出失敗：" + err.message); }
+  if(!dev.__tidalBound){                        // 每顆 device 只綁一次；依 e.device 動態路由到正確 slot
+    dev.__tidalBound = true;
+    dev.addEventListener("inputreport", (e) => {
+      const s = deviceSlot(e.device);
+      if(s) onReport(e, s);
+    });
+  }
+  $("s" + slot).textContent = dev.productName || ("Ball " + slot);
+  updateHidStatus();
+  maybeAdvanceFromConnect();
+  log(`Ball ${slot} 已連接（${dev.productName || "Grip Ball"}）。`);
+}
+
+// 掃描目前已授權的球，去重（同一顆 device 不會佔兩個 slot），逐一分配到空的 slot
+async function syncBalls(){
+  let granted = [];
+  try{ granted = await navigator.hid.getDevices(); }catch(err){ return; }
+  granted = granted.filter(d => d.vendorId === VENDOR_ID && d.productId === PRODUCT_ID);
+  for(const dev of granted){
+    if(deviceSlot(dev) != null) continue;        // 已指派→跳過，避免兩顆映射成同一顆
+    const slot = freeSlot();
+    if(slot == null) break;                       // 兩顆已滿
+    await registerDevice(dev, slot);
+  }
+}
+
+async function connectBall(){
+  // 讓使用者授權（chooser 可挑一顆或兩顆；兩顆長得一樣時記得挑不同的那一顆）
+  await startAudio({ resume: true });
+  await navigator.hid.requestDevice({ filters: [{ vendorId: VENDOR_ID, productId: PRODUCT_ID }] });
+  await syncBalls();
+  maybeAdvanceFromConnect();
+}
+
+function onReport(e, slot){
+  const dv = e.data;
+  if(e.reportId === 5){
+    state.ready[slot] = true;
+    state.lastGripReportAt[slot] = performance.now();
+    if(state.arrival.step === "connect") updateConnectScene();
+    const raw = dv.getUint16(2, true);
+    setGrip(slot, calib[slot].update(raw));
+  } else if(e.reportId === 3 && dv.byteLength >= 16){
+    const ax = dv.getFloat32(4, true);
+    const ay = dv.getFloat32(8, true);
+    const az = dv.getFloat32(12, true);
+    handleSwing(slot, ax, ay, az);
+  }
+}
+
+function handleSwing(slot, ax, ay, az){
+  const mag = Math.hypot(ax, ay, az);
+  if(accBaseline[slot] === null) accBaseline[slot] = mag;
+  accBaseline[slot] += (mag - accBaseline[slot]) * 0.02;
+  const motion = Math.abs(mag - accBaseline[slot]);
+  const dir = clamp(ax / (accBaseline[slot] || 1), -1, 1);
+  state.motion = motion;
+  state.motionSmoothed += (motion - state.motionSmoothed) * 0.18;
+  if(motion < SWING_MIN) return;
+  if(engine) engine.setSwing(dir, clamp(motion));
+  if(state.grip[slot] >= HARD_GRIP && motion >= STRONG_SWING){
+    if(engine && state.audioFadedIn && engine.impact()) sendHaptic(slot, 110, 80);
+  } else {
+    sendHaptic(slot, 25 + 45 * clamp(motion / STRONG_SWING), 30);
+  }
+}
+
+const BREATH_PRESETS = {
+  resonance: {
+    title: "海潮呼吸",
+    copy: "先讓海跟著你，再讓它慢慢邀請你。握住是漲潮，放開是退潮。",
+    phases: [
+      { name: "inhale", label: "聽它靠近", dur: 5 },
+      { name: "exhale", label: "讓它退去", dur: 5 },
+    ],
+    targetPeriod: 10,
+    influence: 0.34,
+    activate: 0,
+  },
+  alternate: {
+    title: "左右潮",
+    copy: "一側靠近，另一側退開。不要追準，只感覺左右之間的往返。",
+    phases: [
+      { name: "leftInhale", label: "左側靠近", dur: 4.5, pan: -0.72 },
+      { name: "rightExhale", label: "右側退去", dur: 4.5, pan: 0.72 },
+      { name: "rightInhale", label: "右側靠近", dur: 4.5, pan: 0.72 },
+      { name: "leftExhale", label: "左側退去", dur: 4.5, pan: -0.72 },
+    ],
+    targetPeriod: 18,
+    influence: 0.28,
+    activate: 0,
+  },
+  hold478: {
+    title: "懸止的長吐",
+    copy: "吸氣時水位升起，停留時空氣懸在那裡，吐氣時慢慢退遠。",
+    phases: [
+      { name: "inhale", label: "吸進來", dur: 4 },
+      { name: "hold", label: "停在空氣裡", dur: 7, hold: true },
+      { name: "exhale", label: "慢慢吐出去", dur: 8 },
+    ],
+    targetPeriod: 19,
+    influence: 0.30,
+    activate: 0,
+  },
+  bellows: {
+    title: "風箱",
+    copy: "這是提振型場景。小幅、短促、有界；覺得太滿就切回海潮。",
+    phases: [
+      { name: "inhale", label: "短吸", dur: 1.1 },
+      { name: "exhale", label: "短吐", dur: 1.1 },
+    ],
+    targetPeriod: 2.2,
+    influence: 0.22,
+    activate: 1,
+  },
+};
+
+function activeBreathPreset(){
+  return BREATH_PRESETS[state.guided.preset] || BREATH_PRESETS.resonance;
+}
+
+function setBreathPreset(id){
+  if(!BREATH_PRESETS[id]) return;
+  state.guided.preset = id;
+  state.guided.startedAt = performance.now();
+  document.querySelectorAll(".preset-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.preset === id));
+  updateGuidedSession(true);
+  log(`引導場景：${BREATH_PRESETS[id].title}`);
+}
+
+function phaseAt(preset, elapsedSeconds){
+  const total = preset.phases.reduce((sum, p) => sum + p.dur, 0);
+  const t = ((elapsedSeconds % total) + total) % total;
+  let acc = 0;
+  for(const phase of preset.phases){
+    if(t < acc + phase.dur){
+      const local = (t - acc) / phase.dur;
+      return { phase, local, total, t };
+    }
+    acc += phase.dur;
+  }
+  return { phase: preset.phases[0], local: 0, total, t: 0 };
+}
+
+function updateGuidedSession(force = false){
+  if(state.phase !== "session" && !force) return;
+  const preset = activeBreathPreset();
+  if(!state.guided.startedAt) state.guided.startedAt = performance.now();
+  const elapsed = Math.max(0, (performance.now() - state.guided.startedAt) / 1000);
+  const ph = phaseAt(preset, elapsed);
+  const breathCurve = ph.phase.hold
+    ? 0.76
+    : ph.phase.name.toLowerCase().includes("exhale")
+      ? 1 - smooth01(ph.local)
+      : smooth01(ph.local);
+  const gripWater = clamp(Math.max(state.grip[1], state.grip[2]));
+  const motionHeat = clamp(state.motionSmoothed / STRONG_SWING);
+  state.guided.phase = breathCurve;
+  state.guided.phaseName = ph.phase.name;
+  state.guided.period = ph.total;
+  state.guided.heartWeather += ((0.32 + 0.30 * motionHeat + 0.22 * gripWater) - state.guided.heartWeather) * 0.012;
+  state.guided.heartLabel = state.guided.heartWeather > 0.62 ? "偏滿" : state.guided.heartWeather < 0.40 ? "較鬆" : "平穩";
+  document.documentElement.style.setProperty("--breath-phase", breathCurve.toFixed(3));
+  document.documentElement.style.setProperty("--heart-weather", clamp(state.guided.heartWeather).toFixed(3));
+  document.documentElement.style.setProperty("--session-water", gripWater.toFixed(3));
+  $("sessionTitle").textContent = preset.title;
+  $("sessionCopy").textContent = preset.copy;
+  $("breathWord").textContent = ph.phase.label;
+  $("breathMetric").textContent = `呼吸週期 ${ph.total.toFixed(1)}s`;
+  $("heartMetric").textContent = `海色 ${state.guided.heartLabel}`;
+  $("gripMetric").textContent = `握力水位 ${Math.round(gripWater * 100)}%`;
+  if(engine){
+    const phasePan = ph.phase.pan || 0;
+    engine.setBreathGuide({
+      phase: breathCurve,
+      influence: preset.influence,
+      period: preset.targetPeriod,
+      pan: phasePan,
+      heart: state.guided.heartWeather,
+      activate: preset.activate,
+    });
+  }
+}
+
+function smooth01(x){
+  const v = clamp(x);
+  return v * v * (3 - 2 * v);
+}
+
+function sessionSeconds(){
+  if(!state.sessionStart) return 0;
+  const end = state.sessionEnd || performance.now();
+  return Math.max(0, (end - state.sessionStart) / 1000);
+}
+
+function startSession(){
+  state.phase = "session";
+  state.sessionStart = performance.now();
+  state.sessionEnd = null;
+  state.guided.startedAt = performance.now();
+  if(state.arrival.report && state.arrival.report.hold_peak > 0.72) setBreathPreset("hold478");
+  else setBreathPreset(state.guided.preset || "resonance");
+  state.samples = [];
+  state.impactCount = 0;
+  state.lastImpactAt = 0;
+  $("btnStartSession").disabled = true;
+  $("btnEndSession").disabled = false;
+  setPhase();
+  updateGuidedSession(true);
+  log("Session 開始。先讓海跟著你，再讓它慢慢邀請你。");
+}
+
+function endSession(){
+  state.phase = "after";
+  state.sessionEnd = performance.now();
+  if(engine) engine.setBreathGuide({ influence: 0, activate: 0, pan: 0 });
+  $("btnEndSession").disabled = true;
+  setPhase();
+  log("Session 結束，請填寫結束後感受。");
+}
+
+function saveAfter(){
+  state.note = $("rhythmNote").value.trim();
+  const summary = {
+    timestamp: new Date().toISOString(),
+    duration_seconds: sessionSeconds().toFixed(1),
+    pre_tension: state.pre,
+    post_tension: state.post,
+    change_post_minus_pre: state.post - state.pre,
+    felt_pushed: state.pushed,
+    felt_able_to_stay: state.stay,
+    agency: state.agency,
+    rhythm_note: state.note,
+    dominant_mode: state.dominantMode,
+    guided_preset: state.guided.preset,
+    avg_breath_phase: avg(state.samples.map(s => s.guided_breath_phase)).toFixed(3),
+    avg_heart_weather: avg(state.samples.map(s => s.heart_weather)).toFixed(3),
+    impact_count: state.impactCount,
+    avg_ball1_grip: avg(state.samples.map(s => s.ball1_grip)).toFixed(3),
+    avg_ball2_grip: avg(state.samples.map(s => s.ball2_grip)).toFixed(3),
+    avg_motion: avg(state.samples.map(s => s.motion)).toFixed(3),
+    arrival_breath_events: state.arrival.report ? state.arrival.report.event_count : "",
+    arrival_breath_rate: state.arrival.report ? state.arrival.report.breath_mark_rate.toFixed(2) : "",
+    arrival_breath_interval_mean: state.arrival.report ? state.arrival.report.breath_interval_mean.toFixed(3) : "",
+    arrival_breath_interval_sd: state.arrival.report ? state.arrival.report.breath_interval_sd.toFixed(3) : "",
+    arrival_hold_peak: state.arrival.report ? state.arrival.report.hold_peak.toFixed(3) : "",
+    arrival_hold_mean: state.arrival.report ? state.arrival.report.hold_mean.toFixed(3) : "",
+    arrival_hold_auc: state.arrival.report ? state.arrival.report.hold_auc.toFixed(3) : "",
+    arrival_hold_time_to_peak: state.arrival.report ? state.arrival.report.hold_time_to_peak.toFixed(3) : "",
+    arrival_hold_stability_sd: state.arrival.report ? state.arrival.report.hold_stability_sd.toFixed(3) : "",
+    arrival_hold_rise_slope: state.arrival.report ? state.arrival.report.hold_rise_slope.toFixed(3) : "",
+    arrival_confirmation: state.arrival.confirmation || "",
+    input_source: Object.values(state.connected).some(Boolean) ? "grip_ball" : "keyboard_simulation",
+  };
+  state.sessions.push(summary);
+  $("btnCsv").disabled = false;
+  state.phase = "summary";
+  setPhase();
+  log(`已儲存：緊張 ${state.pre} → ${state.post}。`);
+}
+
+function avg(xs){
+  const valid = xs.filter(Number.isFinite);
+  if(!valid.length) return 0;
+  return valid.reduce((a, b) => a + b, 0) / valid.length;
+}
+
+function csvEscape(value){
+  const s = String(value ?? "");
+  if(/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
+  return s;
+}
+
+function downloadCsv(){
+  const fields = [
+    "timestamp", "duration_seconds", "pre_tension", "post_tension", "change_post_minus_pre",
+    "felt_pushed", "felt_able_to_stay", "agency", "dominant_mode", "guided_preset",
+    "avg_breath_phase", "avg_heart_weather", "impact_count",
+    "avg_ball1_grip", "avg_ball2_grip", "avg_motion",
+    "arrival_breath_events", "arrival_breath_rate", "arrival_breath_interval_mean", "arrival_breath_interval_sd",
+    "arrival_hold_peak", "arrival_hold_mean", "arrival_hold_auc", "arrival_hold_time_to_peak",
+    "arrival_hold_stability_sd", "arrival_hold_rise_slope", "arrival_confirmation",
+    "input_source", "rhythm_note"
+  ];
+  const lines = [fields.join(",")].concat(state.sessions.map(row => fields.map(f => csvEscape(row[f])).join(",")));
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "tidal_rhythm_sessions.csv";
+  a.click();
+}
+
+function analyzeMode(){
+  const g1 = state.grip[1];
+  const g2 = state.grip[2];
+  const motion = state.motionSmoothed;
+  const recentImpact = performance.now() - state.lastImpactAt < 2600;
+  const bothHigh = g1 > 0.78 && g2 > 0.78;
+  const hardStill = bothHigh && motion < 0.25;
+  let mode = "poly";
+  let label = "多層流動";
+  let detail = "握力、潮汐與海面各自有節奏，暫時不用把它們同步。";
+
+  if(recentImpact || motion > 1.1){
+    mode = "arry";
+    label = "能量釋放";
+    detail = "海承認這股力道，但會用限幅、冷卻與退潮把它帶回可停留的範圍。";
+  } else if(g1 < 0.42 && motion < 0.35 && g2 < 0.55){   // 潮汐(現 Ball1)低 + 平靜
+    mode = "eu";
+    label = "可以停留";
+    detail = "潮汐較慢、聲場較寬，現在比較像能呼吸的穩定流動。";
+  } else if(hardStill){
+    mode = "iso";
+    label = "有點鎖住";
+    detail = "兩邊都很用力但缺少流動。試著放一點，讓聲音不要只剩單一張力。";
+  }
+  state.dominantMode = mode;
+  return { mode, label, detail };
+}
+
+function recordSample(){
+  if(state.phase !== "session") return;
+  const metrics = engine ? engine.metrics : { energy: 0, swell: 0, foam: 0 };
+  state.samples.push({
+    t: sessionSeconds(),
+    ball1_grip: state.grip[1],
+    ball2_grip: state.grip[2],
+    motion: state.motionSmoothed,
+    azimuth: state.azimuth,
+    tide_energy: metrics.energy,
+    swell: metrics.swell,
+    foam: metrics.foam,
+    mode: state.dominantMode,
+    guided_preset: state.guided.preset,
+    guided_breath_phase: state.guided.phase,
+    guided_phase_name: state.guided.phaseName,
+    heart_weather: state.guided.heartWeather,
+    impact_count: state.impactCount,
+  });
+}
+
+function setPhase(){
+  ["phaseBefore", "phaseSession", "phaseAfter"].forEach(id => $(id).classList.remove("active"));
+  if(state.phase === "before") $("phaseBefore").classList.add("active");
+  if(state.phase === "session") $("phaseSession").classList.add("active");
+  if(state.phase === "after") $("phaseAfter").classList.add("active");
+}
+
+function bindRange(rangeId, valueId, key){
+  const el = $(rangeId);
+  const out = $(valueId);
+  el.addEventListener("input", () => {
+    state[key] = Number(el.value);
+    out.textContent = el.value;
+  });
+}
+
+$("btnAudio").addEventListener("click", async () => {
+  try{
+    $("btnAudio").disabled = true;
+    await startAudio({ resume: true });
+  }catch(err){
+    $("btnAudio").disabled = false;
+    log("聲音啟動失敗：" + err.message);
+  }
+});
+$("btnBall").addEventListener("click", () => connectBall().catch(err => log("連線失敗：" + err.message)));
+$("btnConnectInline").addEventListener("click", () => connectBall().catch(err => log("連線失敗：" + err.message)));
+if("hid" in navigator){
+  // 動態偵測：球插拔時自動接回／釋放 slot
+  navigator.hid.addEventListener("connect", () => syncBalls().then(() => {
+    maybeAdvanceFromConnect();
+  }).catch(() => {}));
+  navigator.hid.addEventListener("disconnect", (e) => {
+    const s = deviceSlot(e.device);
+    if(s){
+      devices[s] = null;
+      state.connected[s] = false;
+      state.ready[s] = false;
+      state.lastGripReportAt[s] = 0;
+      $("s" + s).textContent = "未連接";
+      setGrip(s, 0);
+      updateHidStatus();
+      if(state.arrival.step === "connect") updateConnectScene();
+      log(`Ball ${s} 已斷線。`);
+    }
+  });
+  syncBalls().catch(() => {});   // 頁面載入即接回先前已授權的球
+}
+$("btnStartSession").addEventListener("click", startArrival);
+$("btnEndSession").addEventListener("click", endSession);
+$("btnSaveAfter").addEventListener("click", saveAfter);
+$("btnCsv").addEventListener("click", downloadCsv);
+$("btnEnterSession").addEventListener("click", startSession);
+document.querySelectorAll(".preset-btn").forEach(btn => {
+  btn.addEventListener("click", () => setBreathPreset(btn.dataset.preset));
+});
+$("postMinus").addEventListener("click", () => { state.post = Math.max(0, state.post - 1); $("postRange").value = state.post; $("postValue").textContent = state.post; });
+$("postPlus").addEventListener("click", () => { state.post = Math.min(10, state.post + 1); $("postRange").value = state.post; $("postValue").textContent = state.post; });
+bindRange("postRange", "postValue", "post");
+bindRange("pushedRange", "pushedValue", "pushed");
+bindRange("stayRange", "stayValue", "stay");
+bindRange("agencyRange", "agencyValue", "agency");
+
+if(!("hid" in navigator)){
+  $("browserWarn").style.display = "block";
+  $("browserWarn").innerHTML = "此瀏覽器不支援 WebHID。請用桌面 Chrome / Edge，並透過 localhost 開啟；仍可用鍵盤模擬。";
+}
+
+const sim = { space: 0, shift: 0, dir: 0 };
+addEventListener("keydown", (e) => {
+  if(e.code === "Space"){
+    sim.space = 1;
+    e.preventDefault();
+    startAudio({ resume: true }).then(() => {
+      if(state.arrival.step === "connect") beginPrelude();
+    }).catch(() => {});
+  }
+  if(e.key === "Shift") sim.shift = 1;
+  if(e.code === "ArrowLeft") sim.dir = -1;
+  if(e.code === "ArrowRight") sim.dir = 1;
+  if(e.code === "Enter" && engine){
+    engine.setSwing(sim.dir || 0.5, 1);
+    state.motion = STRONG_SWING;
+    state.motionSmoothed = STRONG_SWING;
+    if(state.audioFadedIn && (state.grip[1] >= HARD_GRIP || sim.space)) engine.impact();
+  }
+});
+addEventListener("keyup", (e) => {
+  if(e.code === "Space") sim.space = 0;
+  if(e.key === "Shift") sim.shift = 0;
+  if(e.code === "ArrowLeft" || e.code === "ArrowRight") sim.dir = 0;
+});
+
+setInterval(() => {
+  if(!engine) return;
+  if(!state.connected[1]) setGrip(1, calib[1].update(34000 + sim.space * 1400));
+  if(!state.connected[2]) setGrip(2, calib[2].update(34000 + sim.shift * 1400));
+  if(sim.dir !== 0){
+    engine.setSwing(sim.dir, 0.75);
+    state.motion = 0.85;
+    state.motionSmoothed += (0.85 - state.motionSmoothed) * 0.3;
+  } else {
+    state.motionSmoothed += (0 - state.motionSmoothed) * 0.06;
+  }
+}, 60);
+
+setInterval(recordSample, 500);
+
+// 海仍是主視覺：避免人工正弦線，改用厚霧、暗流、寬幅浪帶與中央潮汐曼荼羅。
+let __seaScroll = 0, __seaLast = performance.now() / 1000;
+function seaHash(n){ const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+function drawSea(){
+  const canvas = $("sea");
+  const ctx = canvas.getContext("2d");
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const W = innerWidth, H = innerHeight;
+  const pw = Math.floor(W * dpr), ph = Math.floor(H * dpr);
+  if(canvas.width !== pw || canvas.height !== ph){ canvas.width = pw; canvas.height = ph; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const t = performance.now() / 1000;
+  const dt = Math.min(0.05, t - __seaLast); __seaLast = t;
+  const tide = engine ? engine.tide : (state.grip[1] || 0);
+  const az = engine ? engine.azimuth : state.azimuth;
+  const m = engine ? engine.metrics : { swell: 0.5, foam: 0, rw: 0 };
+  const swell = (m.swell !== undefined) ? m.swell : 0.5;
+  const rw = m.rw || 0;
+  const heart = state.phase === "session" ? clamp(state.guided.heartWeather) : 0.45;
+  const heartWarm = clamp((heart - 0.36) / 0.36);
+  const heartCool = 1 - heartWarm * 0.65;
+  __seaScroll += dt * (0.010 + 0.055 * tide);
+
+  const base = ctx.createLinearGradient(0, 0, 0, H);
+  base.addColorStop(0, "#05090b");
+  base.addColorStop(0.34, `rgb(${Math.round(8 + 12 * heartWarm)}, ${Math.round(19 + 6 * heartCool)}, ${Math.round(23 + 5 * heartCool)})`);
+  base.addColorStop(0.62, `rgb(${Math.round(10 + 18 * heartWarm)}, ${Math.round(29 + 5 * heartCool)}, ${Math.round(32 + 2 * heartCool)})`);
+  base.addColorStop(1, "#030708");
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, W, H);
+
+  const horizon = H * (0.31 + 0.018 * Math.sin(t / 10) + 0.012 * rw);
+  const horizonFog = ctx.createLinearGradient(0, horizon - H * 0.13, 0, horizon + H * 0.24);
+  horizonFog.addColorStop(0, "rgba(185,194,176,0)");
+  horizonFog.addColorStop(0.48, `rgba(${Math.round(153 + 34 * heartWarm)},${Math.round(176 + 14 * heartWarm)},${Math.round(168 - 22 * heartWarm)},${0.055 + 0.040 * swell + 0.040 * heartWarm})`);
+  horizonFog.addColorStop(1, "rgba(153,176,168,0)");
+  ctx.fillStyle = horizonFog;
+  ctx.fillRect(0, horizon - H * 0.16, W, H * 0.42);
+
+  const gx = (0.5 + 0.18 * az) * W;
+  const gy = H * (0.46 + 0.018 * Math.sin(t / 9) + 0.012 * rw);
+  const coreGlow = ctx.createRadialGradient(gx, gy, H * 0.03, gx, gy, H * (0.54 + 0.14 * tide));
+  coreGlow.addColorStop(0, `rgba(${Math.round(151 + 44 * heartWarm)},${Math.round(177 + 20 * heartWarm)},${Math.round(160 - 28 * heartWarm)},${0.10 + 0.10 * tide + 0.04 * heartWarm})`);
+  coreGlow.addColorStop(0.42, `rgba(${Math.round(50 + 30 * heartWarm)},${Math.round(92 + 13 * heartWarm)},${Math.round(88 - 16 * heartWarm)},${0.09 + 0.08 * swell + 0.025 * heartWarm})`);
+  coreGlow.addColorStop(1, "rgba(47,91,91,0)");
+  ctx.fillStyle = coreGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  for(let i = 0; i < 16; i++){
+    const depth = i / 15;
+    const y = horizon + (H - horizon) * Math.pow(depth, 1.55);
+    const bandH = H * (0.028 + 0.030 * depth);
+    const phase = t * (0.07 + 0.035 * depth) + i * 1.73 + __seaScroll * (1.2 + depth);
+    const alpha = 0.020 + 0.035 * tide + 0.018 * Math.sin(phase);
+    const xShift = Math.sin(phase * 0.7) * W * 0.045 + az * W * 0.025;
+    const grad = ctx.createLinearGradient(0, y - bandH, 0, y + bandH);
+    grad.addColorStop(0, "rgba(180,199,190,0)");
+    grad.addColorStop(0.46, `rgba(151,184,176,${Math.max(0, alpha * (0.55 + depth)).toFixed(3)})`);
+    grad.addColorStop(1, "rgba(180,199,190,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(W / 2 + xShift, y, W * (0.55 + 0.42 * depth), bandH, Math.sin(phase) * 0.025, 0, 6.283);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalCompositeOperation = "multiply";
+  for(let i = 0; i < 8; i++){
+    const x = W * (0.12 + i * 0.12 + 0.020 * Math.sin(t * 0.08 + i));
+    const y = H * (0.45 + 0.11 * Math.sin(t * 0.06 + i * 1.6));
+    const r = W * (0.20 + 0.07 * Math.sin(t * 0.05 + i));
+    const g = ctx.createRadialGradient(x, y, 1, x, y, r);
+    g.addColorStop(0, "rgba(3,9,10,0.30)");
+    g.addColorStop(1, "rgba(3,9,10,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  for(let i = 0; i < 5; i++){
+    const x = W * (0.18 + i * 0.17 + 0.025 * Math.sin(t * 0.09 + i));
+    const y = H * (0.62 + 0.05 * Math.sin(t * 0.11 + i * 2));
+    const r = W * (0.16 + 0.04 * Math.sin(t * 0.07 + i));
+    const g = ctx.createRadialGradient(x, y, 1, x, y, r);
+    g.addColorStop(0, `rgba(185,190,166,${0.010 + 0.018 * tide})`);
+    g.addColorStop(1, "rgba(180,190,166,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.restore();
+
+  const sinceImpact = performance.now() - state.lastImpactAt;   // impact 濺起（對齊破碎時刻）
+  if(sinceImpact >= 0 && sinceImpact < 1800){
+    const age = sinceImpact / 1000, a = 1 - age / 1.8;
+    const cx = (0.5 + 0.5 * az) * W, cy = H * 0.80, rad = age * W * 0.30;
+    ctx.beginPath(); ctx.ellipse(cx, cy, rad, rad * 0.30, 0, 0, 6.283);
+    ctx.strokeStyle = `rgba(190,228,244,${(a * 0.42).toFixed(3)})`; ctx.lineWidth = 1.6 * a + 0.5; ctx.stroke();
+    if(age < 0.6){ const hh = 1 - age / 0.6; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - 52 * hh); ctx.strokeStyle = `rgba(205,235,250,${(hh * 0.35).toFixed(3)})`; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+
+  const vg = ctx.createRadialGradient(W / 2, H * 0.6, H * 0.34, W / 2, H * 0.6, H * 0.9); // 柔和暗角＝包覆感
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(2,7,9,0.44)");
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+
+  requestAnimationFrame(drawSea);
+}
+drawSea();
+
+function updateCoreVisual(){
+  const tide = engine ? engine.tide : state.grip[1];
+  const stone = state.grip[2] || 0;
+  const m = engine ? engine.metrics : { swell: 0.5, rw: 0 };
+  const swell = (m.swell !== undefined) ? m.swell : 0.5;
+  const gripEnergy = clamp(Math.max(state.grip[1], state.grip[2]));
+  const motion = clamp(state.motionSmoothed / STRONG_SWING);
+  const scale = 0.96 + 0.09 * gripEnergy + 0.025 * Math.sin(performance.now() / 1000 * 0.9) * (0.5 + tide);
+  const glow = clamp(0.18 + 0.38 * tide + 0.22 * motion + 0.16 * stone);
+  const drift = (engine ? engine.azimuth : state.azimuth) * 14;
+  document.documentElement.style.setProperty("--core-scale", scale.toFixed(3));
+  document.documentElement.style.setProperty("--core-glow", glow.toFixed(3));
+  document.documentElement.style.setProperty("--core-tide", clamp(0.18 + 0.55 * swell + 0.25 * gripEnergy).toFixed(3));
+  document.documentElement.style.setProperty("--core-drift", drift.toFixed(1) + "px");
+  document.documentElement.style.setProperty("--core-rot", (drift * 0.45).toFixed(1) + "deg");
+}
+
+function render(){
+  // 即時節奏顯示已移除（Pan 2026-07-09：聽覺上感覺不到、無實質意義）。
+  // 仍在背景算 dominant_mode 供 session CSV 研究欄位用，但不顯示給使用者。
+  updateArrival();
+  updateGuidedSession();
+  updateCoreVisual();
+  state.dominantMode = analyzeMode().mode;
+  $("sessionClock").textContent = Math.round(sessionSeconds()) + "s";
+  $("impactCount").textContent = state.impactCount;
+  $("swingReadout").textContent = state.motionSmoothed.toFixed(2);
+  $("tideReadout").textContent = Math.round(state.grip[1] * 100) + "%";  // 潮汐現由 Ball 1 控制
+  requestAnimationFrame(render);
+}
+render();
+bootExperience();
+</script>
+</body>
+</html>
