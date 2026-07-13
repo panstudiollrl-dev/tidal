@@ -546,7 +546,7 @@
           <div class="arrival-title">準備</div>
           <div class="countdown"><span id="preludeClock">5</span></div>
           <div class="arrival-copy">
-            <p>等一下三十秒，不用調整呼吸。</p>
+            <p>接下來三十秒，請自然呼吸，覺察每一次吸和吐。</p>
           </div>
         </div>
         <div id="arrivalHandCue" style="display:none">
@@ -560,7 +560,7 @@
           <div class="arrival-title">聽見呼吸</div>
           <div class="countdown"><span id="breathClock">30</span></div>
           <div class="arrival-copy">
-            <p>發現吸氣，按一下。發現呼氣，也按一下。</p>
+            <p>吸氣按一下，吐氣也按一下。</p>
           </div>
           <div class="arrival-progress"><span id="breathProgress"></span></div>
           <div class="hint">已收到 <span id="breathCount">0</span> 次呼吸標記</div>
@@ -1212,6 +1212,7 @@ function resetArrival(){
 
 function showArrivalStep(step, animate = true){
   const panel = $("phaseBefore");
+  state.arrival.step = step;
   if(animate && panel.classList.contains("active")){
     panel.classList.add("scene-dim");
     setTimeout(() => {
@@ -1220,7 +1221,6 @@ function showArrivalStep(step, animate = true){
     }, 720);
     return;
   }
-  state.arrival.step = step;
   $("arrivalIntro").style.display = step === "intro" ? "block" : "none";
   $("arrivalConnect").style.display = step === "connect" ? "block" : "none";
   $("arrivalHandCue").style.display = step === "handCue" ? "block" : "none";
@@ -1332,7 +1332,8 @@ function handleArrivalGrip(slot, level){
 function handleArrivalConfirmation(slot, level, now){
   const arrival = state.arrival;
   if(level <= ARRIVAL_PRESS_OFF) arrival.activePress[slot] = false;
-  if(level < ARRIVAL_PRESS_ON || arrival.activePress[slot]) return;
+  if(level < ARRIVAL_PRESS_ON) return;
+  if(arrival.confirmation && arrival.confirmationAdvanceTimer) return;
   arrival.activePress[slot] = true;
   confirmArrivalChoice(slot, now);
 }
@@ -1348,10 +1349,14 @@ function confirmArrivalChoice(slot, now = performance.now()){
   $("arrivalConfirmHint").textContent = text;
   log(slot === 1 ? "使用者確認：這段理解接近。" : "使用者確認：這段理解不太像。");
   arrival.confirmationAdvanceTimer = setTimeout(() => {
-    if(state.phase === "before" && state.arrival.step === "report"){
+    if(state.phase === "before" && isArrivalReportCurrent()){
       enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message));
     }
-  }, 1150);
+  }, 650);
+}
+
+function isArrivalReportCurrent(){
+  return state.arrival.step === "report" || $("arrivalReport").style.display !== "none";
 }
 
 function updateArrival(){
@@ -2198,7 +2203,7 @@ addEventListener("keydown", (e) => {
   if(e.code === "Space"){
     sim.space = 1;
     e.preventDefault();
-    if(state.phase === "before" && state.arrival.step === "report" && !e.repeat){
+    if(state.phase === "before" && isArrivalReportCurrent() && !e.repeat){
       confirmArrivalChoice(1);
       return;
     }
@@ -2208,7 +2213,7 @@ addEventListener("keydown", (e) => {
   }
   if(e.key === "Shift"){
     sim.shift = 1;
-    if(state.phase === "before" && state.arrival.step === "report" && !e.repeat){
+    if(state.phase === "before" && isArrivalReportCurrent() && !e.repeat){
       confirmArrivalChoice(2);
       return;
     }
@@ -2216,6 +2221,10 @@ addEventListener("keydown", (e) => {
   if(e.code === "ArrowLeft") sim.dir = -1;
   if(e.code === "ArrowRight") sim.dir = 1;
   if(e.code === "Enter" && engine){
+    if(state.phase === "before" && isArrivalReportCurrent() && !e.repeat){
+      confirmArrivalChoice(1);
+      return;
+    }
     engine.setSwing(sim.dir || 0.5, 1);
     state.motion = STRONG_SWING;
     state.motionSmoothed = STRONG_SWING;
