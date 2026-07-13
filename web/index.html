@@ -697,7 +697,9 @@ const HARD_GRIP = 0.7;
 const SWING_MIN = 0.5;
 const STRONG_SWING = 1.4;
 const ARRIVAL_BREATH_SECONDS = 30;
-const ARRIVAL_HOLD_SECONDS = 1.2;
+const ARRIVAL_HOLD_SECONDS = 1.8;
+const ARRIVAL_HOLD_INTRO_MS = 1800;
+const ARRIVAL_HOLD_RELEASE_DELAY_MS = 650;
 const ARRIVAL_PRELUDE_SECONDS = 5;
 const ARRIVAL_PRESS_ON = 0.18;
 const ARRIVAL_PRESS_OFF = 0.08;
@@ -752,7 +754,9 @@ const state = {
     step: "intro",
     preludeStart: null,
     breathStart: null,
+    holdIntroAt: null,
     holdStart: null,
+    holdReleaseAt: null,
     holdComplete: false,
     events: [],
     holdSamples: [],
@@ -1099,7 +1103,7 @@ class OceanEngine {
     this.breathGuide = Object.assign({}, this.breathGuide, guide);
   }
 
-  cueWave(pan = 0){
+  cueWave(pan = 0, amount = 1){
     const now = this.ctx.currentTime;
     const src = OceanEngine.noiseSource(this.ctx);
     const bp = this.ctx.createBiquadFilter();
@@ -1118,7 +1122,7 @@ class OceanEngine {
     bp.connect(g);
     g.connect(this.cuePanner);
     g.gain.setValueAtTime(0, now);
-    g.gain.linearRampToValueAtTime(0.14, now + 0.36);
+    g.gain.linearRampToValueAtTime(0.14 * clamp(amount, 0.2, 1.4), now + 0.36);
     g.gain.setTargetAtTime(0, now + 0.62, 0.88);
     src.start(now);
     src.stop(now + 2.4);
@@ -1222,7 +1226,9 @@ function resetArrival(){
     step: "intro",
     preludeStart: null,
     breathStart: null,
+    holdIntroAt: null,
     holdStart: null,
+    holdReleaseAt: null,
     holdComplete: false,
     events: [],
     holdSamples: [],
@@ -1368,6 +1374,15 @@ function handleArrivalGrip(slot, level){
     });
     arrival.lastEventAt = now;
     arrival.breathHeld = true;
+    if(engine){
+      if(!state.audioFadedIn){
+        state.audioFadedIn = true;
+        if(audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+        engine.fadeIn();
+      }
+      const pan = slot === (state.handMap.right || 2) ? 0.52 : -0.52;
+      engine.cueWave(pan, 0.62);
+    }
   }
   if(!anyHeld && arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
     arrival.events.push({
@@ -1378,6 +1393,7 @@ function handleArrivalGrip(slot, level){
     });
     arrival.lastEventAt = now;
     arrival.breathHeld = false;
+    if(engine) engine.cueWave(0, 0.34);
   }
   if(level <= ARRIVAL_PRESS_OFF) arrival.activePress[slot] = false;
 }
@@ -1436,6 +1452,9 @@ function updateArrival(){
     $("breathClock").textContent = Math.ceil(remain);
     $("breathCount").textContent = arrival.events.length;
     if(elapsed >= ARRIVAL_BREATH_SECONDS){
+      arrival.holdIntroAt = performance.now();
+      arrival.holdStart = null;
+      arrival.holdReleaseAt = null;
       showArrivalStep("hold");
       log("現在換下一步：用手握出此刻的情緒或緊張強度。");
     }
@@ -1443,11 +1462,18 @@ function updateArrival(){
 
   if(arrival.step === "hold" && !arrival.holdComplete){
     const level = Math.max(state.grip[1], state.grip[2]);
+    const introElapsed = arrival.holdIntroAt ? now - arrival.holdIntroAt : ARRIVAL_HOLD_INTRO_MS;
+    if(introElapsed < ARRIVAL_HOLD_INTRO_MS){
+      $("holdProgress").style.width = "0%";
+      $("holdHint").textContent = "先看一下這一題，準備好了再握住。";
+      return;
+    }
     if(!arrival.holdStart){
       $("holdProgress").style.width = "0%";
       $("holdHint").textContent = "準備好時，握住一下。";
       if(level >= ARRIVAL_PRESS_ON){
         arrival.holdStart = now;
+        arrival.holdReleaseAt = null;
         arrival.holdSamples = [];
         arrival.lastHoldSampleAt = 0;
       }
@@ -1465,10 +1491,20 @@ function updateArrival(){
       arrival.lastHoldSampleAt = now;
     }
     $("holdProgress").style.width = Math.round(clamp(elapsed / ARRIVAL_HOLD_SECONDS) * 100) + "%";
-    $("holdHint").textContent = "留在這個力道裡，讓它穩一下。";
+    $("holdHint").textContent = elapsed >= ARRIVAL_HOLD_SECONDS
+      ? "可以放開了。"
+      : "留在這個力道裡，讓它穩一下。";
     if(elapsed >= ARRIVAL_HOLD_SECONDS){
-      arrival.holdComplete = true;
-      finishArrival();
+      if(level <= ARRIVAL_PRESS_OFF){
+        if(!arrival.holdReleaseAt) arrival.holdReleaseAt = now;
+        $("holdHint").textContent = "收到了。";
+        if(now - arrival.holdReleaseAt >= ARRIVAL_HOLD_RELEASE_DELAY_MS){
+          arrival.holdComplete = true;
+          finishArrival();
+        }
+      } else {
+        arrival.holdReleaseAt = null;
+      }
     }
   }
 }
@@ -1902,8 +1938,8 @@ const BREATH_PRESETS = {
     activate: 0,
   },
   hold478: {
-    title: "懸止的長吐",
-    copy: "吸氣時水位升起，停留時霧會變厚，吐氣時海慢慢退遠。",
+    title: "4-7-8 呼吸",
+    copy: "吸氣四拍、停留七拍、吐氣八拍。震動會提示每一段，不需要看著數字追。",
     phases: [
       { name: "inhale", label: "吸進來", dur: 4 },
       { name: "hold", label: "停在空氣裡", dur: 7, hold: true },
@@ -1937,22 +1973,24 @@ function setBreathPreset(id){
   state.guided.preset = id;
   state.guided.startedAt = performance.now();
   document.querySelectorAll(".preset-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.preset === id));
-  updateGuidedSession(true);
+  if(state.phase === "session") updateGuidedSession(true);
   log(`引導場景：${BREATH_PRESETS[id].title}`);
 }
 
 function phaseAt(preset, elapsedSeconds){
   const total = preset.phases.reduce((sum, p) => sum + p.dur, 0);
   const t = ((elapsedSeconds % total) + total) % total;
+  const cycle = Math.floor(elapsedSeconds / total);
   let acc = 0;
-  for(const phase of preset.phases){
+  for(let i = 0; i < preset.phases.length; i++){
+    const phase = preset.phases[i];
     if(t < acc + phase.dur){
       const local = (t - acc) / phase.dur;
-      return { phase, local, total, t };
+      return { phase, local, total, t, cycle, index: i };
     }
     acc += phase.dur;
   }
-  return { phase: preset.phases[0], local: 0, total, t: 0 };
+  return { phase: preset.phases[0], local: 0, total, t: 0, cycle, index: 0 };
 }
 
 function guideHapticsForPhase(presetId, phase, phaseKey){
@@ -1965,14 +2003,12 @@ function guideHapticsForPhase(presetId, phase, phaseKey){
     if(phase.name === "inhale"){
       scheduleUnitPulsePattern(4, unitMs, () => [
         { offset: 0, intensity: 128, duration: 86 },
-        { offset: 170, intensity: 128, duration: 86 },
+        { offset: 230, intensity: 128, duration: 86 },
       ]);
     } else if(phase.name === "hold"){
       scheduleUnitPulsePattern(7, unitMs, () => ({ offset: 0, intensity: 104, duration: 132 }));
     } else if(phase.name === "exhale"){
-      for(let i = 0; i < Math.ceil((phase.dur * 1000) / 330); i++){
-        scheduleGuidedHaptic(i * 330, 82, 255);
-      }
+      scheduleUnitPulsePattern(8, unitMs, () => ({ offset: 0, intensity: 92, duration: Math.min(420, unitMs * 0.72) }));
     }
     return;
   }
@@ -2005,7 +2041,7 @@ function updateGuidedSession(force = false){
   if(!state.guided.startedAt) state.guided.startedAt = performance.now();
   const elapsed = Math.max(0, (performance.now() - state.guided.startedAt) / 1000);
   const ph = phaseAt(preset, elapsed);
-  const phaseKey = `${state.guided.preset}:${Math.floor(elapsed / ph.total)}:${ph.phase.name}`;
+  const phaseKey = `${state.guided.preset}:${ph.cycle}:${ph.index}:${ph.phase.name}`;
   guideHapticsForPhase(state.guided.preset, ph.phase, phaseKey);
   const breathCurve = ph.phase.hold
     ? 0.76
