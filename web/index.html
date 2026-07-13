@@ -7,16 +7,16 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #050b0d;
-    --panel: rgba(5, 14, 17, .18);
-    --panel2: rgba(255, 255, 255, .045);
-    --line: rgba(219, 237, 231, .10);
-    --text: #e6efeb;
-    --muted: #9aada8;
-    --sea: #76b7aa;
-    --foam: #d8d2b0;
-    --warn: #e5bc78;
-    --soft: #9fbfbd;
+    --bg: #111823;
+    --panel: rgba(16, 23, 32, .14);
+    --panel2: rgba(255, 255, 255, .055);
+    --line: rgba(244, 226, 204, .14);
+    --text: #f7f0e5;
+    --muted: #c8c1b7;
+    --sea: #5ccfd1;
+    --foam: #ffd79a;
+    --warn: #ff9b7a;
+    --soft: #b8ded9;
     --core-scale: 1;
     --core-glow: .28;
     --core-tide: .2;
@@ -47,16 +47,16 @@
     width: 100%;
     height: 100%;
     z-index: 0;
-    background: #050b0d;
+    background: #111823;
   }
   .scrim {
     position: fixed;
     inset: 0;
     z-index: 1;
     background:
-      radial-gradient(62% 54% at 50% 36%, rgba(218, 211, 174, .13), transparent 58%),
-      radial-gradient(78% 66% at 50% 56%, rgba(100, 159, 151, .12), transparent 68%),
-      linear-gradient(180deg, rgba(4, 9, 11, .08), rgba(4, 9, 11, .48));
+      radial-gradient(60% 46% at 50% 28%, rgba(255, 215, 154, .18), transparent 60%),
+      radial-gradient(72% 62% at 50% 64%, rgba(88, 207, 209, .10), transparent 72%),
+      linear-gradient(180deg, rgba(12, 18, 32, .05), rgba(17, 24, 35, .32));
     pointer-events: none;
   }
   .app {
@@ -96,8 +96,8 @@
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
   button {
     appearance: none;
-    border: 1px solid rgba(205, 229, 221, .18);
-    background: rgba(30, 58, 58, .52);
+    border: 1px solid rgba(255, 220, 171, .22);
+    background: rgba(29, 76, 88, .46);
     color: var(--text);
     border-radius: 8px;
     padding: 10px 13px;
@@ -106,9 +106,9 @@
     cursor: pointer;
     min-height: 42px;
   }
-  button:hover { background: rgba(48, 77, 75, .66); }
+  button:hover { background: rgba(44, 103, 116, .60); }
   button:disabled { opacity: .44; cursor: not-allowed; }
-  button.ghost { background: rgba(255,255,255,.035); border-color: var(--line); color: var(--muted); }
+  button.ghost { background: rgba(255,255,255,.045); border-color: var(--line); color: var(--muted); }
   button.icon { width: 42px; padding: 0; display: inline-grid; place-items: center; font-size: 18px; }
   .hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
   .warning { color: var(--warn); }
@@ -221,13 +221,14 @@
     transform: translateX(var(--core-drift)) scale(var(--core-scale));
     transition: transform .45s ease;
     background:
-      linear-gradient(to top, rgba(137, 188, 178, .36) 0 calc(var(--cue-fill) * 100%), rgba(104, 151, 149, 0) calc(var(--cue-fill) * 100%)),
-      radial-gradient(circle at 42% 32%, rgba(253, 241, 195, .44), rgba(235, 223, 181, .19) 28%, rgba(133, 177, 165, .10) 58%, transparent 74%),
-      radial-gradient(circle, rgba(225, 218, 183, .18) 0 2px, transparent 3px),
-      radial-gradient(circle at 50% 50%, rgba(224, 217, 184, .10), rgba(94, 143, 133, .08) 34%, rgba(7, 19, 22, .08) 72%, transparent 74%);
+      linear-gradient(to top, rgba(92, 207, 209, .32) 0 calc(var(--cue-fill) * 100%), rgba(92, 207, 209, 0) calc(var(--cue-fill) * 100%)),
+      radial-gradient(circle at 38% 30%, rgba(255, 246, 221, .72), rgba(255, 215, 154, .28) 28%, rgba(122, 209, 205, .12) 58%, transparent 76%),
+      radial-gradient(circle at 58% 62%, rgba(255, 155, 122, .12), transparent 46%),
+      radial-gradient(circle at 50% 50%, rgba(242, 232, 210, .16), rgba(92, 207, 209, .08) 38%, rgba(17, 24, 35, .03) 72%, transparent 76%);
     box-shadow:
-      inset 0 0 32px rgba(230, 223, 190, .06),
-      0 0 calc(42px + 74px * var(--core-glow)) rgba(213, 205, 162, calc(.18 + .28 * var(--core-glow)));
+      inset 0 0 28px rgba(255, 246, 221, .12),
+      0 0 calc(46px + 84px * var(--core-glow)) rgba(255, 215, 154, calc(.18 + .30 * var(--core-glow))),
+      0 24px 90px rgba(92, 207, 209, .16);
     opacity: .94;
   }
   .core-orb::before,
@@ -241,19 +242,19 @@
   .core-orb::before {
     inset: 5%;
     border:
-      1px solid rgba(224, 218, 185, calc(.18 + .22 * var(--core-tide)));
+      1px solid rgba(255, 232, 190, calc(.20 + .22 * var(--core-tide)));
     transform: scale(calc(.92 + .04 * var(--core-tide))) rotate(var(--core-rot));
     box-shadow:
       inset 0 0 0 18px rgba(224, 218, 185, .018),
-      inset 0 0 0 42px rgba(118, 159, 151, .022),
-      0 0 34px rgba(143, 184, 174, calc(.10 + .14 * var(--core-tide)));
+      inset 0 0 0 42px rgba(92, 207, 209, .024),
+      0 0 34px rgba(255, 183, 132, calc(.10 + .13 * var(--core-tide)));
   }
   .core-orb::after {
-    inset: 18%;
+    inset: 16%;
     background:
-      repeating-conic-gradient(from 0deg, rgba(225, 218, 185, .16) 0deg 2deg, transparent 2deg 15deg),
-      radial-gradient(circle, transparent 42%, rgba(199, 211, 191, .16) 43%, transparent 45%, transparent 61%, rgba(199, 211, 191, .12) 62%, transparent 64%);
-    opacity: calc(.28 + .34 * var(--core-tide));
+      repeating-radial-gradient(circle, rgba(255, 232, 190, .12) 0 1px, transparent 1px 12px),
+      conic-gradient(from 18deg, transparent 0deg 34deg, rgba(255, 215, 154, .12) 42deg, transparent 54deg 104deg, rgba(92, 207, 209, .10) 112deg, transparent 124deg 360deg);
+    opacity: calc(.22 + .24 * var(--core-tide));
     transform: rotate(var(--core-rot));
   }
   .core-orb.cue-on {
@@ -275,19 +276,19 @@
     min-width: 188px;
     transform: translateX(calc(var(--core-drift) + var(--breath-pan-x))) scale(var(--session-scale));
     background:
-      linear-gradient(to top, rgba(129, 194, 184, .42) 0 calc(var(--session-water) * 100%), rgba(104, 151, 149, 0) calc(var(--session-water) * 100%)),
-      radial-gradient(circle at 42% 30%, rgba(255, 244, 199, calc(.42 + .25 * var(--breath-phase))), rgba(239, 229, 187, calc(.18 + .20 * var(--breath-phase))) 28%, transparent 58%),
-      radial-gradient(circle at calc(50% + var(--breath-pan-shift)) 50%, rgba(234, 196, 137, calc(.08 + .18 * var(--heart-weather))), transparent 45%),
-      radial-gradient(circle at 50% 50%, rgba(224, 217, 184, .10), rgba(88, 145, 133, calc(.08 + .10 * var(--heart-weather))) 34%, rgba(7, 19, 22, .08) 72%, transparent 74%);
+      linear-gradient(to top, rgba(92, 207, 209, .38) 0 calc(var(--session-water) * 100%), rgba(92, 207, 209, 0) calc(var(--session-water) * 100%)),
+      radial-gradient(circle at 40% calc(44% - 28% * var(--breath-phase)), rgba(255, 246, 221, calc(.54 + .20 * var(--breath-phase))), rgba(255, 215, 154, calc(.18 + .16 * var(--breath-phase))) 30%, transparent 60%),
+      radial-gradient(circle at calc(50% + var(--breath-pan-shift)) 54%, rgba(255, 155, 122, calc(.10 + .16 * var(--heart-weather))), transparent 46%),
+      radial-gradient(circle at 50% 50%, rgba(242, 232, 210, .13), rgba(92, 207, 209, calc(.08 + .09 * var(--heart-weather))) 38%, rgba(17, 24, 35, .04) 74%, transparent 78%);
     transition: transform .22s ease, box-shadow .32s ease, opacity .32s ease;
   }
   #phaseSession .core-orb::before {
     transform: scale(var(--breath-ring-scale)) rotate(calc(var(--core-rot) + var(--breath-pan-rot)));
-    border-color: rgba(224, 218, 185, calc(.24 + .28 * var(--heart-weather)));
+    border-color: rgba(255, 232, 190, calc(.24 + .28 * var(--heart-weather)));
     box-shadow:
       inset 0 0 0 16px rgba(224, 218, 185, .024),
-      inset 0 0 0 52px rgba(118, 159, 151, .034),
-      0 0 calc(32px + 42px * var(--breath-phase)) rgba(143, 184, 174, calc(.14 + .20 * var(--heart-weather)));
+      inset 0 0 0 52px rgba(92, 207, 209, .034),
+      0 0 calc(34px + 48px * var(--breath-phase)) rgba(255, 183, 132, calc(.14 + .18 * var(--heart-weather)));
   }
   #phaseSession .core-orb::after {
     opacity: calc(.32 + .42 * var(--breath-phase) + .20 * var(--heart-weather));
@@ -341,14 +342,14 @@
     width: min(560px, 100%);
   }
   .report-row {
-    background: var(--panel2);
-    border: 1px solid var(--line);
+    background: rgba(255, 246, 221, .060);
+    border: 1px solid rgba(255, 215, 154, .16);
     border-radius: 8px;
     padding: 10px 12px;
     line-height: 1.55;
   }
   .report-row b { display: block; color: var(--text); font-size: 14px; margin-bottom: 2px; }
-  .report-row span { color: var(--muted); font-size: 13px; }
+  .report-row span { color: rgba(247, 240, 229, .72); font-size: 13px; }
   .confirm-choice {
     color: var(--muted);
     font-size: 13px;
@@ -372,16 +373,16 @@
   .preset-btn {
     min-height: 40px;
     padding: 9px 13px;
-    border-color: rgba(215, 229, 218, .14);
-    background: rgba(255,255,255,.035);
+    border-color: rgba(255, 215, 154, .16);
+    background: rgba(255,255,255,.040);
     color: var(--muted);
     font-size: 14px;
   }
   .preset-btn.active {
-    background: rgba(116, 158, 150, .22);
+    background: rgba(255, 178, 132, .18);
     color: var(--text);
-    border-color: rgba(225, 218, 185, .28);
-    box-shadow: 0 0 28px rgba(123, 169, 160, .16);
+    border-color: rgba(255, 215, 154, .36);
+    box-shadow: 0 0 30px rgba(255, 178, 132, .16);
   }
   .breath-word {
     min-height: 30px;
@@ -401,7 +402,7 @@
   }
   .session-metrics span {
     padding: 5px 8px;
-    border: 1px solid rgba(219, 237, 231, .09);
+    border: 1px solid rgba(255, 215, 154, .12);
     border-radius: 999px;
     background: rgba(255,255,255,.025);
   }
@@ -419,9 +420,9 @@
     pointer-events: auto;
     min-height: 38px;
     padding: 8px 12px;
-    color: rgba(230, 239, 235, .86);
-    background: rgba(9, 24, 27, .34);
-    border-color: rgba(219, 237, 231, .13);
+    color: rgba(247, 240, 229, .88);
+    background: rgba(22, 40, 54, .34);
+    border-color: rgba(255, 215, 154, .16);
   }
   .logline {
     margin-top: 10px;
@@ -2486,8 +2487,8 @@ function drawSea(){
   const swell = (m.swell !== undefined) ? m.swell : 0.5;
   const rw = m.rw || 0;
   const heart = state.phase === "session" ? clamp(state.guided.heartWeather) : 0.45;
-  const heartWarm = clamp((heart - 0.36) / 0.36);
-  const heartCool = 1 - heartWarm * 0.65;
+  const heartWarm = clamp((heart - 0.32) / 0.42);
+  const heartCool = 1 - heartWarm * 0.55;
   const guidedPhase = state.phase === "session" ? clamp(state.guided.phase) : 0.5;
   const guidedPan = state.phase === "session" ? clamp(state.guided.pan, -1, 1) : 0;
   const preset = state.phase === "session" ? state.guided.preset : "";
@@ -2496,27 +2497,29 @@ function drawSea(){
   __seaScroll += dt * (0.010 + 0.055 * tide);
 
   const base = ctx.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, "#061014");
-  base.addColorStop(0.34, `rgb(${Math.round(10 + 13 * heartWarm)}, ${Math.round(26 + 7 * heartCool)}, ${Math.round(31 + 6 * heartCool)})`);
-  base.addColorStop(0.64, `rgb(${Math.round(12 + 20 * heartWarm)}, ${Math.round(40 + 5 * heartCool)}, ${Math.round(43 + 2 * heartCool)})`);
-  base.addColorStop(1, "#061111");
+  base.addColorStop(0, `rgb(${Math.round(16 + 18 * heartWarm)}, ${Math.round(22 + 8 * heartCool)}, ${Math.round(39 + 8 * heartCool)})`);
+  base.addColorStop(0.30, `rgb(${Math.round(24 + 48 * heartWarm)}, ${Math.round(45 + 16 * heartCool)}, ${Math.round(62 + 4 * heartCool)})`);
+  base.addColorStop(0.48, `rgb(${Math.round(72 + 72 * heartWarm)}, ${Math.round(89 + 12 * heartCool)}, ${Math.round(88 - 8 * heartWarm)})`);
+  base.addColorStop(0.66, `rgb(${Math.round(15 + 10 * heartWarm)}, ${Math.round(84 + 6 * heartCool)}, ${Math.round(91 + 12 * heartCool)})`);
+  base.addColorStop(1, `rgb(${Math.round(13 + 8 * heartWarm)}, ${Math.round(36 + 8 * heartCool)}, ${Math.round(43 + 5 * heartCool)})`);
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
 
   const horizon = H * (0.31 + 0.030 * (guidedPhase - 0.5) + 0.018 * Math.sin(t / 10) + 0.012 * rw);
   const horizonFog = ctx.createLinearGradient(0, horizon - H * 0.13, 0, horizon + H * 0.24);
-  horizonFog.addColorStop(0, "rgba(185,194,176,0)");
-  horizonFog.addColorStop(0.48, `rgba(${Math.round(153 + 48 * heartWarm)},${Math.round(176 + 18 * heartWarm)},${Math.round(168 - 32 * heartWarm)},${0.065 + 0.050 * swell + 0.075 * heartWarm + 0.060 * holdMist})`);
-  horizonFog.addColorStop(1, "rgba(153,176,168,0)");
+  horizonFog.addColorStop(0, "rgba(255,214,172,0)");
+  horizonFog.addColorStop(0.42, `rgba(${Math.round(226 + 24 * heartWarm)},${Math.round(154 + 38 * heartWarm)},${Math.round(126 - 18 * heartWarm)},${0.070 + 0.045 * swell + 0.095 * heartWarm + 0.045 * holdMist})`);
+  horizonFog.addColorStop(0.72, `rgba(92,207,209,${0.040 + 0.035 * swell})`);
+  horizonFog.addColorStop(1, "rgba(92,207,209,0)");
   ctx.fillStyle = horizonFog;
   ctx.fillRect(0, horizon - H * 0.16, W, H * 0.42);
 
   const gx = (0.5 + 0.18 * az + 0.12 * guidedPan) * W;
   const gy = H * (0.46 - 0.030 * guidedPhase + 0.018 * Math.sin(t / 9) + 0.012 * rw);
   const coreGlow = ctx.createRadialGradient(gx, gy, H * 0.03, gx, gy, H * (0.52 + 0.16 * tide + 0.08 * guidedPhase));
-  coreGlow.addColorStop(0, `rgba(${Math.round(151 + 62 * heartWarm)},${Math.round(177 + 24 * heartWarm)},${Math.round(160 - 44 * heartWarm)},${0.13 + 0.11 * tide + 0.09 * heartWarm + 0.05 * guidedPhase})`);
-  coreGlow.addColorStop(0.42, `rgba(${Math.round(50 + 44 * heartWarm)},${Math.round(92 + 16 * heartWarm)},${Math.round(88 - 24 * heartWarm)},${0.11 + 0.10 * swell + 0.055 * heartWarm})`);
-  coreGlow.addColorStop(1, "rgba(47,91,91,0)");
+  coreGlow.addColorStop(0, `rgba(${Math.round(255)},${Math.round(222 + 12 * heartWarm)},${Math.round(170 - 20 * heartWarm)},${0.12 + 0.10 * tide + 0.08 * heartWarm + 0.05 * guidedPhase})`);
+  coreGlow.addColorStop(0.36, `rgba(${Math.round(92 + 42 * heartWarm)},${Math.round(207 - 20 * heartWarm)},${Math.round(209 - 30 * heartWarm)},${0.10 + 0.10 * swell + 0.050 * heartWarm})`);
+  coreGlow.addColorStop(1, "rgba(92,207,209,0)");
   ctx.fillStyle = coreGlow;
   ctx.fillRect(0, 0, W, H);
 
@@ -2525,10 +2528,10 @@ function drawSea(){
   const moonY = H * (0.31 - 0.020 * guidedPhase);
   ctx.save();
   ctx.globalCompositeOperation = "screen";
-  const moonGlow = ctx.createRadialGradient(moonX, moonY, H * 0.035, moonX, moonY, H * (0.22 + 0.05 * guidedPhase));
-  moonGlow.addColorStop(0, `rgba(255,244,198,${0.30 + 0.16 * guidedPhase})`);
-  moonGlow.addColorStop(0.34, `rgba(222,221,189,${0.12 + 0.10 * guidedPhase})`);
-  moonGlow.addColorStop(1, "rgba(222,221,189,0)");
+  const moonGlow = ctx.createRadialGradient(moonX, moonY, H * 0.030, moonX, moonY, H * (0.24 + 0.05 * guidedPhase));
+  moonGlow.addColorStop(0, `rgba(255,246,221,${0.36 + 0.17 * guidedPhase})`);
+  moonGlow.addColorStop(0.28, `rgba(255,215,154,${0.16 + 0.10 * guidedPhase})`);
+  moonGlow.addColorStop(1, "rgba(255,215,154,0)");
   ctx.fillStyle = moonGlow;
   ctx.fillRect(0, 0, W, H);
 
@@ -2538,9 +2541,9 @@ function drawSea(){
     const width = W * (0.05 + p * 0.34) * (1 + 0.14 * Math.sin(t * 0.8 + i));
     const alpha = (0.060 + 0.075 * tide + 0.045 * guidedPhase) * (1 - p * 0.82);
     const g = ctx.createLinearGradient(moonX - width, y, moonX + width, y);
-    g.addColorStop(0, "rgba(232,224,184,0)");
-    g.addColorStop(0.5, `rgba(238,229,188,${alpha.toFixed(3)})`);
-    g.addColorStop(1, "rgba(232,224,184,0)");
+    g.addColorStop(0, "rgba(255,215,154,0)");
+    g.addColorStop(0.5, `rgba(255,237,199,${alpha.toFixed(3)})`);
+    g.addColorStop(1, "rgba(92,207,209,0)");
     ctx.strokeStyle = g;
     ctx.lineWidth = Math.max(1, H * (0.003 + 0.002 * p));
     ctx.beginPath();
@@ -2564,9 +2567,9 @@ function drawSea(){
     const alpha = 0.026 + 0.038 * tide + 0.026 * guidedPhase + 0.025 * bellowsEnergy + 0.018 * Math.sin(phase);
     const xShift = Math.sin(phase * 0.7) * W * 0.045 + az * W * 0.025 + guidedPan * W * (0.035 + 0.045 * depth);
     const grad = ctx.createLinearGradient(0, y - bandH, 0, y + bandH);
-    grad.addColorStop(0, "rgba(180,199,190,0)");
-    grad.addColorStop(0.46, `rgba(${Math.round(151 + 44 * heartWarm)},${Math.round(184 + 12 * heartWarm)},${Math.round(176 - 30 * heartWarm)},${Math.max(0, alpha * (0.62 + depth)).toFixed(3)})`);
-    grad.addColorStop(1, "rgba(180,199,190,0)");
+    grad.addColorStop(0, "rgba(92,207,209,0)");
+    grad.addColorStop(0.46, `rgba(${Math.round(92 + 94 * heartWarm)},${Math.round(207 - 18 * heartWarm)},${Math.round(209 - 46 * heartWarm)},${Math.max(0, alpha * (0.66 + depth)).toFixed(3)})`);
+    grad.addColorStop(1, "rgba(255,215,154,0)");
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.ellipse(W / 2 + xShift, y, W * (0.55 + 0.42 * depth), bandH, Math.sin(phase) * 0.025, 0, 6.283);
@@ -2579,8 +2582,8 @@ function drawSea(){
   ctx.globalCompositeOperation = "screen";
   const shoreY = H * 0.82;
   [
-    { side: -1, grip: __leftWave, tint: [161, 210, 198] },
-    { side: 1, grip: __rightWave, tint: [217, 198, 151] },
+    { side: -1, grip: __leftWave, tint: [92, 207, 209] },
+    { side: 1, grip: __rightWave, tint: [255, 178, 132] },
   ].forEach((wave, idx) => {
     const gLevel = clamp(wave.grip);
     if(gLevel < 0.012) return;
@@ -2593,9 +2596,9 @@ function drawSea(){
       const ry = H * (0.020 + 0.028 * depth + 0.045 * gLevel);
       const alpha = (0.030 + 0.105 * gLevel) * (1 - depth * 0.45);
       const grad = ctx.createLinearGradient(cx - rx, y, cx + rx, y);
-      grad.addColorStop(0, "rgba(180,218,207,0)");
+      grad.addColorStop(0, "rgba(92,207,209,0)");
       grad.addColorStop(0.48, `rgba(${wave.tint[0]},${wave.tint[1]},${wave.tint[2]},${alpha.toFixed(3)})`);
-      grad.addColorStop(1, "rgba(180,218,207,0)");
+      grad.addColorStop(1, "rgba(255,215,154,0)");
       ctx.strokeStyle = grad;
       ctx.lineWidth = Math.max(1.2, H * (0.004 + 0.003 * gLevel));
       ctx.beginPath();

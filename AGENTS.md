@@ -69,6 +69,12 @@
 
 ## 交接紀錄
 
+### 2026-07-13 — Codex｜視覺配色重設：暮光珊瑚 × 海玻璃 × 珍珠月
+- 做了什麼：依 Pan 明確回饋「不喜歡現在配色，希望不要再這個」，整體視覺不再沿用綠黑陰沉海／暗月。CSS 變數、按鈕、report、preset 狀態、中央 core orb 與 canvas 海面全部改成新方向：上方暮光深靛、水平線珊瑚暖光、海面海玻璃青、月亮珍珠白與泡沫金。中央符號降低宗教/儀表感，改像月亮/浮在海面上的珍珠光；canvas 背景也改為多色大氣層與青藍潮線，不再是單一深綠黑。
+- 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過，localhost `http://localhost:8001/web/index.html` 回 200。需 Pan 重新整理後以肉眼判斷新色系是否比上一版舒服。
+- 未完成 / 卡住：未做截圖 QA；如果 Pan 還是不喜歡，下一步應直接定一張 moodboard 或 2-3 個色票方向，不再在舊系統上微調。
+- 給下一位的建議或待 Pan 決策的問題：不要回到舊版綠黑、暗沉曼陀羅、水核配色。若要調，從「暮光珊瑚 / 海玻璃 / 珍珠月」這組重新演化。
+
 ### 2026-07-13 — Codex｜握力球停報 watchdog + 自動重送模式
 - 做了什麼：Pan 回饋「有一顆一度有抓到，後來就不見了」。新增 HID liveness watchdog：每秒檢查每顆已連接球的 `lastGripReportAt`，超過 `HID_STALE_MS=2500` 但 HID 尚連著時，不清掉 device，只把 `ready` 降回 false、握力歸零、狀態顯示為「等待回應」，並以 `HID_MODE_RESEND_MS=1400` 節流重送 `MODE_9DOF_GRIP`。`updateHidStatus()` 現在逐顆顯示「回應中 / 等待回應」，避免看起來像球消失。
 - 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過，localhost `http://localhost:8001/web/index.html` 回 200。真球測試時若某顆停報，應看到「等待回應」並自動嘗試喚醒；重新收到 report 5 後會變回「回應中」。
