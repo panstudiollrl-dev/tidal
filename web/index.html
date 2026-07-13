@@ -341,6 +341,14 @@
   }
   .report-row b { display: block; color: var(--text); font-size: 14px; margin-bottom: 2px; }
   .report-row span { color: var(--muted); font-size: 13px; }
+  .report-row.action {
+    border-color: rgba(225, 218, 185, .30);
+    background: rgba(116, 158, 150, .16);
+  }
+  .report-action {
+    margin-top: 10px;
+    width: 100%;
+  }
   .confirm-choice {
     color: var(--muted);
     font-size: 13px;
@@ -693,6 +701,7 @@ const ARRIVAL_HOLD_SECONDS = 1.2;
 const ARRIVAL_PRELUDE_SECONDS = 5;
 const ARRIVAL_PRESS_ON = 0.18;
 const ARRIVAL_PRESS_OFF = 0.08;
+const BREATH_MARK_MIN_GAP_MS = 900;
 const HAND_CUE_REPS = 3;
 const HAND_CUE_READY_MS = 1800;
 const HAND_CUE_ON_MS = 1800;
@@ -1317,7 +1326,7 @@ function handleArrivalGrip(slot, level){
     return;
   }
   if(arrival.step !== "breath") return;
-  if(level >= ARRIVAL_PRESS_ON && !arrival.activePress[slot] && now - arrival.lastEventAt > 260){
+  if(level >= ARRIVAL_PRESS_ON && !arrival.activePress[slot] && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
     arrival.events.push({
       t: (now - arrival.breathStart) / 1000,
       slot,
@@ -1489,8 +1498,12 @@ function finishArrival(){
   state.pre = report.pre_tension_estimate;
   $("btnEnterSession").textContent = `進入：${report.recommended_label}`;
   $("arrivalReportRows").innerHTML = report.rows.map(row =>
-    `<div class="report-row"><b>${row.title}</b><span>${row.body}</span></div>`
+    `<div class="report-row${row.action ? " action" : ""}"><b>${row.title}</b><span>${row.body}</span>${row.action ? `<button class="report-action" id="btnReportRecommended">開始 ${report.recommended_label}</button>` : ""}</div>`
   ).join("");
+  const recommendedBtn = $("btnReportRecommended");
+  if(recommendedBtn){
+    recommendedBtn.addEventListener("click", () => enterGuidedPractice(report.recommended_preset).catch(err => log("進入練習失敗：" + err.message)));
+  }
   showArrivalStep("report");
   log("抵達完成。看一下這段小回看，準備好就進入 session。");
 }
@@ -1518,28 +1531,27 @@ function buildArrivalReport(){
   const preEstimate = Math.round(clamp(peak, 0, 1) * 10);
 
   const breathBody = events.length < 4
-    ? "剛開始標記得比較少，也許還在慢慢注意自己的呼吸。"
+    ? "呼吸覺察還在慢慢靠近身體，先不用急著找到規律。"
     : pattern.closeRun >= 2 || pattern.closeRatio > 0.34
-      ? "有幾次標記彼此很靠近，像是前段還在找呼吸，或手比呼吸更快。"
+      ? "呼吸覺察有一點密，像是身體還在從外界轉回自己。"
       : pattern.driftRatio > 1.8
-        ? "前半段和後半段的間隔差很多，這比平均值更值得回看。"
+        ? "前後段的節奏變化明顯，像是身體正在換一種速度。"
         : intervalVar > 1.2
-          ? "標記的間隔有快有慢，代表這段呼吸不是固定節拍。"
-          : "標記的間隔相對連續，手有跟上呼吸的變化。";
-  const forceBody = peak > 0.72
-    ? "這次一開始的力道偏強。"
+          ? "呼吸不是固定節拍，而是有快慢變化的流動。"
+          : "呼吸覺察相對連續，身體已經能慢慢被自己聽見。";
+  const tensionBody = peak > 0.72
+    ? "身體裡的張力或能量現在偏滿，適合先用長一點的吐氣，把滿的感覺慢慢放出去。"
     : peak < 0.32
-      ? "這次一開始的力道偏輕。"
-      : "這次一開始的力道在中間。";
-  const riseBody = rise > 0.9
-    ? "你很快就握到主要力道。"
-    : timeToPeak > 1.4
-      ? "你的力道是慢慢加上去的。"
-      : "你的力道上來得不急不慢。";
-  const stabilityBody = stability > 0.11
-    ? "握住時有一些細微起伏。"
-    : "握住時相對穩定。";
+      ? "身體現在比較輕，或還在保留力氣；可以先用穩定的海潮，慢慢靠近自己。"
+      : "身體能量在中間，有一些可被帶動的空間，也還保有停下來的餘裕。";
   const balance = gripBalanceMetrics(samples);
+  const settleBody = stability > 0.11
+    ? "停留感還有一點晃動，先不用追求穩；讓呼吸提供一個可以放慢的容器。"
+    : rise > 0.9
+      ? "張力來得比較快，但後面仍然能停住；可以用長吐氣把速度慢慢放緩。"
+      : balance.delta > 0.42
+        ? "身體感覺有一點偏向其中一側，可以讓左右往返的海把注意力帶回兩邊。"
+        : "整體有一點可停留的感覺，可以從溫和、連續的節奏開始。";
   const recommendation = recommendBreathPreset({
     eventCount: events.length,
     pattern,
@@ -1573,11 +1585,10 @@ function buildArrivalReport(){
     recommended_reason: recommendation.reason,
     pre_tension_estimate: preEstimate,
     rows: [
-      { title: "呼吸", body: `你標記了 ${events.length} 次。${breathBody}` },
-      { title: "力道", body: `${forceBody}最高大約是 ${Math.round(peak * 100)}%。` },
-      { title: "用力的速度", body: `${riseBody}` },
-      { title: "握住時的穩定", body: `${stabilityBody}` },
-      { title: "接下來", body: `可以先試 ${recommendation.label}。${recommendation.reason}` },
+      { title: "呼吸狀態", body: breathBody },
+      { title: "身體張力", body: tensionBody },
+      { title: "停留感", body: settleBody },
+      { title: "接下來", body: `可以先試 ${recommendation.label}。${recommendation.reason}`, action: true },
     ],
   };
 }
@@ -1598,14 +1609,14 @@ function recommendBreathPreset({ eventCount, pattern, peak, rise, stability, bal
     return {
       id: "hold478",
       label: "4-7-8",
-      reason: "剛才的力道比較滿，或上來得比較快；先用一個有停留和長吐的場景，把這股力慢慢放出去。",
+      reason: "身體裡的張力或能量比較滿；先用有停留和長吐的場景，把這股滿慢慢放出去。",
     };
   }
   if(balance.delta > 0.42){
     return {
       id: "alternate",
       label: "左右潮",
-      reason: "左右手的力道有一點偏向其中一側；可以用左右往返的海，讓身體感覺兩側之間的流動。",
+      reason: "身體感覺有一點偏向其中一側；可以用左右往返的海，讓注意力回到兩邊之間的流動。",
     };
   }
   if(eventCount < 4 || pattern.closeRun >= 2 || pattern.closeRatio > 0.34 || pattern.driftRatio > 1.8){
@@ -1955,12 +1966,13 @@ function sessionSeconds(){
   return Math.max(0, (end - state.sessionStart) / 1000);
 }
 
-function startSession(){
+function startSession(presetId = ""){
   state.phase = "session";
   state.sessionStart = performance.now();
   state.sessionEnd = null;
   state.guided.startedAt = performance.now();
-  if(state.arrival.report && state.arrival.report.recommended_preset) setBreathPreset(state.arrival.report.recommended_preset);
+  if(presetId) setBreathPreset(presetId);
+  else if(state.arrival.report && state.arrival.report.recommended_preset) setBreathPreset(state.arrival.report.recommended_preset);
   else setBreathPreset(state.guided.preset || "resonance");
   state.samples = [];
   state.impactCount = 0;
@@ -1972,8 +1984,8 @@ function startSession(){
   log("Session 開始。先讓海跟著你，再讓它慢慢邀請你。");
 }
 
-async function enterGuidedPractice(){
-  startSession();
+async function enterGuidedPractice(presetId = ""){
+  startSession(presetId);
   try{
     await startAudio({ resume: true });
     if(engine && !state.audioFadedIn){
@@ -2179,7 +2191,10 @@ $("btnStartSession").addEventListener("click", startArrival);
 $("btnEndSession").addEventListener("click", endSession);
 $("btnSaveAfter").addEventListener("click", saveAfter);
 $("btnCsv").addEventListener("click", downloadCsv);
-$("btnEnterSession").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
+$("btnEnterSession").addEventListener("click", () => {
+  const presetId = state.arrival.report ? state.arrival.report.recommended_preset : "";
+  enterGuidedPractice(presetId).catch(err => log("進入練習失敗：" + err.message));
+});
 $("btnPracticeIntro").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
 $("btnPracticeInline").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
 $("btnPracticeShortcut").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));

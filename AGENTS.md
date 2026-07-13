@@ -69,6 +69,12 @@
 
 ## 交接紀錄
 
+### 2026-07-13 — Codex｜Arrival report 改成身心狀態 + 呼吸標記去重
+- 做了什麼：依 Pan 回饋，呼吸標記新增 `BREATH_MARK_MIN_GAP_MS=900`，同一次吸/吐若兩手一起按或連續誤觸，太靠近的第二次按壓不再進入 arrival events。小小回顧畫面不再顯示「力道 / 用力速度 / 穩定度」這些內部 feature，改為「呼吸狀態 / 身體張力 / 停留感 / 接下來」。推薦列新增「開始 海潮 / 左右潮 / 4-7-8」按鈕，直接帶入推薦 preset 進 session；底部「進入：...」也會帶入同一 preset。
+- 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過，localhost `http://localhost:8001/web/index.html` 回 200。4-7-8 推薦現在有獨立 action button，不只是文字。
+- 未完成 / 卡住：900ms 去重窗是 prototype 值，需用真人呼吸標記資料校準；若有人呼吸非常快，可能會略保守。
+- 給下一位的建議或待 Pan 決策的問題：使用者畫面應呈現「狀態」與「下一步陪伴」，不要把 feature name 或百分比直接當 report。技術 feature 保留在 CSV。
+
 ### 2026-07-13 — Codex｜Arrival 自我檢測 → 呼吸法建議
 - 做了什麼：依 Pan 新想法，把第一段自我檢測接到第二段呼吸引導選擇。`buildArrivalReport()` 現在會依呼吸標記 pattern、握力峰值、上升速度、握持穩定度與左右手力道差異產生 `recommended_preset` / `recommended_reason`，report 多一列「接下來」，按鈕改成「進入：海潮 / 左右潮 / 4-7-8」。`startSession()` 會讀這個建議自動切 preset；CSV 新增 `arrival_recommended_preset`、`arrival_recommended_reason`、`arrival_hold_balance_delta`。
 - 現在能跑到哪 / 怎麼驗證：建議邏輯目前保守：高峰值/快上升/不穩 → 4-7-8；左右差異大 → 左右潮；呼吸標記太少/太近/前後漂移大 → 海潮；風箱仍保留手動切換，不自動推薦。`node` script 語法檢查通過；localhost `http://localhost:8001/web/index.html` 回 200。
