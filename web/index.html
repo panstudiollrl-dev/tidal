@@ -54,8 +54,9 @@
     inset: 0;
     z-index: 1;
     background:
-      radial-gradient(70% 62% at 50% 42%, rgba(100, 149, 142, .14), transparent 64%),
-      linear-gradient(180deg, rgba(4, 9, 11, .18), rgba(4, 9, 11, .72));
+      radial-gradient(62% 54% at 50% 36%, rgba(218, 211, 174, .13), transparent 58%),
+      radial-gradient(78% 66% at 50% 56%, rgba(100, 159, 151, .12), transparent 68%),
+      linear-gradient(180deg, rgba(4, 9, 11, .08), rgba(4, 9, 11, .48));
     pointer-events: none;
   }
   .app {
@@ -220,12 +221,13 @@
     transform: translateX(var(--core-drift)) scale(var(--core-scale));
     transition: transform .45s ease;
     background:
-      linear-gradient(to top, rgba(104, 151, 149, .42) 0 calc(var(--cue-fill) * 100%), rgba(104, 151, 149, 0) calc(var(--cue-fill) * 100%)),
-      radial-gradient(circle, rgba(225, 218, 183, .20) 0 2px, transparent 3px),
-      radial-gradient(circle at 50% 50%, rgba(224, 217, 184, .08), rgba(88, 128, 120, .09) 34%, rgba(7, 19, 22, .14) 72%, transparent 74%);
+      linear-gradient(to top, rgba(137, 188, 178, .36) 0 calc(var(--cue-fill) * 100%), rgba(104, 151, 149, 0) calc(var(--cue-fill) * 100%)),
+      radial-gradient(circle at 42% 32%, rgba(253, 241, 195, .44), rgba(235, 223, 181, .19) 28%, rgba(133, 177, 165, .10) 58%, transparent 74%),
+      radial-gradient(circle, rgba(225, 218, 183, .18) 0 2px, transparent 3px),
+      radial-gradient(circle at 50% 50%, rgba(224, 217, 184, .10), rgba(94, 143, 133, .08) 34%, rgba(7, 19, 22, .08) 72%, transparent 74%);
     box-shadow:
       inset 0 0 32px rgba(230, 223, 190, .06),
-      0 0 calc(34px + 62px * var(--core-glow)) rgba(123, 169, 160, calc(.14 + .25 * var(--core-glow)));
+      0 0 calc(42px + 74px * var(--core-glow)) rgba(213, 205, 162, calc(.18 + .28 * var(--core-glow)));
     opacity: .94;
   }
   .core-orb::before,
@@ -273,10 +275,10 @@
     min-width: 188px;
     transform: translateX(calc(var(--core-drift) + var(--breath-pan-x))) scale(var(--session-scale));
     background:
-      linear-gradient(to top, rgba(116, 171, 165, .62) 0 calc(var(--session-water) * 100%), rgba(104, 151, 149, 0) calc(var(--session-water) * 100%)),
-      radial-gradient(circle at 50% calc(60% - 32% * var(--breath-phase)), rgba(232, 224, 184, calc(.16 + .25 * var(--breath-phase))), transparent 33%),
-      radial-gradient(circle at calc(50% + var(--breath-pan-shift)) 50%, rgba(213, 184, 142, calc(.04 + .18 * var(--heart-weather))), transparent 45%),
-      radial-gradient(circle at 50% 50%, rgba(224, 217, 184, .09), rgba(88, 128, 120, calc(.10 + .12 * var(--heart-weather))) 34%, rgba(7, 19, 22, .16) 72%, transparent 74%);
+      linear-gradient(to top, rgba(129, 194, 184, .42) 0 calc(var(--session-water) * 100%), rgba(104, 151, 149, 0) calc(var(--session-water) * 100%)),
+      radial-gradient(circle at 42% 30%, rgba(255, 244, 199, calc(.42 + .25 * var(--breath-phase))), rgba(239, 229, 187, calc(.18 + .20 * var(--breath-phase))) 28%, transparent 58%),
+      radial-gradient(circle at calc(50% + var(--breath-pan-shift)) 50%, rgba(234, 196, 137, calc(.08 + .18 * var(--heart-weather))), transparent 45%),
+      radial-gradient(circle at 50% 50%, rgba(224, 217, 184, .10), rgba(88, 145, 133, calc(.08 + .10 * var(--heart-weather))) 34%, rgba(7, 19, 22, .08) 72%, transparent 74%);
     transition: transform .22s ease, box-shadow .32s ease, opacity .32s ease;
   }
   #phaseSession .core-orb::before {
@@ -1962,36 +1964,38 @@ function guideHapticsForPhase(presetId, phase, phaseKey){
   if(presetId === "hold478"){
     if(phase.name === "inhale"){
       scheduleUnitPulsePattern(4, unitMs, () => [
-        { offset: 0, intensity: 78, duration: 58 },
-        { offset: 128, intensity: 78, duration: 58 },
+        { offset: 0, intensity: 128, duration: 86 },
+        { offset: 170, intensity: 128, duration: 86 },
       ]);
     } else if(phase.name === "hold"){
-      scheduleUnitPulsePattern(7, unitMs, () => ({ offset: 0, intensity: 58, duration: 82 }));
+      scheduleUnitPulsePattern(7, unitMs, () => ({ offset: 0, intensity: 104, duration: 132 }));
     } else if(phase.name === "exhale"){
-      scheduleUnitPulsePattern(8, unitMs, () => ({ offset: 0, intensity: 44, duration: Math.min(240, unitMs * 0.72) }));
+      for(let i = 0; i < Math.ceil((phase.dur * 1000) / 330); i++){
+        scheduleGuidedHaptic(i * 330, 82, 255);
+      }
     }
     return;
   }
 
   if(presetId === "resonance"){
-    if(phase.name === "inhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 50, duration: 90 }));
-    if(phase.name === "exhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 32, duration: Math.min(220, unitMs * 0.60) }));
+    if(phase.name === "inhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 86, duration: 125 }));
+    if(phase.name === "exhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 62, duration: Math.min(255, unitMs * 0.70) }));
     return;
   }
 
   if(presetId === "alternate"){
     const leftSide = phase.name.toLowerCase().includes("left");
     const slot = leftSide ? (state.handMap.left || 1) : (state.handMap.right || 2);
-    scheduleGuidedHaptic(0, 68, 95);
+    scheduleGuidedHaptic(0, 104, 130);
     for(let i = 1; i < Math.round(phase.dur); i++){
-      const timer = setTimeout(() => sendHaptic(slot, 44, 72), i * unitMs);
+      const timer = setTimeout(() => sendHaptic(slot, 82, 108), i * unitMs);
       state.guided.hapticTimers.push(timer);
     }
     return;
   }
 
   if(presetId === "bellows"){
-    scheduleGuidedHaptic(0, phase.name === "inhale" ? 72 : 46, 70);
+    scheduleGuidedHaptic(0, phase.name === "inhale" ? 116 : 82, 82);
   }
 }
 
@@ -2367,7 +2371,7 @@ setInterval(() => {
 setInterval(recordSample, 500);
 
 // 海仍是主視覺：避免人工正弦線，改用厚霧、暗流、寬幅浪帶與中央潮汐曼荼羅。
-let __seaScroll = 0, __seaLast = performance.now() / 1000;
+let __seaScroll = 0, __seaLast = performance.now() / 1000, __leftWave = 0, __rightWave = 0;
 function seaHash(n){ const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 function drawSea(){
   const canvas = $("sea");
@@ -2381,6 +2385,12 @@ function drawSea(){
   const t = performance.now() / 1000;
   const dt = Math.min(0.05, t - __seaLast); __seaLast = t;
   const tide = engine ? engine.tide : (state.grip[1] || 0);
+  const leftSlot = state.handMap.left || 1;
+  const rightSlot = state.handMap.right || 2;
+  const leftGrip = clamp(state.grip[leftSlot] || 0);
+  const rightGrip = clamp(state.grip[rightSlot] || 0);
+  __leftWave += (leftGrip - __leftWave) * 0.035;
+  __rightWave += (rightGrip - __rightWave) * 0.035;
   const az = engine ? engine.azimuth : state.azimuth;
   const m = engine ? engine.metrics : { swell: 0.5, foam: 0, rw: 0 };
   const swell = (m.swell !== undefined) ? m.swell : 0.5;
@@ -2396,10 +2406,10 @@ function drawSea(){
   __seaScroll += dt * (0.010 + 0.055 * tide);
 
   const base = ctx.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, "#05090b");
-  base.addColorStop(0.34, `rgb(${Math.round(8 + 12 * heartWarm)}, ${Math.round(19 + 6 * heartCool)}, ${Math.round(23 + 5 * heartCool)})`);
-  base.addColorStop(0.62, `rgb(${Math.round(10 + 18 * heartWarm)}, ${Math.round(29 + 5 * heartCool)}, ${Math.round(32 + 2 * heartCool)})`);
-  base.addColorStop(1, "#030708");
+  base.addColorStop(0, "#061014");
+  base.addColorStop(0.34, `rgb(${Math.round(10 + 13 * heartWarm)}, ${Math.round(26 + 7 * heartCool)}, ${Math.round(31 + 6 * heartCool)})`);
+  base.addColorStop(0.64, `rgb(${Math.round(12 + 20 * heartWarm)}, ${Math.round(40 + 5 * heartCool)}, ${Math.round(43 + 2 * heartCool)})`);
+  base.addColorStop(1, "#061111");
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
 
@@ -2420,6 +2430,40 @@ function drawSea(){
   ctx.fillStyle = coreGlow;
   ctx.fillRect(0, 0, W, H);
 
+  // 明月與海面反光：讓中央符號像浮在海上的月，而不是陰沉的儀表。
+  const moonX = (0.5 + 0.08 * guidedPan + 0.05 * az) * W;
+  const moonY = H * (0.31 - 0.020 * guidedPhase);
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  const moonGlow = ctx.createRadialGradient(moonX, moonY, H * 0.035, moonX, moonY, H * (0.22 + 0.05 * guidedPhase));
+  moonGlow.addColorStop(0, `rgba(255,244,198,${0.30 + 0.16 * guidedPhase})`);
+  moonGlow.addColorStop(0.34, `rgba(222,221,189,${0.12 + 0.10 * guidedPhase})`);
+  moonGlow.addColorStop(1, "rgba(222,221,189,0)");
+  ctx.fillStyle = moonGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  for(let i = 0; i < 18; i++){
+    const p = i / 17;
+    const y = horizon + H * (0.10 + p * 0.54);
+    const width = W * (0.05 + p * 0.34) * (1 + 0.14 * Math.sin(t * 0.8 + i));
+    const alpha = (0.060 + 0.075 * tide + 0.045 * guidedPhase) * (1 - p * 0.82);
+    const g = ctx.createLinearGradient(moonX - width, y, moonX + width, y);
+    g.addColorStop(0, "rgba(232,224,184,0)");
+    g.addColorStop(0.5, `rgba(238,229,188,${alpha.toFixed(3)})`);
+    g.addColorStop(1, "rgba(232,224,184,0)");
+    ctx.strokeStyle = g;
+    ctx.lineWidth = Math.max(1, H * (0.003 + 0.002 * p));
+    ctx.beginPath();
+    ctx.moveTo(moonX - width, y + Math.sin(t * 0.7 + i) * H * 0.003);
+    ctx.bezierCurveTo(
+      moonX - width * 0.35, y + Math.sin(t * 0.9 + i) * H * 0.010,
+      moonX + width * 0.35, y - Math.sin(t * 0.8 + i) * H * 0.008,
+      moonX + width, y + Math.sin(t * 0.6 + i) * H * 0.004
+    );
+    ctx.stroke();
+  }
+  ctx.restore();
+
   ctx.save();
   ctx.globalCompositeOperation = "screen";
   for(let i = 0; i < 16; i++){
@@ -2438,6 +2482,37 @@ function drawSea(){
     ctx.ellipse(W / 2 + xShift, y, W * (0.55 + 0.42 * depth), bandH, Math.sin(phase) * 0.025, 0, 6.283);
     ctx.fill();
   }
+  ctx.restore();
+
+  // 左右手各自牽動潮水：可以同時、錯拍，或只有一側慢慢湧上岸。
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  const shoreY = H * 0.82;
+  [
+    { side: -1, grip: __leftWave, tint: [161, 210, 198] },
+    { side: 1, grip: __rightWave, tint: [217, 198, 151] },
+  ].forEach((wave, idx) => {
+    const gLevel = clamp(wave.grip);
+    if(gLevel < 0.012) return;
+    for(let k = 0; k < 6; k++){
+      const depth = k / 5;
+      const approach = gLevel * (0.30 + 0.70 * depth);
+      const y = shoreY - H * approach * (0.34 + 0.11 * Math.sin(t * 0.42 + k + idx));
+      const cx = W * (wave.side < 0 ? 0.27 : 0.73) + wave.side * W * 0.045 * Math.sin(t * 0.32 + k);
+      const rx = W * (0.22 + 0.16 * depth + 0.12 * gLevel);
+      const ry = H * (0.020 + 0.028 * depth + 0.045 * gLevel);
+      const alpha = (0.030 + 0.105 * gLevel) * (1 - depth * 0.45);
+      const grad = ctx.createLinearGradient(cx - rx, y, cx + rx, y);
+      grad.addColorStop(0, "rgba(180,218,207,0)");
+      grad.addColorStop(0.48, `rgba(${wave.tint[0]},${wave.tint[1]},${wave.tint[2]},${alpha.toFixed(3)})`);
+      grad.addColorStop(1, "rgba(180,218,207,0)");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = Math.max(1.2, H * (0.004 + 0.003 * gLevel));
+      ctx.beginPath();
+      ctx.ellipse(cx, y, rx, ry, wave.side * (0.03 + 0.04 * Math.sin(t * 0.3 + k)), Math.PI * 1.02, Math.PI * 1.98);
+      ctx.stroke();
+    }
+  });
   ctx.restore();
 
   ctx.save();
