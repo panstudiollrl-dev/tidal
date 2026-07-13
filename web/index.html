@@ -566,10 +566,10 @@
           <div class="arrival-title">聽見呼吸</div>
           <div class="countdown"><span id="breathClock">30</span></div>
           <div class="arrival-copy">
-            <p>吸氣按一下，吐氣也按一下。</p>
+            <p>吸氣時握著，吐氣時放下。</p>
           </div>
           <div class="arrival-progress"><span id="breathProgress"></span></div>
-          <div class="hint">已收到 <span id="breathCount">0</span> 次呼吸標記</div>
+          <div class="hint">已收到 <span id="breathCount">0</span> 次呼吸變化</div>
         </div>
         <div id="arrivalHold" style="display:none">
           <div class="arrival-title">把現在交給手</div>
@@ -728,6 +728,7 @@ const state = {
   motionSmoothed: 0,
   azimuth: 0,
   audioFadedIn: false,
+  lastGripImpactAt: 0,
   grip: { 1: 0, 2: 0 },
   connected: { 1: false, 2: false },
   ready: { 1: false, 2: false },
@@ -742,6 +743,8 @@ const state = {
     pan: 0,
     heartWeather: 0.45,
     heartLabel: "平穩",
+    hapticKey: "",
+    hapticTimers: [],
   },
   arrival: {
     step: "intro",
@@ -754,6 +757,7 @@ const state = {
     lastGrip: { 1: 0, 2: 0 },
     activePress: { 1: false, 2: false },
     lastEventAt: 0,
+    breathHeld: false,
     confirmation: "",
     confirmationAt: null,
     confirmationAdvanceTimer: null,
@@ -1050,23 +1054,23 @@ class OceanEngine {
     const guided = this.breathGuide || { phase: 0.5, influence: 0, period: 10, pan: 0, heart: 0.45, activate: 0 };
     const breathLift = guided.influence * (0.14 + 0.10 * guided.phase);
     const heartSoftening = guided.influence * (0.10 - 0.08 * guided.heart);
-    const energy = clamp(0.15 + 0.85 * this.tide + breathLift + guided.activate * 0.10);
+    const energy = clamp(0.20 + 0.90 * this.tide + breathLift + guided.activate * 0.10);
     const sp = Math.pow(clamp(this.spread), 0.55);            // Ball1 grip 響應曲線：不用很用力就有感
     const cutoff = 250 + 700 * energy * (0.5 + 0.5 * swell) + 200 * sp + 100 * this.rw - 80 * heartSoftening;  // 依阿朗壹錄音頻譜對齊（合成中心~450Hz vs 錄音~430Hz）
     const gate = Math.max(0, swell - 0.55) * energy * (0.82 + 0.18 * this.rw2);           // 泡沫時機不規則
     this.metrics = { swell, set, energy, foam: gate, cutoff, spread: sp, rw: this.rw, rw2: this.rw2 };
 
     this.surgeLP.frequency.setTargetAtTime(cutoff, now, 1.2);
-    this.surgeGain.gain.setTargetAtTime(0.10 + 0.22 * energy * (0.6 + 0.4 * swell * set) + 0.12 * sp + 0.02 * this.rw2, now, 1.0); // 握→更有存在感
-    this.foamGain.gain.setTargetAtTime(0.045 * gate, now, 0.5);   // 錄音 2-6kHz 僅 1.3%、6k+ ~0% → 泡沫嘶聲大幅降低
+    this.surgeGain.gain.setTargetAtTime(0.15 + 0.34 * energy * (0.6 + 0.4 * swell * set) + 0.18 * sp + 0.03 * this.rw2, now, 0.72); // 握→更有存在感
+    this.foamGain.gain.setTargetAtTime(0.060 * gate, now, 0.45);   // 錄音 2-6kHz 僅 1.3%、6k+ ~0% → 泡沫嘶聲仍保持有界
 
     // 鵝卵石捲動：由 Ball2 grip（this.spread）主控其「量」，退浪相位給節奏（Pan 2026-07-09 置換後為 Ball2）。
     const stoneAmt = Math.pow(clamp(this.spread), 0.6);                       // Ball2 grip → 石頭捲動量
     const roll = 0.35 + 0.65 * clamp((0.55 - swell) * 2.0);                   // 退浪相位滾得最盛
-    this.pebbleGain.gain.setTargetAtTime((0.015 + 0.34 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.30);
+    this.pebbleGain.gain.setTargetAtTime((0.030 + 0.52 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.24);
     this.pebbleBP.frequency.setTargetAtTime(380 + 420 * stoneAmt, now, 1.0);  // 石頭壓在低-中頻（錄音主體 120-2000Hz）
     // 低頻包覆床：錄音 sub(20-120Hz) 佔 ~21% → 低頻包覆更明顯
-    this.subGain.gain.setTargetAtTime(0.13 + 0.26 * energy * (0.55 + 0.45 * swell), now, 1.4);
+    this.subGain.gain.setTargetAtTime(0.18 + 0.40 * energy * (0.50 + 0.50 * swell) + 0.10 * sp, now, 0.95);
     this.metrics.pebble = stoneAmt * roll;
 
     if(now - this.lastSwing > 0.3) this.azTarget *= 0.985;
@@ -1087,7 +1091,7 @@ class OceanEngine {
   }
 
   setSpread(level){ this.spread += (level - this.spread) * 0.05; }
-  setTide(level){ this.tide += (level - this.tide) * 0.018; }   // Pan 2026-07-09：潮汐動態放慢，湧近更溫和不嚇人
+  setTide(level){ this.tide += (level - this.tide) * 0.045; }   // Pan 2026-07-13：握住時海底湧動要更明確，但仍平滑
   setGripPan(pan){ this.gripPan = clamp(pan, -1, 1); }
   setBreathGuide(guide){
     this.breathGuide = Object.assign({}, this.breathGuide, guide);
@@ -1135,11 +1139,11 @@ class OceanEngine {
     src.connect(bp);
     bp.connect(g);
     g.connect(this.impactPanner);
-    const swellT = 0.55;                                  // 蓄積時間：不是一開始就拍擊
-    const peak = 0.22 + 0.22 * this.tide;                 // 有界峰值
+    const swellT = 0.42;                                  // 蓄積時間：不是一開始就拍擊，但要能被手感覺到
+    const peak = 0.32 + 0.28 * this.tide;                 // 有界峰值，找回拍石存在感
     // 頻率隨蓄積上掃（越蓄越亮，像鈸漸強），破碎後回落變暗
     bp.frequency.setValueAtTime(300 + 200 * this.tide, now);
-    bp.frequency.linearRampToValueAtTime(1400 + 600 * this.tide, now + swellT);
+    bp.frequency.linearRampToValueAtTime(1700 + 720 * this.tide, now + swellT);
     bp.frequency.setTargetAtTime(500 + 300 * this.tide, now + swellT, 0.8);
     // 蓄積包絡：ease-in 漸強到峰值，再長衰減（像管弦樂團的鈸 swell / 浪湧上再破碎）
     const N = 48;
@@ -1163,13 +1167,13 @@ const devices = { 1: null, 2: null };
 const accBaseline = { 1: null, 2: null };
 const lastHaptic = { 1: 0, 2: 0 };
 
-const HAPTICS_ENABLED = false;   // Pan 2026-07-09：先撤掉所有震動回饋，之後再想過。設 true 即恢復。
+const HAPTICS_ENABLED = true;   // Pan 2026-07-13：呼吸引導需要觸覺節奏，重新開啟；仍保持有界、低侵入。
 function sendHaptic(slot, intensity, duration){
   if(!HAPTICS_ENABLED) return;
   const dev = devices[slot];
   if(!dev) return;
   const now = performance.now();
-  if(now - lastHaptic[slot] < 100) return;
+  if(now - lastHaptic[slot] < 45) return;
   lastHaptic[slot] = now;
   const p = new Uint8Array(26);
   p[0] = 11;
@@ -1182,9 +1186,36 @@ function sendHaptic(slot, intensity, duration){
   dev.sendReport(1, p).catch(() => {});
 }
 
+function sendHapticAll(intensity, duration){
+  sendHaptic(1, intensity, duration);
+  sendHaptic(2, intensity, duration);
+}
+
+function clearGuidedHaptics(){
+  for(const timer of state.guided.hapticTimers) clearTimeout(timer);
+  state.guided.hapticTimers = [];
+}
+
+function scheduleGuidedHaptic(delayMs, intensity, duration){
+  const timer = setTimeout(() => sendHapticAll(intensity, duration), Math.max(0, delayMs));
+  state.guided.hapticTimers.push(timer);
+}
+
+function scheduleUnitPulsePattern(units, unitMs, pulseForUnit){
+  for(let i = 0; i < units; i++){
+    const pulse = pulseForUnit(i);
+    if(!pulse) continue;
+    for(const p of Array.isArray(pulse) ? pulse : [pulse]){
+      scheduleGuidedHaptic(i * unitMs + (p.offset || 0), p.intensity, p.duration);
+    }
+  }
+}
+
 function resetArrival(){
   $("btnEnterSession").textContent = "進入引導 session";
   if(state.arrival.confirmationAdvanceTimer) clearTimeout(state.arrival.confirmationAdvanceTimer);
+  clearGuidedHaptics();
+  state.guided.hapticKey = "";
   state.arrival = {
     step: "intro",
     preludeStart: null,
@@ -1196,6 +1227,7 @@ function resetArrival(){
     lastGrip: { 1: 0, 2: 0 },
     activePress: { 1: false, 2: false },
     lastEventAt: 0,
+    breathHeld: false,
     lastHoldSampleAt: 0,
     confirmation: "",
     confirmationAt: null,
@@ -1324,14 +1356,26 @@ function handleArrivalGrip(slot, level){
     return;
   }
   if(arrival.step !== "breath") return;
-  if(level >= ARRIVAL_PRESS_ON && !arrival.activePress[slot] && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
+  const anyHeld = Math.max(state.grip[1], state.grip[2]) >= ARRIVAL_PRESS_ON;
+  if(anyHeld && !arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
     arrival.events.push({
       t: (now - arrival.breathStart) / 1000,
       slot,
       level,
+      type: "inhale",
     });
     arrival.lastEventAt = now;
-    arrival.activePress[slot] = true;
+    arrival.breathHeld = true;
+  }
+  if(!anyHeld && arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
+    arrival.events.push({
+      t: (now - arrival.breathStart) / 1000,
+      slot,
+      level,
+      type: "exhale",
+    });
+    arrival.lastEventAt = now;
+    arrival.breathHeld = false;
   }
   if(level <= ARRIVAL_PRESS_OFF) arrival.activePress[slot] = false;
 }
@@ -1380,7 +1424,7 @@ function updateArrival(){
     if(elapsed >= ARRIVAL_PRELUDE_SECONDS){
       arrival.breathStart = performance.now();
       showArrivalStep("breath");
-      log("三十秒。只要發現吸氣或呼氣，就輕輕按一下。");
+      log("三十秒。吸氣時握著，吐氣時放下。");
     }
   }
   if(arrival.step === "breath" && arrival.breathStart){
@@ -1678,6 +1722,7 @@ function stddev(xs){
 }
 
 function setGrip(slot, level){
+  const previous = state.grip[slot] || 0;
   state.grip[slot] = level;
   const cue = state.arrival.handCue;
   if(state.arrival.step === "handCue" && cue.cueOn && level >= ARRIVAL_PRESS_ON){
@@ -1703,8 +1748,14 @@ function setGrip(slot, level){
   $("m" + slot).style.width = Math.round(level * 100) + "%";
   $("v" + slot).textContent = Math.round(level * 100) + "%";
   if(!engine) return;
-  if(slot === 1) engine.setTide(level);       // Ball 1 grip → 潮汐能量（Pan 2026-07-09 置換）
-  else engine.setSpread(level);               // Ball 2 grip → 鵝卵石捲動量（+ 聲場空間為輔）
+  const maxGrip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
+  const avgGrip = ((state.grip[1] || 0) + (state.grip[2] || 0)) / 2;
+  engine.setTide(maxGrip);                    // 任一手握住都讓海底湧動變明顯
+  engine.setSpread(slot === 2 ? Math.max(level, avgGrip) : avgGrip); // Ball2 仍強化石頭，但雙手也能帶出滾動
+  if(level >= HARD_GRIP && previous < HARD_GRIP * 0.72 && performance.now() - state.lastGripImpactAt > 1800){
+    state.lastGripImpactAt = performance.now();
+    if(state.audioFadedIn && engine.impact()) sendHapticAll(104, 72);
+  }
   const leftSlot = state.handMap.left || 1;
   const rightSlot = state.handMap.right || 2;
   const leftGrip = state.grip[leftSlot] || 0;
@@ -1879,6 +1930,8 @@ function activeBreathPreset(){
 
 function setBreathPreset(id){
   if(!BREATH_PRESETS[id]) return;
+  clearGuidedHaptics();
+  state.guided.hapticKey = "";
   state.guided.preset = id;
   state.guided.startedAt = performance.now();
   document.querySelectorAll(".preset-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.preset === id));
@@ -1900,12 +1953,56 @@ function phaseAt(preset, elapsedSeconds){
   return { phase: preset.phases[0], local: 0, total, t: 0 };
 }
 
+function guideHapticsForPhase(presetId, phase, phaseKey){
+  if(!HAPTICS_ENABLED || state.guided.hapticKey === phaseKey) return;
+  state.guided.hapticKey = phaseKey;
+  clearGuidedHaptics();
+  const unitMs = Math.max(180, (phase.dur * 1000) / Math.max(1, Math.round(phase.dur)));
+
+  if(presetId === "hold478"){
+    if(phase.name === "inhale"){
+      scheduleUnitPulsePattern(4, unitMs, () => [
+        { offset: 0, intensity: 78, duration: 58 },
+        { offset: 128, intensity: 78, duration: 58 },
+      ]);
+    } else if(phase.name === "hold"){
+      scheduleUnitPulsePattern(7, unitMs, () => ({ offset: 0, intensity: 58, duration: 82 }));
+    } else if(phase.name === "exhale"){
+      scheduleUnitPulsePattern(8, unitMs, () => ({ offset: 0, intensity: 44, duration: Math.min(240, unitMs * 0.72) }));
+    }
+    return;
+  }
+
+  if(presetId === "resonance"){
+    if(phase.name === "inhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 50, duration: 90 }));
+    if(phase.name === "exhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 32, duration: Math.min(220, unitMs * 0.60) }));
+    return;
+  }
+
+  if(presetId === "alternate"){
+    const leftSide = phase.name.toLowerCase().includes("left");
+    const slot = leftSide ? (state.handMap.left || 1) : (state.handMap.right || 2);
+    scheduleGuidedHaptic(0, 68, 95);
+    for(let i = 1; i < Math.round(phase.dur); i++){
+      const timer = setTimeout(() => sendHaptic(slot, 44, 72), i * unitMs);
+      state.guided.hapticTimers.push(timer);
+    }
+    return;
+  }
+
+  if(presetId === "bellows"){
+    scheduleGuidedHaptic(0, phase.name === "inhale" ? 72 : 46, 70);
+  }
+}
+
 function updateGuidedSession(force = false){
   if(state.phase !== "session" && !force) return;
   const preset = activeBreathPreset();
   if(!state.guided.startedAt) state.guided.startedAt = performance.now();
   const elapsed = Math.max(0, (performance.now() - state.guided.startedAt) / 1000);
   const ph = phaseAt(preset, elapsed);
+  const phaseKey = `${state.guided.preset}:${Math.floor(elapsed / ph.total)}:${ph.phase.name}`;
+  guideHapticsForPhase(state.guided.preset, ph.phase, phaseKey);
   const breathCurve = ph.phase.hold
     ? 0.76
     : ph.phase.name.toLowerCase().includes("exhale")
@@ -1995,6 +2092,8 @@ async function enterGuidedPractice(presetId = ""){
 function endSession(){
   state.phase = "after";
   state.sessionEnd = performance.now();
+  clearGuidedHaptics();
+  state.guided.hapticKey = "";
   if(engine) engine.setBreathGuide({ influence: 0, activate: 0, pan: 0 });
   $("btnEndSession").disabled = true;
   setPhase();

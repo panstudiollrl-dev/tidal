@@ -69,6 +69,12 @@
 
 ## 交接紀錄
 
+### 2026-07-13 — Codex｜吸握吐放 + 4-7-8 觸覺節奏 + 找回拍石/低頻湧動
+- 做了什麼：依 Pan 回饋，30 秒 arrival 呼吸覺察從「吸/吐各按一下」改為「吸氣時握著，吐氣時放下」，資料層以 `inhale` / `exhale` 狀態變化記錄，兩手同時握不會變成兩個靠很近的標記。重新開啟 haptics（`HAPTICS_ENABLED=true`），並在 guided session 依 phase 排程觸覺：4-7-8 的吸氣＝每單位兩個短震、四組；屏氣＝七個單震；吐氣＝八段較長震。海潮、左右潮、風箱也有對應的低侵入觸覺節奏。聲音上加強握力對低頻湧動、surge、pebble rolling 的影響；任一手握住都能推動海底湧動。拍石聲降低等待感、提高峰值，並新增明確用力跨過門檻時觸發（保留冷卻），不只依賴揮動。
+- 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過，localhost `http://localhost:8001/web/index.html` 回 200。需要真球驗證 haptic report 封包在兩顆球上是否符合手感，尤其 4-7-8 的雙短震是否太密或太強。
+- 未完成 / 卡住：觸覺強度與 duration 是 prototype 起點；真球上可能需要調 `intensity/duration` 與 haptic 最短間隔。拍石聲現在也會被強握觸發，若太刺激需調高冷卻或門檻。
+- 給下一位的建議或待 Pan 決策的問題：此版正式改變先前「暫停震動」決策，因 Pan 明確要呼吸法觸覺引導。若做健康/放鬆版，仍要保留有界、低侵入，不要把震動做成催促或懲罰。
+
 ### 2026-07-13 — Codex｜修 report 進不去 session 的 CSS 疊層 bug
 - 做了什麼：Pan 回饋「開始 4-7-8 / 進入 4-7-8」重複且點了進不去。移除 report 內的第二顆動態 action button，只留固定主按鈕「進入這段練習」。同時修正 CSS：原本 `.guide-panel { display:grid }` 會覆蓋 `.phase { display:none }`，導致非 active 幻燈片仍可能在版面中干擾點擊或看起來像沒換幕；新增 `.phase.guide-panel:not(.active){display:none}` / `.phase.guide-panel.active{display:grid}`。主按鈕同時綁 `pointerdown` 與 `click`，降低 click 被吃掉的機率。
 - 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過，localhost `http://localhost:8001/web/index.html` 回 200。
