@@ -76,6 +76,12 @@
 - 未完成 / 卡住：目前 `heartWeather` 不是實際心率/HRV，只是由握力與 motion 推估的慢變視覺天氣；日後接真實心跳時應讓 HR/HRV 控制海色與透明度，不做直接 heartbeat ping。4-7-8 的停屏目前是視覺/週期懸止，尚未加專屬駐音層。
 - 給下一位的建議或待 Pan 決策的問題：心跳最好繼續作「海色/霧/透明度」而非聲音事件；風箱模式要明確留在 Activate/提振語境，不當預設。若 Pan 喜歡這個方向，下一步是調每個 preset 的聲音差異與讓 Arrival report 自動建議 preset。
 
+### 2026-07-13 — Codex｜呼吸練習入口修正 + 呼吸標記 pattern 分析
+- 做了什麼：Pan 回饋「進不到不同呼吸練習」後，修正入口流程。新增 viewport 固定的「呼吸練習」按鈕，避免 in-app browser 矮視窗把入口擠出可視區；`enterGuidedPractice()` 改為先切 session，再嘗試啟動音訊，且 `startAudio()` 在 session 中不再 `resetArrival()`。另新增呼吸標記 pattern 分析，避免只看平均間距：記錄最短間隔、過近標記數/比例、連續過近段、前半/後半平均、前後漂移比例，並在 report 優先指出「標記很靠近」或「前後段差很多」。
+- 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過。已用 in-app browser 開 localhost 實測：固定「呼吸練習」入口可見；點擊後 `phaseSession` 變 active；四個 preset 顯示；點 `4-7-8` 可切換為「懸止的長吐」。
+- 未完成 / 卡住：Browser 工具因安全政策不能操作 `file://`，以 localhost 驗證同一份檔案。Pan 若直接開 file 也應看到本地改動，但 WebHID/IR 載入仍建議走 localhost 或 GitHub Pages。
+- 給下一位的建議或待 Pan 決策的問題：呼吸標記 close threshold 暫設 1.05 秒，需用真人資料校準；report 語言仍應避免把「亂按」說成失敗。
+
 ### 2026-07-10 — Claude (Opus)｜呼吸引導 × 聲景設計規格（新增 BREATHING.md、READING.md）
 - 與 Pan 深談後產出兩份文件，未改程式：
   - **`BREATHING.md`**：呼吸引導 × 聲景實作規格（交給 Codex）。核心：海＝**自適應、邀請式**呼吸/握放引導（先接再引、邀請非命令、反 dressage、不醫療化）；呼吸法的三個「音樂簽名」（時間包絡/喚起方向/自身音色）；放鬆組對照（共振→海潮、4-7-8→山谷風+懸止駐音、Nadi Shodhana→左右交替海浪用 azimuth、Ujjayi→海本身、Bhramari→嗡鳴駐音、Sitali→清涼溪）；提振組（**Bhastrika 風箱式**、Kapalabhati）＝**獨立 Activate 模式、非放鬆預設**；握放耦合（PMR：吸握吐放）、放進 Session 1 之後的流程、技術對照與開放問題。

@@ -397,6 +397,24 @@
     border-radius: 999px;
     background: rgba(255,255,255,.025);
   }
+  .practice-shortcut {
+    position: fixed;
+    left: 14px;
+    right: 14px;
+    top: clamp(12px, 3vh, 24px);
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .practice-shortcut button {
+    pointer-events: auto;
+    min-height: 38px;
+    padding: 8px 12px;
+    color: rgba(230, 239, 235, .86);
+    background: rgba(9, 24, 27, .34);
+    border-color: rgba(219, 237, 231, .13);
+  }
   .logline {
     margin-top: 10px;
     min-height: 22px;
@@ -411,6 +429,58 @@
     .status { text-align: left; }
     .experience { min-height: 72vh; }
     .core-orb { width: 56vw; min-width: 152px; }
+  }
+  @media (max-height: 680px) {
+    .guide-panel {
+      gap: 12px;
+      padding: 14px;
+      align-content: center;
+    }
+    .core-orb {
+      width: min(28vw, 148px);
+      min-width: 112px;
+    }
+    #phaseSession .core-orb {
+      width: min(32vw, 168px);
+      min-width: 124px;
+    }
+    .arrival-title {
+      font-size: clamp(21px, 4vw, 28px);
+      margin-bottom: 6px;
+    }
+    .arrival-copy {
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .arrival-copy p {
+      margin-bottom: 5px;
+    }
+    .countdown {
+      font-size: clamp(52px, 12vw, 86px);
+    }
+    .scene-action {
+      margin-top: 6px;
+    }
+    .session-stage {
+      gap: 9px;
+    }
+    .breath-word {
+      min-height: 24px;
+      font-size: clamp(20px, 3.4vw, 28px);
+    }
+    .session-preset-row {
+      gap: 6px;
+      margin-top: 2px;
+    }
+    .preset-btn {
+      min-height: 34px;
+      padding: 7px 10px;
+      font-size: 13px;
+    }
+    .hint {
+      font-size: 12px;
+      line-height: 1.4;
+    }
   }
 </style>
 </head>
@@ -457,6 +527,9 @@
           <div class="arrival-copy">
             <p>聲音會先保持安靜。</p>
           </div>
+          <div class="controls scene-action">
+            <button id="btnPracticeIntro">直接進入呼吸練習</button>
+          </div>
         </div>
         <div id="arrivalConnect" style="display:none">
           <div class="arrival-title">連接握力球</div>
@@ -465,6 +538,7 @@
           </div>
           <div class="controls scene-action">
             <button id="btnConnectInline">連接握力球</button>
+            <button id="btnPracticeInline" class="ghost">先進入呼吸練習</button>
           </div>
           <div class="hint" style="margin-top:12px">如果只是測試，也可以用空白鍵代替按壓。</div>
         </div>
@@ -513,6 +587,9 @@
           <div class="controls" style="margin-top:12px">
             <button id="btnEnterSession">進入引導 session</button>
           </div>
+        </div>
+        <div class="practice-shortcut">
+          <button id="btnPracticeShortcut" class="ghost">呼吸練習</button>
         </div>
       </section>
 
@@ -1174,7 +1251,6 @@ function readyCount(){
 function showConnectOrStart(){
   const n = connectedCount();
   if(n >= 2) beginHandCue("left");
-  else if(!("hid" in navigator)) beginPrelude();
   else {
     showArrivalStep("connect");
     updateConnectScene();
@@ -1184,8 +1260,12 @@ function showConnectOrStart(){
 function updateConnectScene(){
   const connected = connectedCount();
   const ready = readyCount();
-  $("btnConnectInline").textContent = connected === 0 ? "連接握力球" : "再連接另一顆握力球";
-  $("connectCopy").textContent = connected === 0
+  const hidAvailable = "hid" in navigator;
+  $("btnConnectInline").textContent = !hidAvailable ? "用空白鍵進行自我檢測" : (connected === 0 ? "連接握力球" : "再連接另一顆握力球");
+  $("btnConnectInline").disabled = !hidAvailable;
+  $("connectCopy").textContent = !hidAvailable
+    ? "這個瀏覽器不能連握力球。你仍然可以直接進入呼吸練習，或用空白鍵先跑一段自我檢測。"
+    : connected === 0
     ? "接下來會用兩隻手的按壓，記錄呼吸和此刻的力道。"
     : connected === 1
       ? "已經連到一顆。請再連接另一顆。"
@@ -1410,14 +1490,19 @@ function buildArrivalReport(){
   for(let i = 1; i < events.length; i++) intervals.push(events[i].t - events[i - 1].t);
   const intervalMean = avg(intervals);
   const intervalVar = stddev(intervals);
+  const pattern = breathPatternMetrics(intervals);
   const breathRate = events.length ? events.length / ARRIVAL_BREATH_SECONDS * 60 : 0;
   const preEstimate = Math.round(clamp(peak, 0, 1) * 10);
 
   const breathBody = events.length < 4
     ? "剛開始標記得比較少，也許還在慢慢注意自己的呼吸。"
-    : intervalVar > 1.2
-      ? "標記的間隔有快有慢，代表這段呼吸不是固定節拍。"
-      : "標記的間隔相對穩定，手有跟上呼吸的變化。";
+    : pattern.closeRun >= 2 || pattern.closeRatio > 0.34
+      ? "有幾次標記彼此很靠近，像是前段還在找呼吸，或手比呼吸更快。"
+      : pattern.driftRatio > 1.8
+        ? "前半段和後半段的間隔差很多，這比平均值更值得回看。"
+        : intervalVar > 1.2
+          ? "標記的間隔有快有慢，代表這段呼吸不是固定節拍。"
+          : "標記的間隔相對連續，手有跟上呼吸的變化。";
   const forceBody = peak > 0.72
     ? "這次一開始的力道偏強。"
     : peak < 0.32
@@ -1437,6 +1522,13 @@ function buildArrivalReport(){
     breath_mark_rate: breathRate,
     breath_interval_mean: intervalMean,
     breath_interval_sd: intervalVar,
+    breath_interval_min: pattern.min,
+    breath_close_count: pattern.closeCount,
+    breath_close_ratio: pattern.closeRatio,
+    breath_close_run: pattern.closeRun,
+    breath_early_interval_mean: pattern.earlyMean,
+    breath_late_interval_mean: pattern.lateMean,
+    breath_interval_drift_ratio: pattern.driftRatio,
     hold_peak: peak,
     hold_mean: mean,
     hold_auc: auc,
@@ -1450,6 +1542,49 @@ function buildArrivalReport(){
       { title: "用力的速度", body: `${riseBody}` },
       { title: "握住時的穩定", body: `${stabilityBody}` },
     ],
+  };
+}
+
+function breathPatternMetrics(intervals){
+  const valid = intervals.filter(Number.isFinite);
+  if(!valid.length){
+    return {
+      min: 0,
+      closeCount: 0,
+      closeRatio: 0,
+      closeRun: 0,
+      earlyMean: 0,
+      lateMean: 0,
+      driftRatio: 1,
+    };
+  }
+  const closeThreshold = 1.05; // 吸/吐覺察標記若低於約 1 秒，多半不是自然呼吸間距。
+  let closeCount = 0;
+  let closeRun = 0;
+  let run = 0;
+  for(const gap of valid){
+    if(gap < closeThreshold){
+      closeCount += 1;
+      run += 1;
+      closeRun = Math.max(closeRun, run);
+    } else {
+      run = 0;
+    }
+  }
+  const mid = Math.max(1, Math.ceil(valid.length / 2));
+  const early = valid.slice(0, mid);
+  const late = valid.slice(mid);
+  const earlyMean = avg(early);
+  const lateMean = late.length ? avg(late) : earlyMean;
+  const driftRatio = Math.max(earlyMean, lateMean) / Math.max(0.001, Math.min(earlyMean || lateMean, lateMean || earlyMean));
+  return {
+    min: Math.min(...valid),
+    closeCount,
+    closeRatio: closeCount / valid.length,
+    closeRun,
+    earlyMean,
+    lateMean,
+    driftRatio,
   };
 }
 
@@ -1510,7 +1645,7 @@ async function startAudio(options = {}){
   $("audioStatus").textContent = "聲音已準備";
   $("btnBall").disabled = !("hid" in navigator);
   $("btnStartSession").disabled = false;
-  resetArrival();
+  if(state.phase !== "session") resetArrival();
   log(("hid" in navigator) ? "聲音已準備。第一次按下握力球時，海會慢慢進來。" : "聲音已準備。第一次按空白鍵時，海會慢慢進來。");
 }
 
@@ -1760,6 +1895,19 @@ function startSession(){
   log("Session 開始。先讓海跟著你，再讓它慢慢邀請你。");
 }
 
+async function enterGuidedPractice(){
+  startSession();
+  try{
+    await startAudio({ resume: true });
+    if(engine && !state.audioFadedIn){
+      state.audioFadedIn = true;
+      engine.fadeIn();
+    }
+  }catch(err){
+    log("已進入練習；聲音需要瀏覽器允許後才會進來。");
+  }
+}
+
 function endSession(){
   state.phase = "after";
   state.sessionEnd = performance.now();
@@ -1793,6 +1941,13 @@ function saveAfter(){
     arrival_breath_rate: state.arrival.report ? state.arrival.report.breath_mark_rate.toFixed(2) : "",
     arrival_breath_interval_mean: state.arrival.report ? state.arrival.report.breath_interval_mean.toFixed(3) : "",
     arrival_breath_interval_sd: state.arrival.report ? state.arrival.report.breath_interval_sd.toFixed(3) : "",
+    arrival_breath_interval_min: state.arrival.report ? state.arrival.report.breath_interval_min.toFixed(3) : "",
+    arrival_breath_close_count: state.arrival.report ? state.arrival.report.breath_close_count : "",
+    arrival_breath_close_ratio: state.arrival.report ? state.arrival.report.breath_close_ratio.toFixed(3) : "",
+    arrival_breath_close_run: state.arrival.report ? state.arrival.report.breath_close_run : "",
+    arrival_breath_early_interval_mean: state.arrival.report ? state.arrival.report.breath_early_interval_mean.toFixed(3) : "",
+    arrival_breath_late_interval_mean: state.arrival.report ? state.arrival.report.breath_late_interval_mean.toFixed(3) : "",
+    arrival_breath_interval_drift_ratio: state.arrival.report ? state.arrival.report.breath_interval_drift_ratio.toFixed(3) : "",
     arrival_hold_peak: state.arrival.report ? state.arrival.report.hold_peak.toFixed(3) : "",
     arrival_hold_mean: state.arrival.report ? state.arrival.report.hold_mean.toFixed(3) : "",
     arrival_hold_auc: state.arrival.report ? state.arrival.report.hold_auc.toFixed(3) : "",
@@ -1828,6 +1983,8 @@ function downloadCsv(){
     "avg_breath_phase", "avg_heart_weather", "impact_count",
     "avg_ball1_grip", "avg_ball2_grip", "avg_motion",
     "arrival_breath_events", "arrival_breath_rate", "arrival_breath_interval_mean", "arrival_breath_interval_sd",
+    "arrival_breath_interval_min", "arrival_breath_close_count", "arrival_breath_close_ratio", "arrival_breath_close_run",
+    "arrival_breath_early_interval_mean", "arrival_breath_late_interval_mean", "arrival_breath_interval_drift_ratio",
     "arrival_hold_peak", "arrival_hold_mean", "arrival_hold_auc", "arrival_hold_time_to_peak",
     "arrival_hold_stability_sd", "arrival_hold_rise_slope", "arrival_confirmation",
     "input_source", "rhythm_note"
@@ -1941,7 +2098,10 @@ $("btnStartSession").addEventListener("click", startArrival);
 $("btnEndSession").addEventListener("click", endSession);
 $("btnSaveAfter").addEventListener("click", saveAfter);
 $("btnCsv").addEventListener("click", downloadCsv);
-$("btnEnterSession").addEventListener("click", startSession);
+$("btnEnterSession").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
+$("btnPracticeIntro").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
+$("btnPracticeInline").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
+$("btnPracticeShortcut").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
 document.querySelectorAll(".preset-btn").forEach(btn => {
   btn.addEventListener("click", () => setBreathPreset(btn.dataset.preset));
 });
