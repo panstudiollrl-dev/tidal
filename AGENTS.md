@@ -69,6 +69,12 @@
 
 ## 交接紀錄
 
+### 2026-07-13 — Codex｜握力球停報 watchdog + 自動重送模式
+- 做了什麼：Pan 回饋「有一顆一度有抓到，後來就不見了」。新增 HID liveness watchdog：每秒檢查每顆已連接球的 `lastGripReportAt`，超過 `HID_STALE_MS=2500` 但 HID 尚連著時，不清掉 device，只把 `ready` 降回 false、握力歸零、狀態顯示為「等待回應」，並以 `HID_MODE_RESEND_MS=1400` 節流重送 `MODE_9DOF_GRIP`。`updateHidStatus()` 現在逐顆顯示「回應中 / 等待回應」，避免看起來像球消失。
+- 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過，localhost `http://localhost:8001/web/index.html` 回 200。真球測試時若某顆停報，應看到「等待回應」並自動嘗試喚醒；重新收到 report 5 後會變回「回應中」。
+- 未完成 / 卡住：若停報是藍牙/HID 實際斷線或 OS 獨占，重送模式不一定能救；需要使用者重新連線或重開球。若仍常發生，要參考 Sonic Squid 的連線策略或檢查模式封包。
+- 給下一位的建議或待 Pan 決策的問題：不要再把「HID connected」和「握力資料 ready」混在一起；UI 可以不顯示 debug，但內部狀態必須分開。
+
 ### 2026-07-13 — Codex｜修 4-7-8 命名、arrival 聲音與焦慮度停留
 - 做了什麼：依 Pan 回饋，將 `hold478` 顯示標題從「懸止的長吐」改成「4-7-8 呼吸」，文案改成吸四拍、停七拍、吐八拍。30 秒自我呼吸覺察的吸握/吐放現在會給溫和 cue wave：吸氣握下時依左右手定位播入浪，吐氣放開時播較輕的退浪。焦慮/情緒強度畫面不再 1.2 秒閃走，改為進畫面先停 1.8 秒讓使用者讀題，握住 1.8 秒後提示「可以放開了」，放開後才進小小回顧。haptic phase key 改用 cycle + phase index，避免 4-7-8 震動排程混亂；`setBreathPreset()` 也只在 session 內強制 update，避免尚未進 session 時提前排震。
 - 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過，localhost `http://localhost:8001/web/index.html` 回 200。需 Pan 用真球確認 arrival cue 聲音是否有被聽見、焦慮度畫面是否不再閃走、4-7-8 震動是否變得可讀。

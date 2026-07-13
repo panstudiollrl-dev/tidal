@@ -708,6 +708,8 @@ const HAND_CUE_REPS = 3;
 const HAND_CUE_READY_MS = 1800;
 const HAND_CUE_ON_MS = 1800;
 const HAND_CUE_OFF_MS = 2500;
+const HID_STALE_MS = 2500;
+const HID_MODE_RESEND_MS = 1400;
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
@@ -737,6 +739,7 @@ const state = {
   connected: { 1: false, 2: false },
   ready: { 1: false, 2: false },
   lastGripReportAt: { 1: 0, 2: 0 },
+  lastModeSentAt: { 1: 0, 2: 0 },
   handMap: { left: null, right: null },
   guided: {
     preset: "resonance",
@@ -1320,7 +1323,9 @@ function updateConnectScene(){
     ? "接下來會用兩隻手的按壓，記錄呼吸和此刻的力道。"
     : connected === 1
       ? "已經連到一顆。請再連接另一顆。"
-      : `兩顆握力球已連接${ready < 2 ? "，等等會用亮暗回應來確認左右手。" : "。"}`;
+      : ready < 2
+        ? "兩顆握力球已連接，其中一顆正在等待回應。系統會自動重新喚醒。"
+        : "兩顆握力球已連接。";
 }
 
 function maybeAdvanceFromConnect(){
@@ -1829,6 +1834,37 @@ function updateHidStatus(){
   const r = readyCount();
   $("hidDot").classList.toggle("on", n > 0);
   $("hidStatus").textContent = n ? `握力球已連接 ×${n} / 已回應 ×${r}` : "握力球未連接";
+  [1, 2].forEach(slot => {
+    if(!devices[slot] || !state.connected[slot]){
+      $("s" + slot).textContent = "未連接";
+      return;
+    }
+    const age = state.lastGripReportAt[slot] ? performance.now() - state.lastGripReportAt[slot] : Infinity;
+    const name = devices[slot].productName || ("Ball " + slot);
+    $("s" + slot).textContent = state.ready[slot] && age < HID_STALE_MS
+      ? `${name} 回應中`
+      : `${name} 等待回應`;
+  });
+}
+
+async function sendModeCommand(slot, reason = ""){
+  const dev = devices[slot];
+  if(!dev) return false;
+  const now = performance.now();
+  if(now - state.lastModeSentAt[slot] < HID_MODE_RESEND_MS) return false;
+  state.lastModeSentAt[slot] = now;
+  try{
+    if(!dev.opened) await dev.open();
+    const cmd = new Uint8Array(26);
+    cmd[0] = 1;
+    cmd[1] = MODE_9DOF_GRIP;
+    await dev.sendReport(1, cmd);
+    if(reason) log(`Ball ${slot} 重新喚醒中。`);
+    return true;
+  }catch(err){
+    log(`Ball ${slot} 模式指令失敗：${err.message}`);
+    return false;
+  }
 }
 
 async function registerDevice(dev, slot){
@@ -1837,14 +1873,10 @@ async function registerDevice(dev, slot){
   state.connected[slot] = true;
   state.ready[slot] = false;
   state.lastGripReportAt[slot] = 0;
+  state.lastModeSentAt[slot] = 0;
   calib[slot] = new GripCalibrator();          // 每顆球獨立、重新自適應（各自校正施力範圍）
   accBaseline[slot] = null;
-  try{
-    const cmd = new Uint8Array(26);
-    cmd[0] = 1;
-    cmd[1] = MODE_9DOF_GRIP;
-    await dev.sendReport(1, cmd);
-  }catch(err){ log("設定模式送出失敗：" + err.message); }
+  await sendModeCommand(slot, "register");
   if(!dev.__tidalBound){                        // 每顆 device 只綁一次；依 e.device 動態路由到正確 slot
     dev.__tidalBound = true;
     dev.addEventListener("inputreport", (e) => {
@@ -1871,6 +1903,25 @@ async function syncBalls(){
   }
 }
 
+function watchHidLiveness(){
+  if(!("hid" in navigator)) return;
+  const now = performance.now();
+  [1, 2].forEach(slot => {
+    const dev = devices[slot];
+    if(!dev || !state.connected[slot]) return;
+    const age = state.lastGripReportAt[slot] ? now - state.lastGripReportAt[slot] : Infinity;
+    if(age > HID_STALE_MS){
+      if(state.ready[slot]){
+        state.ready[slot] = false;
+        setGrip(slot, 0);
+      }
+      sendModeCommand(slot, "stale").catch(() => {});
+    }
+  });
+  updateHidStatus();
+  if(state.arrival.step === "connect") updateConnectScene();
+}
+
 async function connectBall(){
   // 讓使用者授權（chooser 可挑一顆或兩顆；兩顆長得一樣時記得挑不同的那一顆）
   await startAudio({ resume: true });
@@ -1884,6 +1935,7 @@ function onReport(e, slot){
   if(e.reportId === 5){
     state.ready[slot] = true;
     state.lastGripReportAt[slot] = performance.now();
+    updateHidStatus();
     if(state.arrival.step === "connect") updateConnectScene();
     const raw = dv.getUint16(2, true);
     setGrip(slot, calib[slot].update(raw));
@@ -2312,6 +2364,7 @@ if("hid" in navigator){
       state.connected[s] = false;
       state.ready[s] = false;
       state.lastGripReportAt[s] = 0;
+      state.lastModeSentAt[s] = 0;
       $("s" + s).textContent = "未連接";
       setGrip(s, 0);
       updateHidStatus();
@@ -2405,6 +2458,7 @@ setInterval(() => {
 }, 60);
 
 setInterval(recordSample, 500);
+setInterval(watchHidLiveness, 1000);
 
 // 海仍是主視覺：避免人工正弦線，改用厚霧、暗流、寬幅浪帶與中央潮汐曼荼羅。
 let __seaScroll = 0, __seaLast = performance.now() / 1000, __leftWave = 0, __rightWave = 0;
