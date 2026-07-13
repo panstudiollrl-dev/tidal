@@ -201,6 +201,12 @@
     opacity: 1;
     transition: opacity .72s ease, filter .72s ease;
   }
+  .phase.guide-panel:not(.active) {
+    display: none;
+  }
+  .phase.guide-panel.active {
+    display: grid;
+  }
   .guide-panel.scene-dim {
     opacity: 0;
     filter: blur(12px);
@@ -341,14 +347,6 @@
   }
   .report-row b { display: block; color: var(--text); font-size: 14px; margin-bottom: 2px; }
   .report-row span { color: var(--muted); font-size: 13px; }
-  .report-row.action {
-    border-color: rgba(225, 218, 185, .30);
-    background: rgba(116, 158, 150, .16);
-  }
-  .report-action {
-    margin-top: 10px;
-    width: 100%;
-  }
   .confirm-choice {
     color: var(--muted);
     font-size: 13px;
@@ -1496,14 +1494,10 @@ function finishArrival(){
   const report = buildArrivalReport();
   state.arrival.report = report;
   state.pre = report.pre_tension_estimate;
-  $("btnEnterSession").textContent = `進入：${report.recommended_label}`;
+  $("btnEnterSession").textContent = "進入這段練習";
   $("arrivalReportRows").innerHTML = report.rows.map(row =>
-    `<div class="report-row${row.action ? " action" : ""}"><b>${row.title}</b><span>${row.body}</span>${row.action ? `<button class="report-action" id="btnReportRecommended">開始 ${report.recommended_label}</button>` : ""}</div>`
+    `<div class="report-row"><b>${row.title}</b><span>${row.body}</span></div>`
   ).join("");
-  const recommendedBtn = $("btnReportRecommended");
-  if(recommendedBtn){
-    recommendedBtn.addEventListener("click", () => enterGuidedPractice(report.recommended_preset).catch(err => log("進入練習失敗：" + err.message)));
-  }
   showArrivalStep("report");
   log("抵達完成。看一下這段小回看，準備好就進入 session。");
 }
@@ -1588,7 +1582,7 @@ function buildArrivalReport(){
       { title: "呼吸狀態", body: breathBody },
       { title: "身體張力", body: tensionBody },
       { title: "停留感", body: settleBody },
-      { title: "接下來", body: `可以先試 ${recommendation.label}。${recommendation.reason}`, action: true },
+      { title: "接下來", body: `可以先試 ${recommendation.label}。${recommendation.reason}` },
     ],
   };
 }
@@ -1985,6 +1979,7 @@ function startSession(presetId = ""){
 }
 
 async function enterGuidedPractice(presetId = ""){
+  if(state.phase === "session") return;
   startSession(presetId);
   try{
     await startAudio({ resume: true });
@@ -2191,10 +2186,15 @@ $("btnStartSession").addEventListener("click", startArrival);
 $("btnEndSession").addEventListener("click", endSession);
 $("btnSaveAfter").addEventListener("click", saveAfter);
 $("btnCsv").addEventListener("click", downloadCsv);
-$("btnEnterSession").addEventListener("click", () => {
+function enterFromReport(){
   const presetId = state.arrival.report ? state.arrival.report.recommended_preset : "";
   enterGuidedPractice(presetId).catch(err => log("進入練習失敗：" + err.message));
+}
+$("btnEnterSession").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  enterFromReport();
 });
+$("btnEnterSession").addEventListener("click", enterFromReport);
 $("btnPracticeIntro").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
 $("btnPracticeInline").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
 $("btnPracticeShortcut").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));

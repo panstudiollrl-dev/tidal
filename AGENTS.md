@@ -69,6 +69,12 @@
 
 ## 交接紀錄
 
+### 2026-07-13 — Codex｜修 report 進不去 session 的 CSS 疊層 bug
+- 做了什麼：Pan 回饋「開始 4-7-8 / 進入 4-7-8」重複且點了進不去。移除 report 內的第二顆動態 action button，只留固定主按鈕「進入這段練習」。同時修正 CSS：原本 `.guide-panel { display:grid }` 會覆蓋 `.phase { display:none }`，導致非 active 幻燈片仍可能在版面中干擾點擊或看起來像沒換幕；新增 `.phase.guide-panel:not(.active){display:none}` / `.phase.guide-panel.active{display:grid}`。主按鈕同時綁 `pointerdown` 與 `click`，降低 click 被吃掉的機率。
+- 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過，localhost `http://localhost:8001/web/index.html` 回 200。
+- 未完成 / 卡住：尚未用真球完整走一次 arrival → report → 推薦 session；Pan 需重新整理 localhost 後實測。
+- 給下一位的建議或待 Pan 決策的問題：幻燈片式介面要小心 CSS cascade，任何 `.phase` 類的顯示/隱藏規則都要比共用 panel 類更強。
+
 ### 2026-07-13 — Codex｜Arrival report 改成身心狀態 + 呼吸標記去重
 - 做了什麼：依 Pan 回饋，呼吸標記新增 `BREATH_MARK_MIN_GAP_MS=900`，同一次吸/吐若兩手一起按或連續誤觸，太靠近的第二次按壓不再進入 arrival events。小小回顧畫面不再顯示「力道 / 用力速度 / 穩定度」這些內部 feature，改為「呼吸狀態 / 身體張力 / 停留感 / 接下來」。推薦列新增「開始 海潮 / 左右潮 / 4-7-8」按鈕，直接帶入推薦 preset 進 session；底部「進入：...」也會帶入同一 preset。
 - 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過，localhost `http://localhost:8001/web/index.html` 回 200。4-7-8 推薦現在有獨立 action button，不只是文字。
