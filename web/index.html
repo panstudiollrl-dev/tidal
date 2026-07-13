@@ -583,7 +583,7 @@
           <div class="arrival-copy" style="margin-top:14px">
             <p>我們先這樣理解你此刻的狀態。你覺得像嗎？</p>
           </div>
-          <div class="confirm-choice" id="arrivalConfirmHint">像的話，輕握 Ball 1。不太像的話，輕握 Ball 2。</div>
+          <div class="confirm-choice" id="arrivalConfirmHint">像的話，輕握 Ball 1；不太像的話，輕握 Ball 2。無球測試時：空白鍵表示像，Shift 表示不太像。</div>
           <div class="controls" style="margin-top:12px">
             <button id="btnEnterSession">進入引導 session</button>
           </div>
@@ -749,6 +749,7 @@ const state = {
     lastEventAt: 0,
     confirmation: "",
     confirmationAt: null,
+    confirmationAdvanceTimer: null,
     handCue: {
       hand: "left",
       cueOn: false,
@@ -1176,6 +1177,7 @@ function sendHaptic(slot, intensity, duration){
 
 function resetArrival(){
   $("btnEnterSession").textContent = "進入引導 session";
+  if(state.arrival.confirmationAdvanceTimer) clearTimeout(state.arrival.confirmationAdvanceTimer);
   state.arrival = {
     step: "intro",
     preludeStart: null,
@@ -1190,6 +1192,7 @@ function resetArrival(){
     lastHoldSampleAt: 0,
     confirmation: "",
     confirmationAt: null,
+    confirmationAdvanceTimer: null,
     handCue: {
       hand: "left",
       cueOn: false,
@@ -1331,6 +1334,12 @@ function handleArrivalConfirmation(slot, level, now){
   if(level <= ARRIVAL_PRESS_OFF) arrival.activePress[slot] = false;
   if(level < ARRIVAL_PRESS_ON || arrival.activePress[slot]) return;
   arrival.activePress[slot] = true;
+  confirmArrivalChoice(slot, now);
+}
+
+function confirmArrivalChoice(slot, now = performance.now()){
+  const arrival = state.arrival;
+  if(arrival.confirmationAdvanceTimer) clearTimeout(arrival.confirmationAdvanceTimer);
   arrival.confirmation = slot === 1 ? "yes" : "no";
   arrival.confirmationAt = now;
   const text = slot === 1
@@ -1338,6 +1347,11 @@ function handleArrivalConfirmation(slot, level, now){
     : "謝謝你告訴我。那我們把它先當成一個不完全準確的線索，繼續聽身體。";
   $("arrivalConfirmHint").textContent = text;
   log(slot === 1 ? "使用者確認：這段理解接近。" : "使用者確認：這段理解不太像。");
+  arrival.confirmationAdvanceTimer = setTimeout(() => {
+    if(state.phase === "before" && state.arrival.step === "report"){
+      enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message));
+    }
+  }, 1150);
 }
 
 function updateArrival(){
@@ -1463,6 +1477,8 @@ function finishHandCue(){
 }
 
 function finishArrival(){
+  if(state.arrival.confirmationAdvanceTimer) clearTimeout(state.arrival.confirmationAdvanceTimer);
+  state.arrival.confirmationAdvanceTimer = null;
   const report = buildArrivalReport();
   state.arrival.report = report;
   state.pre = report.pre_tension_estimate;
@@ -2182,11 +2198,21 @@ addEventListener("keydown", (e) => {
   if(e.code === "Space"){
     sim.space = 1;
     e.preventDefault();
+    if(state.phase === "before" && state.arrival.step === "report" && !e.repeat){
+      confirmArrivalChoice(1);
+      return;
+    }
     startAudio({ resume: true }).then(() => {
       if(state.arrival.step === "connect") beginPrelude();
     }).catch(() => {});
   }
-  if(e.key === "Shift") sim.shift = 1;
+  if(e.key === "Shift"){
+    sim.shift = 1;
+    if(state.phase === "before" && state.arrival.step === "report" && !e.repeat){
+      confirmArrivalChoice(2);
+      return;
+    }
+  }
   if(e.code === "ArrowLeft") sim.dir = -1;
   if(e.code === "ArrowRight") sim.dir = 1;
   if(e.code === "Enter" && engine){
