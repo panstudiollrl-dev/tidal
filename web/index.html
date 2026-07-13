@@ -1175,6 +1175,7 @@ function sendHaptic(slot, intensity, duration){
 }
 
 function resetArrival(){
+  $("btnEnterSession").textContent = "進入引導 session";
   state.arrival = {
     step: "intro",
     preludeStart: null,
@@ -1465,6 +1466,7 @@ function finishArrival(){
   const report = buildArrivalReport();
   state.arrival.report = report;
   state.pre = report.pre_tension_estimate;
+  $("btnEnterSession").textContent = `進入：${report.recommended_label}`;
   $("arrivalReportRows").innerHTML = report.rows.map(row =>
     `<div class="report-row"><b>${row.title}</b><span>${row.body}</span></div>`
   ).join("");
@@ -1516,6 +1518,15 @@ function buildArrivalReport(){
   const stabilityBody = stability > 0.11
     ? "握住時有一些細微起伏。"
     : "握住時相對穩定。";
+  const balance = gripBalanceMetrics(samples);
+  const recommendation = recommendBreathPreset({
+    eventCount: events.length,
+    pattern,
+    peak,
+    rise,
+    stability,
+    balance,
+  });
 
   return {
     event_count: events.length,
@@ -1535,13 +1546,58 @@ function buildArrivalReport(){
     hold_time_to_peak: timeToPeak,
     hold_stability_sd: stability,
     hold_rise_slope: rise,
+    hold_balance_delta: balance.delta,
+    recommended_preset: recommendation.id,
+    recommended_label: recommendation.label,
+    recommended_reason: recommendation.reason,
     pre_tension_estimate: preEstimate,
     rows: [
       { title: "呼吸", body: `你標記了 ${events.length} 次。${breathBody}` },
       { title: "力道", body: `${forceBody}最高大約是 ${Math.round(peak * 100)}%。` },
       { title: "用力的速度", body: `${riseBody}` },
       { title: "握住時的穩定", body: `${stabilityBody}` },
+      { title: "接下來", body: `可以先試 ${recommendation.label}。${recommendation.reason}` },
     ],
+  };
+}
+
+function gripBalanceMetrics(samples){
+  const valid = samples.filter(s => Number.isFinite(s.b1) && Number.isFinite(s.b2));
+  if(!valid.length) return { left: 0, right: 0, delta: 0 };
+  const leftSlot = state.handMap.left || 1;
+  const rightSlot = state.handMap.right || 2;
+  const left = avg(valid.map(s => s["b" + leftSlot] || 0));
+  const right = avg(valid.map(s => s["b" + rightSlot] || 0));
+  const delta = Math.abs(left - right) / Math.max(0.001, left + right);
+  return { left, right, delta };
+}
+
+function recommendBreathPreset({ eventCount, pattern, peak, rise, stability, balance }){
+  if(peak > 0.70 || rise > 0.90 || stability > 0.11){
+    return {
+      id: "hold478",
+      label: "4-7-8",
+      reason: "剛才的力道比較滿，或上來得比較快；先用一個有停留和長吐的場景，把這股力慢慢放出去。",
+    };
+  }
+  if(balance.delta > 0.42){
+    return {
+      id: "alternate",
+      label: "左右潮",
+      reason: "左右手的力道有一點偏向其中一側；可以用左右往返的海，讓身體感覺兩側之間的流動。",
+    };
+  }
+  if(eventCount < 4 || pattern.closeRun >= 2 || pattern.closeRatio > 0.34 || pattern.driftRatio > 1.8){
+    return {
+      id: "resonance",
+      label: "海潮",
+      reason: "呼吸標記還在找節奏，先不要進太複雜的法；讓海用穩定的漲退陪你接住現在的呼吸。",
+    };
+  }
+  return {
+    id: "resonance",
+    label: "海潮",
+    reason: "剛才的呼吸標記相對連續，先從最自然的海潮開始，再看身體要不要切換到別的場景。",
   };
 }
 
@@ -1883,7 +1939,7 @@ function startSession(){
   state.sessionStart = performance.now();
   state.sessionEnd = null;
   state.guided.startedAt = performance.now();
-  if(state.arrival.report && state.arrival.report.hold_peak > 0.72) setBreathPreset("hold478");
+  if(state.arrival.report && state.arrival.report.recommended_preset) setBreathPreset(state.arrival.report.recommended_preset);
   else setBreathPreset(state.guided.preset || "resonance");
   state.samples = [];
   state.impactCount = 0;
@@ -1931,6 +1987,8 @@ function saveAfter(){
     rhythm_note: state.note,
     dominant_mode: state.dominantMode,
     guided_preset: state.guided.preset,
+    arrival_recommended_preset: state.arrival.report ? state.arrival.report.recommended_preset : "",
+    arrival_recommended_reason: state.arrival.report ? state.arrival.report.recommended_reason : "",
     avg_breath_phase: avg(state.samples.map(s => s.guided_breath_phase)).toFixed(3),
     avg_heart_weather: avg(state.samples.map(s => s.heart_weather)).toFixed(3),
     impact_count: state.impactCount,
@@ -1954,6 +2012,7 @@ function saveAfter(){
     arrival_hold_time_to_peak: state.arrival.report ? state.arrival.report.hold_time_to_peak.toFixed(3) : "",
     arrival_hold_stability_sd: state.arrival.report ? state.arrival.report.hold_stability_sd.toFixed(3) : "",
     arrival_hold_rise_slope: state.arrival.report ? state.arrival.report.hold_rise_slope.toFixed(3) : "",
+    arrival_hold_balance_delta: state.arrival.report ? state.arrival.report.hold_balance_delta.toFixed(3) : "",
     arrival_confirmation: state.arrival.confirmation || "",
     input_source: Object.values(state.connected).some(Boolean) ? "grip_ball" : "keyboard_simulation",
   };
@@ -1980,13 +2039,14 @@ function downloadCsv(){
   const fields = [
     "timestamp", "duration_seconds", "pre_tension", "post_tension", "change_post_minus_pre",
     "felt_pushed", "felt_able_to_stay", "agency", "dominant_mode", "guided_preset",
+    "arrival_recommended_preset", "arrival_recommended_reason",
     "avg_breath_phase", "avg_heart_weather", "impact_count",
     "avg_ball1_grip", "avg_ball2_grip", "avg_motion",
     "arrival_breath_events", "arrival_breath_rate", "arrival_breath_interval_mean", "arrival_breath_interval_sd",
     "arrival_breath_interval_min", "arrival_breath_close_count", "arrival_breath_close_ratio", "arrival_breath_close_run",
     "arrival_breath_early_interval_mean", "arrival_breath_late_interval_mean", "arrival_breath_interval_drift_ratio",
     "arrival_hold_peak", "arrival_hold_mean", "arrival_hold_auc", "arrival_hold_time_to_peak",
-    "arrival_hold_stability_sd", "arrival_hold_rise_slope", "arrival_confirmation",
+    "arrival_hold_stability_sd", "arrival_hold_rise_slope", "arrival_hold_balance_delta", "arrival_confirmation",
     "input_source", "rhythm_note"
   ];
   const lines = [fields.join(",")].concat(state.sessions.map(row => fields.map(f => csvEscape(row[f])).join(",")));

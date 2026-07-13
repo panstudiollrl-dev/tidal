@@ -13,7 +13,7 @@
 - 專案：雙握力球控制的放鬆海浪聲景，Web（WebHID + Web Audio）為主線。
 - 現況：規格定稿、程式為骨架。你的工作多半是**把 `web/index.html` 裡標記 `TODO(agent)` 的 DSP / spatial 補完**，或依 `DESIGN.md` 擴充。
 - 硬體協定不要自己猜：全部在 [`GRIPBALL_PROTOCOL.md`](./GRIPBALL_PROTOCOL.md)。
-- 跑法：`cd web && python3 -m http.server 8000`，桌面 Chrome/Edge 開，不能用 `file://`。
+- 跑法：`cd Tidal && python3 -m http.server 8000`，桌面 Chrome/Edge 開 `http://localhost:8000/web/index.html`，不能用 `file://`。
 
 ## 1. 不可破壞原則（Guardrails，最高優先）
 
@@ -68,6 +68,12 @@
 ---
 
 ## 交接紀錄
+
+### 2026-07-13 — Codex｜Arrival 自我檢測 → 呼吸法建議
+- 做了什麼：依 Pan 新想法，把第一段自我檢測接到第二段呼吸引導選擇。`buildArrivalReport()` 現在會依呼吸標記 pattern、握力峰值、上升速度、握持穩定度與左右手力道差異產生 `recommended_preset` / `recommended_reason`，report 多一列「接下來」，按鈕改成「進入：海潮 / 左右潮 / 4-7-8」。`startSession()` 會讀這個建議自動切 preset；CSV 新增 `arrival_recommended_preset`、`arrival_recommended_reason`、`arrival_hold_balance_delta`。
+- 現在能跑到哪 / 怎麼驗證：建議邏輯目前保守：高峰值/快上升/不穩 → 4-7-8；左右差異大 → 左右潮；呼吸標記太少/太近/前後漂移大 → 海潮；風箱仍保留手動切換，不自動推薦。`node` script 語法檢查通過；localhost `http://localhost:8001/web/index.html` 回 200。
+- 未完成 / 卡住：推薦規則是 prototype heuristic，還沒有真實資料校準。之後可以把使用者「像/不像」確認也納入推薦權重。
+- 給下一位的建議或待 Pan 決策的問題：建議文案要維持「可以先試」而不是「你應該做」；避免把自我檢測變成分類/診斷。
 
 ### 2026-07-13 — Codex｜引導 session 互動版：呼吸相位 × 握力水位 × 心跳海色
 - 做了什麼：依 Pan 與 Claude 新增的 `BREATHING.md`，把 `web/index.html` 的 session 從單純文字頁改成可切換的互動引導場景。新增四個 preset：海潮呼吸（共振慢呼吸）、左右潮（Nadi Shodhana 空間發想）、4-7-8 懸止長吐、風箱（Bhastrika 提振型、仍有界）。呼吸相位會驅動中央內核與海浪 swell 週期；握力成為內核水位與 agency；「心跳」目前先做成 `heartWeather` 慢變代理，主要映射到海浪色澤/霧感，而不是做心跳聲，避免焦慮化。CSV 新增 `guided_preset`、`avg_breath_phase`、`avg_heart_weather`，session samples 也記錄 guided phase。
