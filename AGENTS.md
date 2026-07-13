@@ -71,6 +71,7 @@
 
 ### 2026-07-13 — Codex｜引導 session 互動版：呼吸相位 × 握力水位 × 心跳海色
 - 做了什麼：依 Pan 與 Claude 新增的 `BREATHING.md`，把 `web/index.html` 的 session 從單純文字頁改成可切換的互動引導場景。新增四個 preset：海潮呼吸（共振慢呼吸）、左右潮（Nadi Shodhana 空間發想）、4-7-8 懸止長吐、風箱（Bhastrika 提振型、仍有界）。呼吸相位會驅動中央內核與海浪 swell 週期；握力成為內核水位與 agency；「心跳」目前先做成 `heartWeather` 慢變代理，主要映射到海浪色澤/霧感，而不是做心跳聲，避免焦慮化。CSV 新增 `guided_preset`、`avg_breath_phase`、`avg_heart_weather`，session samples 也記錄 guided phase。
+- 2026-07-13 補強：Pan 覺得第一版互動變化不夠大，因此加強 session 視覺：中央內核放大，呼吸直接改變內核尺度與環形旋轉；左右潮推動內核與海面焦點左右移動；心跳海色即使沒有真實 HR 也以慢變代理自走，握力/揮動會把海色推暖、霧變厚；4-7-8 停屏加厚霧，風箱模式讓浪帶更亮、更短促。
 - 現在能跑到哪 / 怎麼驗證：`node` script 語法檢查通過（`scripts ok 1`），localhost `http://localhost:8001/web/index.html` 回 200。Playwright 套件此環境沒有，未做自動截圖；需 Pan 用瀏覽器實看四個 preset 的節奏、文字密度、海色變化是否自然。
 - 未完成 / 卡住：目前 `heartWeather` 不是實際心率/HRV，只是由握力與 motion 推估的慢變視覺天氣；日後接真實心跳時應讓 HR/HRV 控制海色與透明度，不做直接 heartbeat ping。4-7-8 的停屏目前是視覺/週期懸止，尚未加專屬駐音層。
 - 給下一位的建議或待 Pan 決策的問題：心跳最好繼續作「海色/霧/透明度」而非聲音事件；風箱模式要明確留在 Activate/提振語境，不當預設。若 Pan 喜歡這個方向，下一步是調每個 preset 的聲音差異與讓 Arrival report 自動建議 preset。
