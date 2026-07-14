@@ -253,22 +253,19 @@
     pointer-events: none;
   }
   .core-orb::before {
+    /* 柔和外暈，不再有幾何內圈（去數位感，Pan 2026-07-14） */
     inset: 5%;
-    border:
-      1px solid rgba(214, 226, 236, calc(.20 + .22 * var(--core-tide)));
-    transform: scale(calc(.92 + .04 * var(--core-tide))) rotate(var(--core-rot));
-    box-shadow:
-      inset 0 0 0 18px rgba(220, 228, 236, .018),
-      inset 0 0 0 42px rgba(143, 176, 200, .024),
-      0 0 34px rgba(180, 200, 218, calc(.10 + .13 * var(--core-tide)));
+    border: 0;
+    box-shadow: 0 0 40px rgba(180, 200, 218, calc(.10 + .16 * var(--core-tide)));
   }
   .core-orb::after {
-    inset: 16%;
+    /* 珍珠上的柔光斜面，不再有同心環與放射線（去數位感） */
+    inset: 12%;
     background:
-      repeating-radial-gradient(circle, rgba(220, 228, 236, .12) 0 1px, transparent 1px 12px),
-      conic-gradient(from 18deg, transparent 0deg 34deg, rgba(206, 218, 230, .12) 42deg, transparent 54deg 104deg, rgba(143, 176, 200, .10) 112deg, transparent 124deg 360deg);
-    opacity: calc(.22 + .24 * var(--core-tide));
-    transform: rotate(var(--core-rot));
+      radial-gradient(circle at 40% 34%, rgba(242, 245, 249, .30), rgba(242, 245, 249, .06) 32%, transparent 60%),
+      radial-gradient(circle at 64% 72%, rgba(143, 176, 200, .10), transparent 54%);
+    opacity: calc(.5 + .3 * var(--core-tide));
+    filter: blur(2px);
   }
   .core-orb.cue-on {
     transform: translateX(var(--core-drift)) scale(calc(var(--core-scale) * 1.08));
@@ -298,16 +295,12 @@
     transition: transform .22s ease, box-shadow .32s ease, opacity .32s ease, filter .6s ease;
   }
   #phaseSession .core-orb::before {
-    transform: scale(var(--breath-ring-scale)) rotate(calc(var(--core-rot) + var(--breath-pan-rot)));
-    border-color: rgba(210, 222, 234, calc(.24 + .28 * var(--heart-weather)));
-    box-shadow:
-      inset 0 0 0 16px rgba(220, 228, 236, .024),
-      inset 0 0 0 52px rgba(143, 176, 200, .034),
-      0 0 calc(34px + 48px * var(--breath-phase)) rgba(180, 200, 218, calc(.14 + .18 * var(--heart-weather)));
+    transform: scale(var(--breath-ring-scale));
+    border: 0;
+    box-shadow: 0 0 calc(40px + 56px * var(--breath-phase)) rgba(180, 200, 218, calc(.14 + .18 * var(--heart-weather)));
   }
   #phaseSession .core-orb::after {
-    opacity: calc(.32 + .42 * var(--breath-phase) + .20 * var(--heart-weather));
-    transform: rotate(calc(var(--core-rot) + var(--breath-pan-rot)));
+    opacity: calc(.4 + .35 * var(--breath-phase) + .15 * var(--heart-weather));
   }
   .arrival-title { font-size: clamp(24px, 4vw, 38px); font-weight: 650; margin: 4px 0 10px; line-height: 1.18; }
   .arrival-copy { color: var(--text); line-height: 1.85; font-size: 16px; max-width: 620px; }
@@ -2287,18 +2280,32 @@ function guideHapticsForPhase(presetId, phase, phaseKey){
 
   if(!HAPTICS_ENABLED) return;
 
-  // 4-7-8：用短震動計數（Pan 2026-07-14：低頻音計數刪掉、改回短震；階段區分交給明顯的相位色彩）。
-  // 吸4＝每拍雙短震、強度逐拍上升；停7＝每拍一次單震；吐8＝每拍一次較長震、強度逐拍下降。
+  // 4-7-8：短震計數，三段各用「明顯不同的節奏 pattern」，且每段第一拍是獨特的轉場 marker，
+  // 讓人一觸就知道換了 state（Pan 2026-07-14：震動別太長、要能分辨換段）。震動都很短（26–70ms）。
+  // 每一拍同時觸發畫面的相位色明滅（beatPulse），視覺聽覺一致可數。
   if(presetId === "hold478"){
+    const rgb478 = phase.name === "hold" ? [236, 190, 120] : phase.name === "exhale" ? [116, 138, 224] : [78, 206, 178];
+    const nBeats = phase.name === "inhale" ? 4 : phase.name === "hold" ? 7 : 8;
     if(phase.name === "inhale"){
-      scheduleUnitPulsePattern(4, unitMs, (i) => [
-        { offset: 0, intensity: 116 + i * 8, duration: 84 },
-        { offset: 220, intensity: 116 + i * 8, duration: 84 },
-      ]);
+      // 進吸＝三下快速上行 marker；之後每拍一短 tick、強度逐拍上升
+      scheduleUnitPulsePattern(4, unitMs, (i) => i === 0
+        ? [{ offset: 0, intensity: 80, duration: 26 }, { offset: 110, intensity: 112, duration: 26 }, { offset: 220, intensity: 150, duration: 32 }]
+        : ({ offset: 0, intensity: 100 + i * 16, duration: 40 }));
     } else if(phase.name === "hold"){
-      scheduleUnitPulsePattern(7, unitMs, () => ({ offset: 0, intensity: 100, duration: 120 }));
+      // 進停＝一下沉穩較長 marker；之後每拍一極短、穩定、稀疏的 tick
+      scheduleUnitPulsePattern(7, unitMs, (i) => i === 0
+        ? ({ offset: 0, intensity: 150, duration: 70 })
+        : ({ offset: 0, intensity: 74, duration: 26 }));
     } else if(phase.name === "exhale"){
-      scheduleUnitPulsePattern(8, unitMs, (i) => ({ offset: 0, intensity: 96 - i * 4, duration: Math.min(255, unitMs * 0.7) }));
+      // 進吐＝三下快速下行 marker；之後每拍一短 tick、強度逐拍下降
+      scheduleUnitPulsePattern(8, unitMs, (i) => i === 0
+        ? [{ offset: 0, intensity: 150, duration: 32 }, { offset: 110, intensity: 112, duration: 26 }, { offset: 220, intensity: 74, duration: 26 }]
+        : ({ offset: 0, intensity: 130 - i * 8, duration: 44 }));
+    }
+    // 每拍的畫面明滅（相位色）——視覺計數，明顯可見
+    for(let i = 0; i < nBeats; i++){
+      const timer = setTimeout(() => beatPulse(rgb478), i * unitMs);
+      state.guided.hapticTimers.push(timer);
     }
     return;
   }
@@ -2737,6 +2744,10 @@ function emitRipple(cx, cy, opts){
   });
   if(__ripples.length > 48) __ripples.shift();
 }
+
+// 4-7-8 每一拍的畫面明滅：中央亮一下＋一圈快速外擴，用相位色，明顯可數（Pan 2026-07-14）
+let __beat = { at: -9, rgb: [255, 255, 255] };
+function beatPulse(rgb){ __beat = { at: performance.now() / 1000, rgb: rgb || [255, 255, 255] }; }
 function drawSea(){
   const canvas = $("sea");
   const ctx = canvas.getContext("2d");
@@ -2776,13 +2787,15 @@ function drawSea(){
   }
   const w = heartWarm;   // 很小幅的暖度偏移，維持低飽和月霧感
 
-  // 月霧海底色：銀藍、低飽和、低對比
+  // 月霧海底色：銀藍、低飽和。4-7-8 時整片水體明顯染成相位色（吸青綠／停暖金／吐靛藍），一眼可辨。
+  const P = phaseRGB;
+  const mix = (b, i, amt) => P ? Math.round(b * (1 - amt) + P[i] * amt) : b;
   const base = ctx.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, `rgb(${Math.round(11 + 6 * w)}, ${Math.round(15)}, ${Math.round(22)})`);
-  base.addColorStop(0.32, `rgb(${Math.round(21 + 10 * w)}, ${Math.round(31)}, ${Math.round(43)})`);
-  base.addColorStop(0.50, `rgb(${Math.round(46 + 22 * w)}, ${Math.round(64)}, ${Math.round(82)})`);
-  base.addColorStop(0.68, `rgb(${Math.round(28 + 10 * w)}, ${Math.round(43)}, ${Math.round(55)})`);
-  base.addColorStop(1, `rgb(${Math.round(10 + 4 * w)}, ${Math.round(16)}, ${Math.round(23)})`);
+  base.addColorStop(0, "rgb(11, 15, 22)");
+  base.addColorStop(0.30, `rgb(${mix(24 + 8 * w, 0, 0.14)}, ${mix(34, 1, 0.14)}, ${mix(48, 2, 0.14)})`);
+  base.addColorStop(0.50, `rgb(${mix(52 + 20 * w, 0, 0.46)}, ${mix(72, 1, 0.46)}, ${mix(92, 2, 0.46)})`);   // 水面亮帶，相位色最明顯
+  base.addColorStop(0.72, `rgb(${mix(30 + 10 * w, 0, 0.38)}, ${mix(48, 1, 0.38)}, ${mix(62, 2, 0.38)})`);
+  base.addColorStop(1, `rgb(${mix(12, 0, 0.24)}, ${mix(20, 1, 0.24)}, ${mix(28, 2, 0.24)})`);
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
 
@@ -2804,13 +2817,13 @@ function drawSea(){
   ctx.fillStyle = coreGlow;
   ctx.fillRect(0, 0, W, H);
 
-  // 4-7-8 相位色染整個海面（明顯、但柔和地從中心向外）——讓使用者一眼知道現在吸/停/吐
+  // 4-7-8 相位色再補一層中心輝光，強化「現在這一段是什麼」
   if(phaseRGB){
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    const pw2 = ctx.createRadialGradient(gx, gy, H * 0.02, gx, gy, H * 0.78);
-    pw2.addColorStop(0, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.24)`);
-    pw2.addColorStop(0.5, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.12)`);
+    const pw2 = ctx.createRadialGradient(gx, gy, H * 0.02, gx, gy, H * 0.62);
+    pw2.addColorStop(0, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.30)`);
+    pw2.addColorStop(0.55, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.12)`);
     pw2.addColorStop(1, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0)`);
     ctx.fillStyle = pw2;
     ctx.fillRect(0, 0, W, H);
@@ -2819,13 +2832,14 @@ function drawSea(){
 
   // —— 潮汐漣漪：曼陀羅周圍的平面漣漪，有浪頭、後浪、到岸散去 ——
   const nowS = t;
-  // 每個湧浪峰送出一組同心漣漪（潮汐節律）；tide/session 呼吸相位讓它更飽滿
-  if(__swellPrev < 0.60 && swell >= 0.60 && nowS - __rippleAt > 0.9){
+  // 穩定的潮汐節律（每 ~2.8s 一組）＋湧浪峰額外送出——確保「海潮」清楚可見、有節奏
+  const rippleGap = 3.4 - 1.4 * swell;   // 湧浪高時來得密一點
+  if(nowS - __rippleAt > rippleGap){
     __rippleAt = nowS;
     emitRipple(gx, gy, {
-      strength: 0.55 + 0.55 * tide + 0.25 * guidedPhase,
-      speed: 0.85 + 0.55 * swell,
-      tint: phaseRGB || [196, 214, 230],   // 4-7-8 用相位色的漣漪，其他用銀白
+      strength: 0.9 + 0.5 * tide + 0.2 * guidedPhase,
+      speed: 0.85 + 0.5 * swell,
+      tint: phaseRGB || [188, 212, 232],   // 4-7-8 用相位色的漣漪，其他用銀白
     });
   }
   __swellPrev = swell;
@@ -2850,19 +2864,39 @@ function drawSea(){
     if(lead > maxR){ __ripples.splice(ri, 1); continue; }
     const disperse = Math.max(0, 1 - lead / maxR); // 到岸能量散去
     const ease = disperse * disperse;
-    for(let wv = 0; wv < 3; wv++){                  // 浪頭 + 兩道後浪
-      const r = lead - wv * (H * 0.05);
+    for(let wv = 0; wv < 4; wv++){                  // 浪頭 + 三道後浪
+      const r = lead - wv * (H * 0.055);
       if(r <= 2) continue;
-      const a = rp.strength * ease * (wv === 0 ? 0.20 : 0.12 - wv * 0.035);
-      if(a <= 0.002) continue;
+      const a = rp.strength * ease * (wv === 0 ? 0.42 : 0.26 - wv * 0.06);   // 浪頭明顯較亮
+      if(a <= 0.003) continue;
       ctx.beginPath();
       ctx.ellipse(rp.cx, rp.cy, r, r * flat, 0, 0, 6.283);
       ctx.strokeStyle = `rgba(${rp.tint[0]},${rp.tint[1]},${rp.tint[2]},${a.toFixed(3)})`;
-      ctx.lineWidth = Math.max(0.8, H * (0.0045 - wv * 0.0012)) * (0.5 + 0.7 * disperse);
+      ctx.lineWidth = Math.max(1.0, H * (0.006 - wv * 0.0012)) * (0.5 + 0.8 * disperse);
       ctx.stroke();
     }
   }
   ctx.restore();
+
+  // 4-7-8 每拍明滅：中央亮起＋一圈快速外擴（相位色），視覺計數
+  const beatAge = nowS - __beat.at;
+  if(beatAge >= 0 && beatAge < 0.5){
+    const ba = 1 - beatAge / 0.5;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    const flash = ctx.createRadialGradient(gx, gy, H * 0.01, gx, gy, H * (0.10 + 0.20 * (1 - ba)));
+    flash.addColorStop(0, `rgba(${__beat.rgb[0]},${__beat.rgb[1]},${__beat.rgb[2]},${(0.42 * ba).toFixed(3)})`);
+    flash.addColorStop(1, `rgba(${__beat.rgb[0]},${__beat.rgb[1]},${__beat.rgb[2]},0)`);
+    ctx.fillStyle = flash;
+    ctx.fillRect(0, 0, W, H);
+    const rr = H * (0.06 + 0.34 * (1 - ba));
+    ctx.beginPath();
+    ctx.ellipse(gx, gy, rr, rr * 0.5, 0, 0, 6.283);
+    ctx.strokeStyle = `rgba(${__beat.rgb[0]},${__beat.rgb[1]},${__beat.rgb[2]},${(0.5 * ba).toFixed(3)})`;
+    ctx.lineWidth = 2.4 * ba + 0.6;
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // 明月與海面反光：讓中央符號像浮在海上的月，而不是陰沉的儀表。
   const moonX = (0.5 + 0.08 * guidedPan + 0.05 * az) * W;
