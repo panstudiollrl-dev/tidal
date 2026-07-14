@@ -886,6 +886,56 @@ class OceanEngine {
     this.subLP.connect(this.subGain);
     this.subGain.connect(this.clip);
 
+    // 低頻「湧」本體（Pan 2026-07-13：海潮的低頻湧動要更有份量）：
+    // 極低頻正弦，隨湧浪與呼吸相位鼓起，給 sub 噪音床一個真正的體積。有界、平滑、不過 panner。
+    this.subOsc = ctx.createOscillator();
+    this.subOsc.type = "sine";
+    this.subOsc.frequency.value = 52;
+    this.subOscGain = ctx.createGain();
+    this.subOscGain.gain.value = 0;
+    this.subOsc.connect(this.subOscGain);
+    this.subOscGain.connect(this.clip);
+
+    // 寬幅海床：立體聲去相關噪音，不過 HRTF 點聲源——讓海是一「片」而不是一個點。
+    // 主 panner 保留為互動焦點；這層裹在焦點外圍，給整個聲場寬度。
+    this.wide = OceanEngine.stereoNoiseSource(ctx);
+    this.wideLP = ctx.createBiquadFilter();
+    this.wideLP.type = "lowpass";
+    this.wideLP.frequency.value = 520;
+    this.wideGain = ctx.createGain();
+    this.wideGain.gain.value = 0;
+    this.wide.connect(this.wideLP);
+    this.wideLP.connect(this.wideGain);
+    this.wideGain.connect(this.clip);
+
+    // 左右岸浪道：固定 ±60° 的兩條浪（左右潮真的在左邊/右邊湧；也接雙手各自的潮線）
+    this.sideL = this.buildSideChain(-1);
+    this.sideR = this.buildSideChain(1);
+
+    // 駐音層（4-7-8 停屏的「懸止」，見 BREATHING.md §9）：微差拍雙正弦＋窄帶噪音。
+    // 停屏時浮起、其他相位維持極低但**不為零**——懸止不是停頓，聲音永不消失。
+    this.droneGain = ctx.createGain();
+    this.droneGain.gain.value = 0;
+    this.droneBP = ctx.createBiquadFilter();
+    this.droneBP.type = "bandpass";
+    this.droneBP.frequency.value = 210;
+    this.droneBP.Q.value = 2.2;
+    this.droneNoise = OceanEngine.noiseSource(ctx);
+    this.droneNoise.connect(this.droneBP);
+    this.droneBP.connect(this.droneGain);
+    this.droneOscA = ctx.createOscillator();
+    this.droneOscA.type = "sine";
+    this.droneOscA.frequency.value = 104;
+    this.droneOscB = ctx.createOscillator();
+    this.droneOscB.type = "sine";
+    this.droneOscB.frequency.value = 104.7;      // 微差拍 ~0.7Hz：懸止中仍有極慢的呼吸
+    this.droneOscMix = ctx.createGain();
+    this.droneOscMix.gain.value = 0.42;
+    this.droneOscA.connect(this.droneOscMix);
+    this.droneOscB.connect(this.droneOscMix);
+    this.droneOscMix.connect(this.droneGain);
+    this.droneGain.connect(this.clip);
+
     this.fxBus = ctx.createGain();
     this.fxBus.connect(this.clip);
     this.impactPanner = ctx.createPanner();
@@ -927,12 +977,19 @@ class OceanEngine {
     this.noise2.start();
     this.pebble.start();
     this.sub.start();
+    this.subOsc.start();
+    this.wide.start();
+    this.droneNoise.start();
+    this.droneOscA.start();
+    this.droneOscB.start();
     this.tide = 0;
     this.spread = 0;
     this.azimuth = 0;
     this.azTarget = 0;
     this.gripPan = 0;
-    this.breathGuide = { phase: 0.5, influence: 0, period: 10, pan: 0, heart: 0.45, activate: 0 };
+    this.sideGuide = { l: 0, r: 0 };   // 引導相位（左右潮）推的左右岸浪
+    this.sideGrip = { l: 0, r: 0 };    // 雙手握力各自推的潮線
+    this.breathGuide = { phase: 0.5, influence: 0, period: 10, pan: 0, heart: 0.45, activate: 0, drone: 0 };
     this.azEase = 0.02;
     this.t0 = ctx.currentTime;
     this.lastSwing = 0;
@@ -1018,6 +1075,50 @@ class OceanEngine {
     return s;
   }
 
+  static stereoNoiseSource(ctx){
+    // 兩聲道各自獨立的噪音（去相關）→ 聽起來是「一片」而非中央一點
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for(let ch = 0; ch < 2; ch++){
+      const d = buf.getChannelData(ch);
+      for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    s.loop = true;
+    return s;
+  }
+
+  buildSideChain(side){
+    // 一條固定方位的岸浪道：噪音 → lowpass → gain → HRTF panner（±60°），走既有 dry/wet 空間鏈
+    const ctx = this.ctx;
+    const src = OceanEngine.noiseSource(ctx);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 640;
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    const pan = ctx.createPanner();
+    pan.panningModel = "HRTF";
+    pan.distanceModel = "inverse";
+    pan.refDistance = 1;
+    pan.maxDistance = 20;
+    pan.rolloffFactor = 1.1;
+    const rad = side * Math.PI / 3;
+    pan.positionX.value = Math.sin(rad) * 3.2;
+    pan.positionZ.value = -Math.cos(rad) * 3.2;
+    src.connect(lp);
+    lp.connect(g);
+    g.connect(pan);
+    pan.connect(this.dry);
+    pan.connect(this.convolver);
+    src.start();
+    return { src, lp, g, pan };
+  }
+
+  setSideGuide(l, r){ this.sideGuide.l = clamp(l); this.sideGuide.r = clamp(r); }
+  setSideGrip(l, r){ this.sideGrip.l = clamp(l); this.sideGrip.r = clamp(r); }
+
   static reverbIR(ctx, dur){
     const rate = ctx.sampleRate;
     const len = Math.max(1, Math.floor(rate * dur));
@@ -1072,15 +1173,32 @@ class OceanEngine {
 
     this.surgeLP.frequency.setTargetAtTime(cutoff, now, 1.2);
     this.surgeGain.gain.setTargetAtTime(0.15 + 0.34 * energy * (0.6 + 0.4 * swell * set) + 0.18 * sp + 0.03 * this.rw2, now, 0.72); // 握→更有存在感
-    this.foamGain.gain.setTargetAtTime(0.060 * gate, now, 0.45);   // 錄音 2-6kHz 僅 1.3%、6k+ ~0% → 泡沫嘶聲仍保持有界
+    this.foamGain.gain.setTargetAtTime(0.060 * gate + 0.05 * guided.activate * (0.35 + 0.65 * guided.phase), now, 0.45);   // 有界；風箱模式泡沫隨呼吸短促明滅
 
     // 鵝卵石捲動：由 Ball2 grip（this.spread）主控其「量」，退浪相位給節奏（Pan 2026-07-09 置換後為 Ball2）。
     const stoneAmt = Math.pow(clamp(this.spread), 0.6);                       // Ball2 grip → 石頭捲動量
     const roll = 0.35 + 0.65 * clamp((0.55 - swell) * 2.0);                   // 退浪相位滾得最盛
     this.pebbleGain.gain.setTargetAtTime((0.030 + 0.52 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.24);
     this.pebbleBP.frequency.setTargetAtTime(380 + 420 * stoneAmt, now, 1.0);  // 石頭壓在低-中頻（錄音主體 120-2000Hz）
-    // 低頻包覆床：錄音 sub(20-120Hz) 佔 ~21% → 低頻包覆更明顯
-    this.subGain.gain.setTargetAtTime(0.18 + 0.40 * energy * (0.50 + 0.50 * swell) + 0.10 * sp, now, 0.95);
+    // 低頻包覆床（Pan 2026-07-13 加強）：錄音 sub(20-120Hz) 佔 ~21%，且湧動是海潮的主角
+    const breathBody = guided.influence * guided.phase;                       // 吸氣相位 → 低頻水體靠近
+    this.subGain.gain.setTargetAtTime(0.22 + 0.50 * energy * (0.45 + 0.55 * swell) + 0.12 * sp + 0.14 * breathBody, now, 0.95);
+    this.subLP.frequency.setTargetAtTime(118 + 46 * swell * energy, now, 1.3);  // 湧上來時低頻稍微「打開」，有水體移動感
+    // 低頻湧動本體：極低頻正弦隨湧浪鼓起（有界 ≤0.31）
+    this.subOscGain.gain.setTargetAtTime(0.05 + 0.16 * energy * (0.35 + 0.65 * swell) + 0.10 * breathBody, now, 0.85);
+    this.subOsc.frequency.setTargetAtTime(46 + 14 * swell, now, 1.6);
+    // 寬幅海床：能量越高越寬越亮；風箱模式（activate）更亮
+    this.wideGain.gain.setTargetAtTime(0.05 + 0.13 * energy * (0.5 + 0.5 * set) + 0.04 * guided.activate, now, 1.1);
+    this.wideLP.frequency.setTargetAtTime(300 + 380 * energy + 260 * guided.activate, now, 1.4);
+    // 左右岸浪道：引導相位（左右潮）與雙手潮線共同推；有界隨機讓兩側不完全對稱
+    const sideLTgt = clamp(Math.max(this.sideGuide.l, this.sideGrip.l * 0.75));
+    const sideRTgt = clamp(Math.max(this.sideGuide.r, this.sideGrip.r * 0.75));
+    this.sideL.g.gain.setTargetAtTime(0.018 + 0.30 * sideLTgt * (0.85 + 0.15 * this.rw), now, 0.5);
+    this.sideR.g.gain.setTargetAtTime(0.018 + 0.30 * sideRTgt * (0.85 + 0.15 * this.rw2), now, 0.5);
+    this.sideL.lp.frequency.setTargetAtTime(420 + 520 * sideLTgt, now, 0.9);
+    this.sideR.lp.frequency.setTargetAtTime(420 + 520 * sideRTgt, now, 0.9);
+    // 駐音層：guided.drone 由 4-7-8 停屏相位推起；平時維持極低（不為零）
+    this.droneGain.gain.setTargetAtTime(0.010 + 0.15 * clamp(guided.drone || 0), now, 1.1);
     this.metrics.pebble = stoneAmt * roll;
 
     if(now - this.lastSwing > 0.3) this.azTarget *= 0.985;
@@ -1132,38 +1250,66 @@ class OceanEngine {
     src.stop(now + 2.4);
   }
 
+  impactBurst(at, swellT, peak, brightness, tailDecay){
+    // 單次破碎的噪音層（impact 主體與補拍共用）；全部有界、走 impactPanner → dry/wet
+    const src = OceanEngine.noiseSource(this.ctx);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 0.5 + 0.4 * Math.random();
+    const g = this.ctx.createGain();
+    g.gain.value = 0;
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(this.impactPanner);
+    bp.frequency.setValueAtTime(260 + 260 * this.tide * (0.7 + 0.6 * Math.random()), at);
+    bp.frequency.linearRampToValueAtTime(brightness, at + swellT);
+    bp.frequency.setTargetAtTime(430 + 320 * this.tide, at + swellT, 0.8);
+    const N = 48;
+    const curve = new Float32Array(N);
+    for(let i = 0; i < N; i++){ const x = i / (N - 1); curve[i] = peak * x * x; }
+    g.gain.setValueAtTime(0, at);
+    g.gain.setValueCurveAtTime(curve, at, swellT);
+    g.gain.setTargetAtTime(0, at + swellT, tailDecay);
+    src.start(at);
+    src.stop(at + swellT + 3.6);
+  }
+
   impact(){
     const now = this.ctx.currentTime;
     if(now - this.lastImpact < 1.5) return false;
     this.lastImpact = now;
-    const src = OceanEngine.noiseSource(this.ctx);
-    const bp = this.ctx.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.Q.value = 0.6;
-    const g = this.ctx.createGain();
-    g.gain.value = 0;
-    const rad = this.azimuth * Math.PI / 2;
-    const dist = 2.5;
+    // 有界隨機（guardrail 3：有界，不自由生成）：每道浪的份量、蓄積、亮度、位置、尾巴都不同——
+    // 真正的海裡沒有兩道一樣的浪（Pan 2026-07-13）。
+    const size = 0.7 + 0.6 * Math.random();                              // 份量 0.7–1.3
+    const swellT = 0.30 + 0.28 * Math.random();                          // 蓄積 0.30–0.58s
+    const peak = clamp((0.26 + 0.26 * this.tide) * size, 0, 0.60);       // 峰值仍有上限
+    const brightness = 1400 + 900 * Math.random() + 500 * this.tide;     // 破碎亮度 1400–2800Hz
+    const tailDecay = 0.85 + 0.55 * Math.random();                       // 尾巴長短
+    const azJitter = clamp(this.azimuth + (Math.random() * 2 - 1) * 0.30, -1, 1);  // 位置在揮動方位附近漂
+    const rad = azJitter * Math.PI / 2;
+    const dist = 2.1 + Math.random() * 1.2;
     this.impactPanner.positionX.setValueAtTime(Math.sin(rad) * dist, now);
     this.impactPanner.positionZ.setValueAtTime(-Math.cos(rad) * dist, now);
-    src.connect(bp);
-    bp.connect(g);
-    g.connect(this.impactPanner);
-    const swellT = 0.42;                                  // 蓄積時間：不是一開始就拍擊，但要能被手感覺到
-    const peak = 0.32 + 0.28 * this.tide;                 // 有界峰值，找回拍石存在感
-    // 頻率隨蓄積上掃（越蓄越亮，像鈸漸強），破碎後回落變暗
-    bp.frequency.setValueAtTime(300 + 200 * this.tide, now);
-    bp.frequency.linearRampToValueAtTime(1700 + 720 * this.tide, now + swellT);
-    bp.frequency.setTargetAtTime(500 + 300 * this.tide, now + swellT, 0.8);
-    // 蓄積包絡：ease-in 漸強到峰值，再長衰減（像管弦樂團的鈸 swell / 浪湧上再破碎）
-    const N = 48;
-    const curve = new Float32Array(N);
-    for(let i = 0; i < N; i++){ const x = i / (N - 1); curve[i] = peak * x * x; }
-    g.gain.setValueAtTime(0, now);
-    g.gain.setValueCurveAtTime(curve, now, swellT);
-    g.gain.setTargetAtTime(0, now + swellT, 1.1);         // 破碎後較長的直接聲衰減，再接殘響長尾
-    src.start(now);
-    src.stop(now + swellT + 3.6);                         // 蓋住蓄積 + 尾巴激勵
+    this.impactBurst(now, swellT, peak, brightness, tailDecay);
+    // 低頻「撞」body：短衰減正弦，拍岸的胸口感（不過 panner，低頻無方向性）
+    const thump = this.ctx.createOscillator();
+    thump.type = "sine";
+    thump.frequency.setValueAtTime(58 + 30 * Math.random(), now + swellT * 0.7);
+    thump.frequency.setTargetAtTime(42, now + swellT, 0.5);
+    const tg = this.ctx.createGain();
+    tg.gain.value = 0;
+    thump.connect(tg);
+    tg.connect(this.clip);
+    tg.gain.setValueAtTime(0, now + swellT * 0.7);
+    tg.gain.linearRampToValueAtTime(peak * 0.55, now + swellT);
+    tg.gain.setTargetAtTime(0, now + swellT, 0.45);
+    thump.start(now + swellT * 0.7);
+    thump.stop(now + swellT + 2.2);
+    // 約 1/3 的浪有第二次較小的補拍（真實的浪常破碎兩段）
+    if(Math.random() < 0.35){
+      const gap = 0.22 + 0.30 * Math.random();
+      this.impactBurst(now + swellT + gap, swellT * 0.55, peak * 0.45, brightness * 0.7, tailDecay * 0.8);
+    }
     state.impactCount += 1;
     state.lastImpactAt = performance.now() + swellT * 1000; // 視覺濺起對齊「破碎」時刻
     return true;
@@ -1183,7 +1329,7 @@ function sendHaptic(slot, intensity, duration){
   const dev = devices[slot];
   if(!dev) return;
   const now = performance.now();
-  if(now - lastHaptic[slot] < 45) return;
+  if(now - lastHaptic[slot] < 95) return;   // protocol 建議 ~100ms 節流，避免藍牙塞車讓震動時序亂掉
   lastHaptic[slot] = now;
   const p = new Uint8Array(26);
   p[0] = 11;
@@ -1807,6 +1953,7 @@ function setGrip(slot, level){
   const total = leftGrip + rightGrip;
   const gripPan = total > 0.04 ? (rightGrip - leftGrip) / (total + 0.12) : 0;
   engine.setGripPan(gripPan);
+  engine.setSideGrip(leftGrip, rightGrip);   // 雙手各自的潮線也有聲音（對應視覺 __leftWave/__rightWave）
 }
 
 async function startAudio(options = {}){
@@ -1960,7 +2107,8 @@ function handleSwing(slot, ax, ay, az){
   if(engine) engine.setSwing(dir, clamp(motion));
   if(state.grip[slot] >= HARD_GRIP && motion >= STRONG_SWING){
     if(engine && state.audioFadedIn && engine.impact()) sendHaptic(slot, 110, 80);
-  } else {
+  } else if(state.phase !== "session"){
+    // session 中不發揮動跟隨震動：讓呼吸節奏 pattern 獨占觸覺通道、保持可數拍（拍石強脈衝仍保留）
     sendHaptic(slot, 25 + 45 * clamp(motion / STRONG_SWING), 30);
   }
 }
@@ -1974,7 +2122,7 @@ const BREATH_PRESETS = {
       { name: "exhale", label: "讓它退去", dur: 5 },
     ],
     targetPeriod: 10,
-    influence: 0.34,
+    influence: 0.44,   // Pan 2026-07-13：海潮的低頻湧動是主角，呼吸相位對水體的牽引加強
     activate: 0,
   },
   alternate: {
@@ -2054,14 +2202,16 @@ function guideHapticsForPhase(presetId, phase, phaseKey){
 
   if(presetId === "hold478"){
     if(phase.name === "inhale"){
-      scheduleUnitPulsePattern(4, unitMs, () => [
-        { offset: 0, intensity: 128, duration: 86 },
-        { offset: 230, intensity: 128, duration: 86 },
+      // 每拍雙短震、強度逐拍上升：可數拍之外還能「感覺到方向」（吸＝上升）
+      scheduleUnitPulsePattern(4, unitMs, (i) => [
+        { offset: 0, intensity: 116 + i * 8, duration: 86 },
+        { offset: 230, intensity: 116 + i * 8, duration: 86 },
       ]);
     } else if(phase.name === "hold"){
       scheduleUnitPulsePattern(7, unitMs, () => ({ offset: 0, intensity: 104, duration: 132 }));
     } else if(phase.name === "exhale"){
-      scheduleUnitPulsePattern(8, unitMs, () => ({ offset: 0, intensity: 92, duration: Math.min(420, unitMs * 0.72) }));
+      // 每拍一個長震、強度逐拍下降（吐＝下降）；duration 封包上限 255，斷開反而可數拍（Pan 2026-07-13）
+      scheduleUnitPulsePattern(8, unitMs, (i) => ({ offset: 0, intensity: 96 - i * 4, duration: Math.min(255, unitMs * 0.72) }));
     }
     return;
   }
@@ -2127,6 +2277,20 @@ function updateGuidedSession(force = false){
   $("breathMetric").textContent = `呼吸週期 ${ph.total.toFixed(1)}s`;
   $("heartMetric").textContent = `海色 ${state.guided.heartLabel}`;
   $("gripMetric").textContent = `握力水位 ${Math.round(gripWater * 100)}%`;
+  // 各 preset 的聲音簽名（BREATHING.md §3：時間包絡 × 喚起方向 × 音色）
+  const presetId = state.guided.preset;
+  let droneAmt = 0;
+  let sideLg = 0, sideRg = 0;
+  if(presetId === "hold478"){
+    // 停屏 → 駐音層浮起（懸止非停頓）；吐氣時慢慢退掉
+    if(ph.phase.hold) droneAmt = smooth01(Math.min(1, ph.local * 3));
+    else if(ph.phase.name === "exhale") droneAmt = Math.max(0, 1 - ph.local * 2.2);
+  }
+  if(presetId === "alternate"){
+    // 左右潮：浪真的在左邊或右邊湧起/退去，不只是 pan 中央床
+    const amt = ph.phase.name.toLowerCase().includes("inhale") ? smooth01(ph.local) : 1 - smooth01(ph.local);
+    if((ph.phase.pan || 0) < 0) sideLg = amt; else sideRg = amt;
+  }
   if(engine){
     engine.setBreathGuide({
       phase: breathCurve,
@@ -2135,7 +2299,9 @@ function updateGuidedSession(force = false){
       pan: phasePan,
       heart: state.guided.heartWeather,
       activate: preset.activate,
+      drone: droneAmt,
     });
+    engine.setSideGuide(sideLg, sideRg);
   }
 }
 
@@ -2186,6 +2352,10 @@ function endSession(){
   state.phase = "after";
   state.sessionEnd = performance.now();
   clearGuidedHaptics();
+  if(engine){
+    engine.setBreathGuide({ influence: 0, drone: 0, activate: 0, pan: 0 });  // 回到自走海，駐音/引導層退場
+    engine.setSideGuide(0, 0);
+  }
   state.guided.hapticKey = "";
   if(engine) engine.setBreathGuide({ influence: 0, activate: 0, pan: 0 });
   $("btnEndSession").disabled = true;
