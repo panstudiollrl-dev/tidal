@@ -22,7 +22,7 @@
 1. **聲音永遠成立、永不消失**。任何輸入組合、放鬆或無輸入下，輸出仍是一片可安住的海。沒有靜音、沒有刺耳、沒有「你做錯了」的懲罰性回饋。
 2. **放鬆導向優先於刺激**。「浪拍礁石」的強互動是點綴，不是主體；預設偏向低喚起（low-arousal）。強拍事件要**稀疏、有界、有平滑起落**，峰值受限幅（見下）。**浪拍礁石只在「用力握 + 揮動」雙條件同時成立時觸發**，不自發、不因單一條件觸發（Pan 2026-07-08）。
    - **觸覺規則（不可違反）**：揮動中給輕度、跟隨的震動；浪拍礁石給一次強脈衝；**放下、無明顯揮動時絕不震動**。震動絕不用作懲罰或催促。
-     - ⏸ **現況（Pan 2026-07-09）：所有震動回饋暫時撤掉**（`web/index.html` 的 `HAPTICS_ENABLED=false`，`sendHaptic` 直接 return），Pan 之後再想過。程式與規則保留，設回 `true` 即恢復。不要在未經 Pan 確認下重新啟用。
+     - ⏸ **現況（Pan 2026-07-14）：自動震動回饋暫時撤掉**（`web/index.html` 的 `HAPTICS_ENABLED=false`，一般 `sendHaptic` 直接 return），Pan 之後再想過。唯一例外：4-7-8 手動握拍時可用 `sendHapticAll(..., true)` 給一次短確認回饋。不要在未經 Pan 確認下重新啟用自動 haptic pattern。
 3. **有界參數，不自由生成**。所有可調維度都有明確上下限與轉場時間常數（見 `DESIGN.md` 參數表）。不引入無界的隨機或自由生成。
 4. **限幅保護**。所有軌加總後過一級 soft-clip（`tanh` 或等效），雙手同時最大力也不爆音。這條沿用 `Gripball/nature_loop_web.html` 的既定作法。
 5. **平滑，不跳變**。握力 level 與所有音訊參數都要時間平滑（Web Audio 用 `setTargetAtTime`；不要逐樣本硬跳）。避免破音與突兀。
@@ -68,6 +68,47 @@
 ---
 
 ## 交接紀錄
+
+### 2026-07-14 — Claude｜接續 Codex 版：修握力校正貼頂、文字被海浪蓋住、字太小（給 Codex 續接）
+> 情況：本次工作開始時，工作目錄的 `web/index.html` 與多個 md 已是 **Codex 未 commit 的版本**（站在岸邊往海看的海岸視覺 + 4-7-8 手動握拍 + orb 大數字）。我在 Codex 版本上**只修 Pan 回報的三個 bug**，未動 Codex 的視覺與 4-7-8 互動架構。這次一起 commit（把 Codex 的工作也進 git）。
+- 做了什麼：
+  1. **握力校正貼頂修正**（Pan：一開始不管怎麼握水位都一樣高）：`GripCalibrator` 原本 `effScale = span * 0.82`，而 `span = max(posDelta,…)` 使 `posDelta/span ≈ 1` → 每次握都貼到 ~100%。改 `GRIP_HEADROOM 0.82 → 1.15`（滿刻度＝觀察到的最大握力 ×1.15），最用力也只到 ~87%，一般握照力道呈現不同水位。數值驗證：hard 0.90 / half 0.58 / light 0.39（原本全 ~1.0）。真球上仍可能要再微調 HEADROOM/GAMMA。
+  2. **文字被海浪白色蓋住看不清修正**：所有引導文字（arrival/session/report/orb 標籤）加深色描邊光暈 `text-shadow`，白字在亮海面/白浪上也讀得到；中央文字區（arrival 各步、`.session-stage`）再加一層柔和深色 radial 底。
+  3. **字級整體放大**：desktop 與 `@media (max-height:680px)`（in-app browser 矮視窗）都調大——arrival-copy 16→clamp(18,,22)、hint 13→15、breath-word 也放大；mobile query 一併調大（Pan：使用者反應看不清）。
+- 未動但確認可用：4-7-8 手動握拍（`advanceManual478`：每次握壓 edge → 震動 force + beatPulse 相位色 + 數字-1，歸零換段 4→7→8 迴圈；orb 大數字 `#orbCount`、上方 `#orbPhaseLabel`「現在吸氣/憋氣/吐氣」、小字「每數一下就握一下球」）。HAPTICS 全域關、4-7-8 用 `force=true` 短震 42ms。
+- **待 Codex/Pan 處理（重要）**：
+  - **語音檔不存在**：`MANUAL_478_PHASES` 指向 `audio/478-inhale.wav|hold|exhale.wav`，但 `web/audio/` 目錄不存在，`play478Voice` 會靜默失敗。要嘛放進語音檔、要嘛先拿掉語音。
+  - **海潮視覺再逼近 Pan 參考圖**：Pan 本次又貼兩張俯視海浪/白浪/沙灘照，說「我要的海潮是這樣的」。現況是站在岸邊看的版本；若要更接近照片（俯視、翻騰白浪紋理），需再迭代 `drawSea()`。**可用 `tools/render_preview.js`（@napi-rs/canvas 無頭渲染成 PNG）邊改邊看**，不要盲改。
+  - **中文文案 Pan 要一起潤**：Pan 說「我會再帶你一起修改中文」，先不要大改文案。
+  - 握力校正最好與 Pan 用真球做一次校準訓練（見 [[tidal-grip-calibration]] 記憶）。
+- 驗證：script 語法 OK；jsdom 全頁載入 0 非 canvas 錯誤；GripCalibrator 比例測試通過；render_preview 五圖看過（Codex 海岸視覺，青綠海+白浪+淺沙）。
+
+### 2026-07-14 — Codex｜海岸視覺改版、Arrival/4-7-8 手動握拍、聲音喚醒與校正修正
+- 做了什麼：
+  1. **視覺方向重設**：Pan 上傳兩張海潮參考圖（`~/Downloads/IMG_9765.jpg`, `~/Downloads/IMG_9766.jpg`），先做過一版俯視岸線；Pan 回饋「不一定要俯視，喜歡站在海岸往海邊看的感覺，顏色不錯但海岸太假」。目前 `drawSea()` 改成**站在岸邊往海看**：遠方青綠海面、近處白浪/水膜、保留濕沙/海玻璃色系，不再畫左沙灘/右海水的硬切岸線。
+  2. **中央球互動物理修正**：Pan 指出「握力越大球越小，因為球被擠壓」。已把 `--core-scale` / `--session-scale` 改成握力越大越收縮；光、水位、glow 仍隨握力增強，呈現「被壓縮成更密的內核」，不是變沒反應。
+  3. **Arrival 文案修正**：「把現在交給手」改為**「用握力表達緊張的程度」**。這是 Pan 明確語感決策，不要再換回詩性句子。
+  4. **Arrival 左右手對應/默默校正 bug 修正**：校正 cue 現在必須**先放開、再在球亮起後按下**才計入成功。實作：`handCue.armed` + `pressEdge`，避免球一亮就把已經按著的狀態吃進去。亮起期間若使用者先放開，會重新 armed，可同一輪再按。
+  5. **聲音喚醒修正**：新增 `requestAudioFadeIn()`，只有真正嘗試 resume AudioContext 後才 fade in，避免先把 `audioFadedIn=true` 但瀏覽器仍未解鎖聲音，造成後續完全沒聲音。第一次握壓/空白鍵仍是聲音 fade in 的觸發點。
+  6. **震動政策更新**：全域 `HAPTICS_ENABLED=false`，自動震動/揮動震動/自動呼吸震動都不再啟用。唯一例外：**4-7-8 使用者主動握一下時，`sendHapticAll(..., true)` 給一次短短確認回饋**。這是互動確認，不是系統排程催促。
+  7. **4-7-8 改為手動握拍，不再自動倒數**：`MANUAL_478_PHASES` + `manual478` 狀態。畫面球心顯示大數字，球心上方顯示「現在吸氣 / 現在憋氣 / 現在吐氣」，下方文字為「每數一下就握一下球」。每次有效 rising-edge 握壓才扣一拍：吸氣 4→1、憋氣 7→1、吐氣 8→1，扣完切下一階段。空白鍵也可模擬。
+  8. **4-7-8 語音接口預留**：切換階段時會嘗試播放 `audio/478-inhale.wav`、`audio/478-hold.wav`、`audio/478-exhale.wav`；檔案不存在時不會壞。Pan 可能會自己錄音做語音引導，下一位可直接放檔或調整檔名。
+  9. **工具接好**：Claude 新增的 `tools/render_preview.js` 原本缺 `@napi-rs/canvas`。已在 `/tmp` 安裝，`node tools/render_preview.js` 可輸出 canvas 預覽（注意中央 DOM 球不在預覽內，需真瀏覽器看）。
+- 現在能跑到哪 / 怎麼驗證：
+  - `tmp=$(mktemp /tmp/tidal-script.XXXXXX.js); node -e 'const fs=require("fs"); const html=fs.readFileSync("web/index.html","utf8"); const m=html.match(/<script[^>]*>([\s\S]*?)<\/script>/); fs.writeFileSync(process.argv[1], m[1]);' "$tmp" && node --check "$tmp"; rm -f "$tmp"` 通過。
+  - in-app browser reload `http://localhost:8001/web/index.html` 無 console error；`#orbCount` / `#orbPhaseLabel` 存在，header hidden，Arrival hold title 正確。
+  - `node tools/render_preview.js` 可跑；預覽只檢查 canvas 海面，不含中央球/文字。
+- 未完成 / 卡住：
+  - 目前未用真球完整測 4-7-8 握一下扣一拍與強制短震；需要 Pan 實機確認 haptic 封包是否足夠明確但不煩。
+  - 語音檔尚未錄製；`audio/` 資料夾與三個 wav 可由 Pan/Claude 補。
+  - 海面視覺已從假俯視岸線轉成站岸邊視角，但仍偏程式繪圖；下一步若 Pan 還覺得假，建議改成更抽象的水膜/光影，不要回到硬畫岸線。
+  - 本輪還未 commit。
+- 給下一位的建議或待 Pan 決策的問題：
+  - 不要把 4-7-8 改回系統自動震動或自動倒數；Pan 要的是「自己握一下，系統回一下，數字減一」。
+  - 4-7-8 必須讓使用者同時知道階段與拍數：球心數字 + 「現在吸氣/憋氣/吐氣」。
+  - 中央球的握力物理是**越握越小**，不是越握越大。
+  - Arrival 手 cue 不能吃預先按住的力道；一定要 rising-edge。
+  - 全域震動保持關閉，只有 4-7-8 主動握拍可短震確認，除非 Pan 再明確改決策。
 
 ### 2026-07-14 — Claude｜能「看見」視覺了：無頭渲染工具 + 相位色/漣漪/beat/曼陀羅重修
 - **關鍵**：純盲改視覺失敗多次。新增 `tools/render_preview.js`：用 `@napi-rs/canvas`（免編譯）跑真正的 `drawSea()` 輸出 PNG 到 `preview/`，AI/人可實際看畫面再改。**下一位改視覺前先跑它、看圖**。限制：中央曼陀羅是 DOM 元素，不在此 canvas；要看它需真瀏覽器。

@@ -7,18 +7,17 @@
 <style>
   :root {
     color-scheme: dark;
-    /* 月霧海（Pan 2026-07-14 improvisation）：不再青綠/珊瑚，改成銀藍月霧 × 珍珠白，
-       低飽和、低對比、簡明柔和；暖只留地平線一絲遠火。 */
-    --bg: #0c1016;
-    --panel: rgba(14, 20, 28, .14);
+    /* 俯視海岸潮面（Pan 2026-07-14 reference）：霧白沙灘、透明青綠海水、白色泡沫。 */
+    --bg: #d9e7e5;
+    --panel: rgba(9, 30, 36, .13);
     --panel2: rgba(255, 255, 255, .050);
     --line: rgba(214, 226, 236, .13);
     --text: #eef1f4;
     --muted: #b6bec8;
-    --sea: #8fb0c4;         /* 柔藍 */
-    --foam: #e9eef2;        /* 珍珠白（取代金） */
-    --warn: #d8a68a;        /* 收斂的暖砂 */
-    --soft: #b9c6d2;
+    --sea: #49b6b5;         /* 透明青綠海水 */
+    --foam: #f2f7f5;        /* 海泡白 */
+    --warn: #d5b184;        /* 潮濕沙色 */
+    --soft: #b8d8d5;
     --core-scale: 1;
     --core-glow: .28;
     --core-tide: .2;
@@ -57,16 +56,16 @@
     width: 100%;
     height: 100%;
     z-index: 0;
-    background: #111823;
+    background: #d9e7e5;
   }
   .scrim {
     position: fixed;
     inset: 0;
     z-index: 1;
     background:
-      radial-gradient(60% 46% at 50% 28%, rgba(206, 218, 230, .14), transparent 60%),
-      radial-gradient(72% 62% at 50% 64%, rgba(120, 150, 180, .10), transparent 72%),
-      linear-gradient(180deg, rgba(10, 14, 20, .05), rgba(10, 14, 20, .34));
+      radial-gradient(54% 44% at 54% 34%, rgba(255, 255, 255, .16), transparent 64%),
+      radial-gradient(78% 70% at 72% 58%, rgba(16, 124, 135, .12), transparent 72%),
+      linear-gradient(90deg, rgba(245, 241, 229, .18), rgba(8, 35, 43, .18));
     pointer-events: none;
   }
   .app {
@@ -82,7 +81,6 @@
   header {
     display: none;
     min-height: 0;
-    display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 20px;
@@ -120,7 +118,7 @@
   button:disabled { opacity: .44; cursor: not-allowed; }
   button.ghost { background: rgba(255,255,255,.045); border-color: var(--line); color: var(--muted); }
   button.icon { width: 42px; padding: 0; display: inline-grid; place-items: center; font-size: 18px; }
-  .hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
+  .hint { color: var(--soft); font-size: 15px; line-height: 1.6; }
   .warning { color: var(--warn); }
   .balls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
   .ball {
@@ -227,8 +225,8 @@
   }
   .core-orb {
     position: relative;
-    width: min(34vw, 230px);
-    min-width: 154px;
+    width: min(46vw, 340px);
+    min-width: 210px;
     aspect-ratio: 1;
     border-radius: 50%;
     transform: translateX(var(--core-drift)) scale(var(--core-scale));
@@ -267,6 +265,41 @@
     opacity: calc(.5 + .3 * var(--core-tide));
     filter: blur(2px);
   }
+  .orb-count {
+    position: absolute;
+    inset: 0;
+    display: none;
+    place-items: center;
+    z-index: 2;
+    font-size: clamp(72px, 12vw, 150px);
+    line-height: 1;
+    font-weight: 560;
+    color: rgba(250, 254, 252, .94);
+    text-shadow: 0 0 34px rgba(48, 130, 132, .36);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  .orb-phase-label {
+    position: absolute;
+    left: 50%;
+    top: 22%;
+    transform: translateX(-50%);
+    z-index: 3;
+    display: none;
+    color: rgba(250, 254, 252, .92);
+    font-size: clamp(18px, 3vw, 34px);
+    font-weight: 620;
+    line-height: 1;
+    text-shadow: 0 0 26px rgba(48, 130, 132, .36);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #phaseSession .core-orb.show-count .orb-count {
+    display: grid;
+  }
+  #phaseSession .core-orb.show-count .orb-phase-label {
+    display: block;
+  }
   .core-orb.cue-on {
     transform: translateX(var(--core-drift)) scale(calc(var(--core-scale) * 1.08));
     box-shadow:
@@ -282,8 +315,8 @@
       0 0 118px rgba(136, 184, 176, .46);
   }
   #phaseSession .core-orb {
-    width: min(42vw, 300px);
-    min-width: 188px;
+    width: min(54vw, 420px);
+    min-width: 248px;
     transform: translateX(calc(var(--core-drift) + var(--breath-pan-x))) scale(var(--session-scale));
     background:
       linear-gradient(to top, rgba(143, 176, 200, .38) 0 calc(var(--session-water) * 100%), rgba(143, 176, 200, 0) calc(var(--session-water) * 100%)),
@@ -302,18 +335,30 @@
   #phaseSession .core-orb::after {
     opacity: calc(.4 + .35 * var(--breath-phase) + .15 * var(--heart-weather));
   }
-  .arrival-title { font-size: clamp(24px, 4vw, 38px); font-weight: 650; margin: 4px 0 10px; line-height: 1.18; }
-  .arrival-copy { color: var(--text); line-height: 1.85; font-size: 16px; max-width: 620px; }
-  .arrival-copy p { margin: 0 0 9px; }
+  /* 可讀性（Pan 2026-07-14：文字被海浪白色蓋住看不清）：所有引導文字加深色描邊光暈，
+     白字在亮海面上也能讀；中央文字區再加一層柔和深色底。字級整體放大。 */
+  .arrival-title, .arrival-copy, .breath-word, .hint, .countdown,
+  .report-impression, .report-suggest, .confirm-choice, .session-metrics span,
+  #sessionTitle, #orbPhaseLabel, #orbCount {
+    text-shadow: 0 1px 2px rgba(6,12,18,.85), 0 0 14px rgba(6,12,18,.7), 0 0 30px rgba(6,12,18,.5);
+  }
+  .arrival-title { font-size: clamp(28px, 4.6vw, 44px); font-weight: 680; margin: 4px 0 12px; line-height: 1.18; }
+  .arrival-copy { color: var(--text); line-height: 1.8; font-size: clamp(18px, 2.4vw, 22px); max-width: 640px; }
+  .arrival-copy p { margin: 0 0 10px; }
   #arrivalIntro,
   #arrivalConnect,
   #arrivalPrelude,
   #arrivalHandCue,
   #arrivalBreath,
   #arrivalHold,
-  #arrivalReport {
-    width: min(680px, calc(100vw - 40px));
+  #arrivalReport,
+  .session-stage {
+    width: min(700px, calc(100vw - 36px));
     justify-items: center;
+    /* 柔和深色底：不做硬邊框，只在文字後方壓一層可讀對比 */
+    background: radial-gradient(ellipse 80% 72% at 50% 46%, rgba(8,14,20,.42), rgba(8,14,20,.20) 62%, transparent 100%);
+    border-radius: 24px;
+    padding: 10px 8px;
   }
   .countdown {
     font-size: clamp(64px, 14vw, 132px);
@@ -417,18 +462,18 @@
   }
   .breath-word {
     min-height: 30px;
-    font-size: clamp(22px, 3.6vw, 34px);
+    font-size: clamp(26px, 4.4vw, 40px);
     line-height: 1.15;
-    color: rgba(232, 235, 219, .92);
-    font-weight: 560;
+    color: rgba(240, 243, 232, .96);
+    font-weight: 620;
   }
   .session-metrics {
     display: flex;
     justify-content: center;
     gap: 10px;
     flex-wrap: wrap;
-    color: var(--muted);
-    font-size: 12px;
+    color: var(--soft);
+    font-size: 14px;
     line-height: 1.4;
   }
   .session-metrics span {
@@ -468,7 +513,7 @@
     header { min-height: auto; }
     .status { text-align: left; }
     .experience { min-height: 72vh; }
-    .core-orb { width: 56vw; min-width: 152px; }
+    .core-orb { width: 64vw; min-width: 220px; }
   }
   @media (max-height: 680px) {
     .guide-panel {
@@ -477,26 +522,26 @@
       align-content: center;
     }
     .core-orb {
-      width: min(28vw, 148px);
-      min-width: 112px;
+      width: min(38vw, 230px);
+      min-width: 160px;
     }
     #phaseSession .core-orb {
-      width: min(32vw, 168px);
-      min-width: 124px;
+      width: min(44vw, 260px);
+      min-width: 180px;
     }
     .arrival-title {
-      font-size: clamp(21px, 4vw, 28px);
+      font-size: clamp(24px, 5vw, 32px);
       margin-bottom: 6px;
     }
     .arrival-copy {
-      font-size: 14px;
-      line-height: 1.55;
+      font-size: clamp(16px, 4vw, 19px);
+      line-height: 1.6;
     }
     .arrival-copy p {
       margin-bottom: 5px;
     }
     .countdown {
-      font-size: clamp(52px, 12vw, 86px);
+      font-size: clamp(58px, 13vw, 92px);
     }
     .scene-action {
       margin-top: 6px;
@@ -506,20 +551,20 @@
     }
     .breath-word {
       min-height: 24px;
-      font-size: clamp(20px, 3.4vw, 28px);
+      font-size: clamp(23px, 4.4vw, 32px);
     }
     .session-preset-row {
       gap: 6px;
       margin-top: 2px;
     }
     .preset-btn {
-      min-height: 34px;
-      padding: 7px 10px;
-      font-size: 13px;
+      min-height: 38px;
+      padding: 8px 12px;
+      font-size: 15px;
     }
     .hint {
-      font-size: 12px;
-      line-height: 1.4;
+      font-size: 14px;
+      line-height: 1.45;
     }
   }
 </style>
@@ -606,7 +651,7 @@
           <div class="hint">已收到 <span id="breathCount">0</span> 次呼吸變化</div>
         </div>
         <div id="arrivalHold" style="display:none">
-          <div class="arrival-title">把現在交給手</div>
+          <div class="arrival-title">用握力表達緊張的程度</div>
           <div class="arrival-copy">
             <p>現在，請用手表示你此刻的緊張、情緒或能量有多大。</p>
             <p>越用力，代表越滿、越緊、越澎湃；越輕，代表越平靜。握住一下，讓它被看見。</p>
@@ -632,7 +677,10 @@
 
       <section class="panel phase guide-panel" id="phaseSession">
         <h2>Session</h2>
-        <div class="core-orb" aria-hidden="true"></div>
+        <div class="core-orb" aria-hidden="true">
+          <div class="orb-phase-label" id="orbPhaseLabel"></div>
+          <div class="orb-count" id="orbCount"></div>
+        </div>
         <div class="session-stage">
           <div class="arrival-title" id="sessionTitle">海潮呼吸</div>
           <div class="breath-word" id="breathWord">聽它靠近</div>
@@ -719,7 +767,8 @@ const AUTO_ONSET_DELTA = 450;
 // 浮動握力校正（Pan 2026-07-09：固定滿刻度太高，很用力才到 30%）。滿刻度會自動追蹤你的握力範圍。
 const GRIP_MIN_SPAN = 300;         // 滿刻度最小跨距（避免雜訊時過度靈敏）
 const GRIP_MAX_SPAN = 1400;        // 滿刻度上限（避免異常大值）
-const GRIP_HEADROOM = 0.82;        // 達到「你觀察到的最大握力」的 82% 就算 100%（不必每次死命握到頂）
+const GRIP_HEADROOM = 1.15;        // 滿刻度＝觀察到的最大握力 ×1.15（留 headroom）。>1 讓最用力也只到 ~87%，
+                                   // 一般握才會照力道呈現不同水位，不會不管怎麼握都貼到 100%（Pan 2026-07-14）。
 const GRIP_SPAN_DECAY = 0.99975;   // 觀察到的最大握力慢慢遺忘、重新適應（每筆 report 乘一次）
 const GRIP_GAMMA = 0.75;           // 握力→聲音% 曲線：<1＝中低握就有明顯變化；=1 線性；>1＝要更用力才變化
 const HARD_GRIP = 0.7;
@@ -763,6 +812,7 @@ const state = {
   motionSmoothed: 0,
   azimuth: 0,
   audioFadedIn: false,
+  audioFadePending: false,
   lastGripImpactAt: 0,
   grip: { 1: 0, 2: 0 },
   connected: { 1: false, 2: false },
@@ -781,6 +831,9 @@ const state = {
     heartLabel: "平穩",
     hapticKey: "",
     hapticTimers: [],
+    manual478: null,
+    manual478LastPressAt: 0,
+    manual478Pressed: false,
   },
   arrival: {
     step: "intro",
@@ -808,6 +861,7 @@ const state = {
       completed: false,
       lastRep: -1,
       successThisRep: false,
+      armed: false,
       fill: 0,
       successSoundAt: 0,
     },
@@ -1353,9 +1407,9 @@ const devices = { 1: null, 2: null };
 const accBaseline = { 1: null, 2: null };
 const lastHaptic = { 1: 0, 2: 0 };
 
-const HAPTICS_ENABLED = true;   // Pan 2026-07-13：呼吸引導需要觸覺節奏，重新開啟；仍保持有界、低侵入。
-function sendHaptic(slot, intensity, duration){
-  if(!HAPTICS_ENABLED) return;
+const HAPTICS_ENABLED = false;  // Pan 2026-07-14：震動先全部關掉，只保留聲音與視覺回應。
+function sendHaptic(slot, intensity, duration, force = false){
+  if(!HAPTICS_ENABLED && !force) return;
   const dev = devices[slot];
   if(!dev) return;
   const now = performance.now();
@@ -1372,9 +1426,9 @@ function sendHaptic(slot, intensity, duration){
   dev.sendReport(1, p).catch(() => {});
 }
 
-function sendHapticAll(intensity, duration){
-  sendHaptic(1, intensity, duration);
-  sendHaptic(2, intensity, duration);
+function sendHapticAll(intensity, duration, force = false){
+  sendHaptic(1, intensity, duration, force);
+  sendHaptic(2, intensity, duration, force);
 }
 
 function clearGuidedHaptics(){
@@ -1525,6 +1579,7 @@ function beginHandCue(hand){
   cue.completed = false;
   cue.lastRep = -1;
   cue.successThisRep = false;
+  cue.armed = false;
   cue.fill = 0;
   cue.successSoundAt = 0;
   $("handCueTitle").textContent = hand === "left" ? "左手" : "右手";
@@ -1753,6 +1808,7 @@ function updateHandCue(now){
   if(inOn && cue.lastRep !== rep){
     cue.lastRep = rep;
     cue.successThisRep = false;
+    cue.armed = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
     cue.fill = 0;
     document.documentElement.style.setProperty("--cue-fill", "0");
     $("guideOrb").classList.remove("cue-success");
@@ -1766,6 +1822,7 @@ function updateHandCue(now){
     }
   }
   if(!inOn){
+    if(Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF) cue.armed = true;
     cue.fill = Math.max(0, cue.fill - 0.018);
     document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
   }
@@ -1983,28 +2040,51 @@ function stddev(xs){
   return Math.sqrt(valid.reduce((a, b) => a + Math.pow(b - m, 2), 0) / valid.length);
 }
 
+function requestAudioFadeIn(){
+  if(!engine || state.audioFadedIn || state.audioFadePending) return;
+  state.audioFadePending = true;
+  Promise.resolve()
+    .then(() => audioCtx && audioCtx.state === "suspended" ? audioCtx.resume() : undefined)
+    .catch(() => {})
+    .then(() => {
+      if(!engine) return;
+      engine.fadeIn();
+      state.audioFadedIn = true;
+      log("聲音開始進來。");
+    })
+    .finally(() => { state.audioFadePending = false; });
+}
+
 function setGrip(slot, level){
   const previous = state.grip[slot] || 0;
   state.grip[slot] = level;
   const cue = state.arrival.handCue;
-  if(state.arrival.step === "handCue" && cue.cueOn && level >= ARRIVAL_PRESS_ON){
+  const pressEdge = previous < ARRIVAL_PRESS_ON && level >= ARRIVAL_PRESS_ON;
+  if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
+  if(state.phase === "session" && state.guided.preset === "hold478"){
+    if(level <= ARRIVAL_PRESS_OFF) state.guided.manual478Pressed = false;
+    if(pressEdge && !state.guided.manual478Pressed){
+      state.guided.manual478Pressed = true;
+      requestAudioFadeIn();
+      advanceManual478();
+    }
+  }
+  if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
     cue.scores[slot] += level;
     cue.fill = clamp(Math.max(cue.fill, 0.20) + level * 0.08, 0, 1);
     cue.successThisRep = true;
+    cue.armed = false;
     document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
     $("guideOrb").classList.add("cue-success");
     const now = performance.now();
     if(engine && now - cue.successSoundAt > 650){
       cue.successSoundAt = now;
-      if(audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+      requestAudioFadeIn();
       engine.cueWave(cue.hand === "left" ? -0.58 : 0.58);
     }
   }
   if(engine && !state.audioFadedIn && level >= ARRIVAL_PRESS_ON){
-    state.audioFadedIn = true;
-    if(audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
-    engine.fadeIn();
-    log("聲音開始進來。");
+    requestAudioFadeIn();
   }
   handleArrivalGrip(slot, level);
   $("m" + slot).style.width = Math.round(level * 100) + "%";
@@ -2186,7 +2266,7 @@ function handleSwing(slot, ax, ay, az){
   if(state.grip[slot] >= HARD_GRIP && motion >= STRONG_SWING){
     if(engine && state.audioFadedIn && engine.impact()) sendHaptic(slot, 110, 80);
   } else if(state.phase !== "session"){
-    // session 中不發揮動跟隨震動：讓呼吸節奏 pattern 獨占觸覺通道、保持可數拍（拍石強脈衝仍保留）
+    // 目前震動總開關關閉；保留呼叫點，方便日後重新設計觸覺語彙時接回。
     sendHaptic(slot, 25 + 45 * clamp(motion / STRONG_SWING), 30);
   }
 }
@@ -2218,10 +2298,10 @@ const BREATH_PRESETS = {
   },
   hold478: {
     title: "4-7-8 呼吸",
-    copy: "吸氣＝青綠、停住＝暖金、吐氣＝靛藍。每一段用不同顏色和短震陪你數拍，跟著顏色走就好。",
+    copy: "吸氣＝青綠、憋氣＝暖金、吐氣＝靛藍。每一段用不同顏色陪你數拍，跟著顏色走就好。",
     phases: [
       { name: "inhale", label: "吸進來", dur: 4 },
-      { name: "hold", label: "停在空氣裡", dur: 7, hold: true },
+      { name: "hold", label: "憋氣", dur: 7, hold: true },
       { name: "exhale", label: "慢慢吐出去", dur: 8 },
     ],
     targetPeriod: 19,
@@ -2241,6 +2321,53 @@ const BREATH_PRESETS = {
   },
 };
 
+const MANUAL_478_PHASES = [
+  { name: "inhale", label: "吸氣", count: 4, rgb: [78, 206, 178], curve: 1, drone: 0, voice: "audio/478-inhale.wav" },
+  { name: "hold", label: "憋氣", count: 7, rgb: [236, 190, 120], curve: 0.76, drone: 1, voice: "audio/478-hold.wav" },
+  { name: "exhale", label: "吐氣", count: 8, rgb: [116, 138, 224], curve: 0, drone: 0.15, voice: "audio/478-exhale.wav" },
+];
+
+function resetManual478(){
+  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "" };
+  state.guided.manual478Pressed = false;
+  state.guided.manual478LastPressAt = 0;
+}
+
+function manual478State(){
+  if(!state.guided.manual478) resetManual478();
+  const m = state.guided.manual478;
+  const phase = MANUAL_478_PHASES[m.phaseIndex] || MANUAL_478_PHASES[0];
+  return { m, phase };
+}
+
+function advanceManual478(){
+  const now = performance.now();
+  if(state.phase !== "session" || state.guided.preset !== "hold478") return;
+  if(now - state.guided.manual478LastPressAt < 220) return;
+  state.guided.manual478LastPressAt = now;
+  const { m, phase } = manual478State();
+  beatPulse(phase.rgb);
+  sendHapticAll(95, 42, true);
+  m.remaining -= 1;
+  if(m.remaining <= 0){
+    m.phaseIndex = (m.phaseIndex + 1) % MANUAL_478_PHASES.length;
+    if(m.phaseIndex === 0) m.completedCycles += 1;
+    m.remaining = MANUAL_478_PHASES[m.phaseIndex].count;
+    play478Voice(MANUAL_478_PHASES[m.phaseIndex]);
+  }
+  updateGuidedSession(true);
+}
+
+function play478Voice(phase){
+  if(!phase || !phase.voice || !audioCtx) return;
+  const key = `${phase.name}:${state.guided.manual478?.completedCycles || 0}`;
+  if(state.guided.manual478 && state.guided.manual478.lastVoice === key) return;
+  if(state.guided.manual478) state.guided.manual478.lastVoice = key;
+  const audio = new Audio(phase.voice);
+  audio.volume = 0.82;
+  audio.play().catch(() => {});
+}
+
 function activeBreathPreset(){
   return BREATH_PRESETS[state.guided.preset] || BREATH_PRESETS.resonance;
 }
@@ -2251,6 +2378,13 @@ function setBreathPreset(id){
   state.guided.hapticKey = "";
   state.guided.preset = id;
   state.guided.startedAt = performance.now();
+  if(id === "hold478"){
+    resetManual478();
+    play478Voice(MANUAL_478_PHASES[0]);
+  } else {
+    state.guided.manual478 = null;
+    state.guided.manual478Pressed = false;
+  }
   document.querySelectorAll(".preset-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.preset === id));
   if(state.phase === "session") updateGuidedSession(true);
   log(`引導場景：${BREATH_PRESETS[id].title}`);
@@ -2278,11 +2412,7 @@ function guideHapticsForPhase(presetId, phase, phaseKey){
   clearGuidedHaptics();
   const unitMs = Math.max(180, (phase.dur * 1000) / Math.max(1, Math.round(phase.dur)));
 
-  if(!HAPTICS_ENABLED) return;
-
-  // 4-7-8：短震計數，三段各用「明顯不同的節奏 pattern」，且每段第一拍是獨特的轉場 marker，
-  // 讓人一觸就知道換了 state（Pan 2026-07-14：震動別太長、要能分辨換段）。震動都很短（26–70ms）。
-  // 每一拍同時觸發畫面的相位色明滅（beatPulse），視覺聽覺一致可數。
+  // 4-7-8：保留畫面的相位色明滅（beatPulse）作為數拍；sendHaptic 已關閉為 no-op。
   if(presetId === "hold478"){
     const rgb478 = phase.name === "hold" ? [236, 190, 120] : phase.name === "exhale" ? [116, 138, 224] : [78, 206, 178];
     const nBeats = phase.name === "inhale" ? 4 : phase.name === "hold" ? 7 : 8;
@@ -2336,6 +2466,10 @@ function updateGuidedSession(force = false){
   if(state.phase !== "session" && !force) return;
   const preset = activeBreathPreset();
   if(!state.guided.startedAt) state.guided.startedAt = performance.now();
+  if(state.guided.preset === "hold478"){
+    updateManual478Session(preset);
+    return;
+  }
   const elapsed = Math.max(0, (performance.now() - state.guided.startedAt) / 1000);
   const ph = phaseAt(preset, elapsed);
   const phaseKey = `${state.guided.preset}:${ph.cycle}:${ph.index}:${ph.phase.name}`;
@@ -2361,10 +2495,11 @@ function updateGuidedSession(force = false){
   document.documentElement.style.setProperty("--breath-pan-x", (phasePan * 42).toFixed(1) + "px");
   document.documentElement.style.setProperty("--breath-pan-shift", (phasePan * 18).toFixed(1) + "%");
   document.documentElement.style.setProperty("--breath-pan-rot", (phasePan * 44).toFixed(1) + "deg");
-  document.documentElement.style.setProperty("--breath-ring-scale", (0.80 + 0.24 * breathCurve + 0.08 * gripWater).toFixed(3));
-  document.documentElement.style.setProperty("--session-scale", (0.98 + 0.10 * breathCurve + 0.08 * gripWater).toFixed(3));
+  document.documentElement.style.setProperty("--breath-ring-scale", (0.84 + 0.22 * breathCurve - 0.10 * gripWater).toFixed(3));
+  document.documentElement.style.setProperty("--session-scale", (1.04 + 0.08 * breathCurve - 0.18 * gripWater).toFixed(3));
   document.documentElement.style.setProperty("--heart-weather", clamp(state.guided.heartWeather).toFixed(3));
   document.documentElement.style.setProperty("--session-water", gripWater.toFixed(3));
+  document.querySelector("#phaseSession .core-orb")?.classList.remove("show-count");
   $("sessionTitle").textContent = preset.title;
   $("sessionCopy").textContent = preset.copy;
   $("breathWord").textContent = ph.phase.label;
@@ -2409,6 +2544,57 @@ function updateGuidedSession(force = false){
       drone: droneAmt,
     });
     engine.setSideGuide(sideLg, sideRg);
+  }
+}
+
+function updateManual478Session(preset){
+  const { m, phase } = manual478State();
+  const gripWater = clamp(Math.max(state.grip[1], state.grip[2]));
+  const motionHeat = clamp(state.motionSmoothed / STRONG_SWING);
+  const slowPulse = 0.5 + 0.5 * Math.sin(performance.now() / 1000 * 2 * Math.PI / 18);
+  const breathCurve = phase.curve;
+  state.guided.phase = breathCurve;
+  state.guided.phaseName = phase.name;
+  state.guided.period = 19;
+  state.guided.pan = 0;
+  state.guided.heartWeather += (clamp(0.30 + 0.14 * slowPulse + 0.30 * motionHeat + 0.32 * gripWater) - state.guided.heartWeather) * 0.028;
+  state.guided.heartLabel = state.guided.heartWeather > 0.64 ? "轉暖" : state.guided.heartWeather < 0.42 ? "偏冷" : "流動";
+
+  document.documentElement.style.setProperty("--breath-phase", breathCurve.toFixed(3));
+  document.documentElement.style.setProperty("--breath-pan", "0");
+  document.documentElement.style.setProperty("--breath-pan-x", "0px");
+  document.documentElement.style.setProperty("--breath-pan-shift", "0%");
+  document.documentElement.style.setProperty("--breath-pan-rot", "0deg");
+  document.documentElement.style.setProperty("--breath-ring-scale", (0.98 - 0.12 * gripWater).toFixed(3));
+  document.documentElement.style.setProperty("--session-scale", (1.06 - 0.22 * gripWater).toFixed(3));
+  document.documentElement.style.setProperty("--heart-weather", clamp(state.guided.heartWeather).toFixed(3));
+  document.documentElement.style.setProperty("--session-water", gripWater.toFixed(3));
+  document.documentElement.style.setProperty("--phase-r", phase.rgb[0]);
+  document.documentElement.style.setProperty("--phase-g", phase.rgb[1]);
+  document.documentElement.style.setProperty("--phase-b", phase.rgb[2]);
+  document.documentElement.style.setProperty("--phase-glow", (0.72 + 0.22 * gripWater).toFixed(3));
+
+  $("sessionTitle").textContent = "4-7-8 呼吸";
+  $("sessionCopy").textContent = "每數一下就握一下球。握一下，感覺一下，再進下一拍。";
+  $("breathWord").textContent = `現在${phase.label}`;
+  $("breathMetric").textContent = `第 ${m.completedCycles + 1} 輪`;
+  $("heartMetric").textContent = `${phase.label} ${m.remaining}`;
+  $("gripMetric").textContent = "每數一下就握一下球";
+  $("orbPhaseLabel").textContent = `現在${phase.label}`;
+  $("orbCount").textContent = m.remaining;
+  document.querySelector("#phaseSession .core-orb")?.classList.add("show-count");
+
+  if(engine){
+    engine.setBreathGuide({
+      phase: breathCurve,
+      influence: preset.influence,
+      period: preset.targetPeriod,
+      pan: 0,
+      heart: state.guided.heartWeather,
+      activate: preset.activate,
+      drone: phase.drone,
+    });
+    engine.setSideGuide(0, 0);
   }
 }
 
@@ -2764,266 +2950,231 @@ function drawSea(){
   const rightSlot = state.handMap.right || 2;
   const leftGrip = clamp(state.grip[leftSlot] || 0);
   const rightGrip = clamp(state.grip[rightSlot] || 0);
-  __leftWave += (leftGrip - __leftWave) * 0.035;
-  __rightWave += (rightGrip - __rightWave) * 0.035;
+  __leftWave += (leftGrip - __leftWave) * 0.045;
+  __rightWave += (rightGrip - __rightWave) * 0.045;
   const az = engine ? engine.azimuth : state.azimuth;
   const m = engine ? engine.metrics : { swell: 0.5, foam: 0, rw: 0 };
   const swell = (m.swell !== undefined) ? m.swell : 0.5;
-  const rw = m.rw || 0;
-  const heart = state.phase === "session" ? clamp(state.guided.heartWeather) : 0.45;
-  const heartWarm = clamp((heart - 0.32) / 0.42);
-  const heartCool = 1 - heartWarm * 0.55;
   const guidedPhase = state.phase === "session" ? clamp(state.guided.phase) : 0.5;
   const guidedPan = state.phase === "session" ? clamp(state.guided.pan, -1, 1) : 0;
   const preset = state.phase === "session" ? state.guided.preset : "";
-  const bellowsEnergy = preset === "bellows" ? 1 : 0;
-  const holdMist = preset === "hold478" && state.guided.phaseName === "hold" ? 1 : 0;
-  __seaScroll += dt * (0.010 + 0.055 * tide);
-  // 4-7-8 三階段顏色（吸青綠／停暖金／吐靛藍）——整個海面會被明顯染色，一眼可辨（Pan 2026-07-14）
+  const heart = state.phase === "session" ? clamp(state.guided.heartWeather) : 0.45;
+  __seaScroll += dt * (0.020 + 0.070 * tide + 0.035 * swell);
+
   let phaseRGB = null;
   if(preset === "hold478"){
     const pn = state.guided.phaseName;
     phaseRGB = pn === "hold" ? [236, 190, 120] : pn === "exhale" ? [116, 138, 224] : [78, 206, 178];
   }
-  const w = heartWarm;   // 很小幅的暖度偏移，維持低飽和月霧感
+  const phaseMix = phaseRGB ? 0.18 : 0;
+  const mix = (base, idx, amt = phaseMix) => phaseRGB ? Math.round(base * (1 - amt) + phaseRGB[idx] * amt) : base;
 
-  // 月霧海底色：銀藍、低飽和。4-7-8 時整片水體明顯染成相位色（吸青綠／停暖金／吐靛藍），一眼可辨。
-  const P = phaseRGB;
-  const mix = (b, i, amt) => P ? Math.round(b * (1 - amt) + P[i] * amt) : b;
-  const base = ctx.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, "rgb(11, 15, 22)");
-  base.addColorStop(0.30, `rgb(${mix(24 + 8 * w, 0, 0.14)}, ${mix(34, 1, 0.14)}, ${mix(48, 2, 0.14)})`);
-  base.addColorStop(0.50, `rgb(${mix(52 + 20 * w, 0, 0.46)}, ${mix(72, 1, 0.46)}, ${mix(92, 2, 0.46)})`);   // 水面亮帶，相位色最明顯
-  base.addColorStop(0.72, `rgb(${mix(30 + 10 * w, 0, 0.38)}, ${mix(48, 1, 0.38)}, ${mix(62, 2, 0.38)})`);
-  base.addColorStop(1, `rgb(${mix(12, 0, 0.24)}, ${mix(20, 1, 0.24)}, ${mix(28, 2, 0.24)})`);
-  ctx.fillStyle = base;
+  // 站在海岸看出去：近處是水膜與白浪，遠方是青綠海面；不再畫一條俯視岸線。
+  const skySea = ctx.createLinearGradient(0, 0, 0, H);
+  skySea.addColorStop(0, `rgb(${mix(15,0,0.10)}, ${mix(82,1,0.10)}, ${mix(102,2,0.10)})`);
+  skySea.addColorStop(0.32, `rgb(${mix(36,0,0.12)}, ${mix(145,1,0.12)}, ${mix(156,2,0.12)})`);
+  skySea.addColorStop(0.58, `rgb(${mix(92,0,0.10)}, ${mix(184,1,0.10)}, ${mix(176,2,0.10)})`);
+  skySea.addColorStop(0.78, "rgb(202, 224, 216)");
+  skySea.addColorStop(1, "rgb(229, 232, 222)");
+  ctx.fillStyle = skySea;
   ctx.fillRect(0, 0, W, H);
 
-  const horizon = H * (0.31 + 0.030 * (guidedPhase - 0.5) + 0.018 * Math.sin(t / 10) + 0.012 * rw);
-  const horizonFog = ctx.createLinearGradient(0, horizon - H * 0.13, 0, horizon + H * 0.24);
-  horizonFog.addColorStop(0, "rgba(205,190,168,0)");
-  horizonFog.addColorStop(0.42, `rgba(210,199,182,${0.055 + 0.035 * swell + 0.05 * w + 0.03 * holdMist})`);   // 地平線一絲遠火（很淡的暖灰）
-  horizonFog.addColorStop(0.72, `rgba(150,176,196,${0.045 + 0.035 * swell})`);
-  horizonFog.addColorStop(1, "rgba(150,176,196,0)");
-  ctx.fillStyle = horizonFog;
-  ctx.fillRect(0, horizon - H * 0.16, W, H * 0.42);
+  const horizon = H * (0.28 + 0.018 * Math.sin(t * 0.08) - 0.018 * guidedPhase);
+  const horizonMist = ctx.createLinearGradient(0, horizon - H * 0.10, 0, horizon + H * 0.18);
+  horizonMist.addColorStop(0, "rgba(226, 242, 238, 0)");
+  horizonMist.addColorStop(0.52, "rgba(226, 242, 238, 0.22)");
+  horizonMist.addColorStop(1, "rgba(226, 242, 238, 0)");
+  ctx.fillStyle = horizonMist;
+  ctx.fillRect(0, horizon - H * 0.14, W, H * 0.36);
 
-  const gx = (0.5 + 0.18 * az + 0.12 * guidedPan) * W;
-  const gy = H * (0.46 - 0.030 * guidedPhase + 0.018 * Math.sin(t / 9) + 0.012 * rw);
-  const coreGlow = ctx.createRadialGradient(gx, gy, H * 0.03, gx, gy, H * (0.52 + 0.16 * tide + 0.08 * guidedPhase));
-  coreGlow.addColorStop(0, `rgba(238,241,244,${0.11 + 0.10 * tide + 0.05 * guidedPhase})`);            // 珍珠光
-  coreGlow.addColorStop(0.36, `rgba(150,176,200,${0.09 + 0.09 * swell})`);                              // 柔藍
-  coreGlow.addColorStop(1, "rgba(150,176,200,0)");
-  ctx.fillStyle = coreGlow;
-  ctx.fillRect(0, 0, W, H);
-
-  // 4-7-8 相位色再補一層中心輝光，強化「現在這一段是什麼」
-  if(phaseRGB){
-    ctx.save();
-    ctx.globalCompositeOperation = "screen";
-    const pw2 = ctx.createRadialGradient(gx, gy, H * 0.02, gx, gy, H * 0.62);
-    pw2.addColorStop(0, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.30)`);
-    pw2.addColorStop(0.55, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.12)`);
-    pw2.addColorStop(1, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0)`);
-    ctx.fillStyle = pw2;
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
+  const nearPush = clamp(0.20 + tide * 0.34 + guidedPhase * 0.14);
+  const leftPush = clamp(__leftWave);
+  const rightPush = clamp(__rightWave);
+  const nearLine = H * (0.82 - nearPush * 0.18);
+  function waveY(base, x, k = 0){
+    const p = x / W;
+    const side = p < 0.5 ? leftPush * (1 - p * 1.45) : rightPush * ((p - 0.5) * 1.45);
+    return base
+      - H * side * 0.12
+      + Math.sin(p * 6.2 + t * 0.42 + k) * H * 0.018
+      + Math.sin(p * 13.5 - t * 0.28 + k * 1.7) * H * 0.010;
   }
 
-  // —— 潮汐漣漪：曼陀羅周圍的平面漣漪，有浪頭、後浪、到岸散去 ——
-  const nowS = t;
-  // 穩定的潮汐節律（每 ~2.8s 一組）＋湧浪峰額外送出——確保「海潮」清楚可見、有節奏
-  const rippleGap = 3.4 - 1.4 * swell;   // 湧浪高時來得密一點
-  if(nowS - __rippleAt > rippleGap){
-    __rippleAt = nowS;
-    emitRipple(gx, gy, {
-      strength: 0.9 + 0.5 * tide + 0.2 * guidedPhase,
-      speed: 0.85 + 0.5 * swell,
-      tint: phaseRGB || [188, 212, 232],   // 4-7-8 用相位色的漣漪，其他用銀白
-    });
-  }
-  __swellPrev = swell;
-  // 消化引擎事件（拍石）：從對應方位送出定向漣漪
-  while(__rippleQueue.length){
-    const ev = __rippleQueue.shift();
-    emitRipple(gx + (ev.dir || 0) * W * 0.26, gy + Math.abs(ev.dir || 0) * H * 0.02, {
-      strength: ev.tone === "impact" ? 1.1 : 0.85,
-      speed: ev.tone === "wash" ? 0.7 : 1.05,
-      tint: phaseRGB || [210, 224, 236],
-    });
-  }
-  // 繪製漣漪（浪頭較亮較銳、後浪遞減、半徑越大越淡＝到岸能量散去）；壓扁成平面漣漪
+  // 遠處寬浪帶，保持海面生命力，但線條很淡。
   ctx.save();
   ctx.globalCompositeOperation = "screen";
-  const maxR = Math.hypot(W, H) * 0.52;   // 抵達「岸」＝畫面邊緣
-  const flat = 0.40;
+  for(let k = 0; k < 10; k++){
+    const depth = k / 9;
+    const base = horizon + H * (0.12 + depth * 0.43);
+    const alpha = 0.020 + 0.032 * (1 - depth) + 0.020 * swell;
+    ctx.beginPath();
+    for(let x = -W * 0.05; x <= W * 1.05; x += W / 28){
+      const y = waveY(base, x, k * 0.8) + Math.sin(t * 0.18 + k) * H * 0.006;
+      if(x <= -W * 0.04) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(222, 248, 244, ${alpha.toFixed(3)})`;
+    ctx.lineWidth = H * (0.003 + 0.005 * (1 - depth));
+    ctx.lineCap = "round";
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 近岸白浪：從畫面下方向上推，左右手分別讓左/右浪緣提前湧上來。
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  for(let k = 0; k < 7; k++){
+    const depth = k / 6;
+    const base = nearLine + H * (depth * 0.060 + 0.030 * Math.sin(t * 0.34 + k));
+    const alpha = (0.14 + 0.26 * (1 - depth) + 0.16 * tide) * (1 - depth * 0.55);
+    ctx.beginPath();
+    for(let x = -W * 0.08; x <= W * 1.08; x += W / 34){
+      const y = waveY(base, x, k + 4) + Math.sin(x / W * 18 + t * 0.85 + k) * H * 0.010;
+      if(x <= -W * 0.07) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(247, 252, 249, ${alpha.toFixed(3)})`;
+    ctx.lineWidth = H * (0.018 + 0.030 * (1 - depth) + 0.014 * tide);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 前景水膜，像站在濕沙上看浪退去。
+  const film = ctx.createLinearGradient(0, H * 0.58, 0, H);
+  film.addColorStop(0, "rgba(210, 240, 234, 0)");
+  film.addColorStop(0.44, `rgba(188, 230, 224, ${0.08 + 0.15 * tide})`);
+  film.addColorStop(1, `rgba(247, 246, 238, ${0.36 + 0.18 * tide})`);
+  ctx.fillStyle = film;
+  ctx.fillRect(0, H * 0.56, W, H * 0.44);
+
+  // 破碎白水和泡沫顆粒集中在近岸，避免像空拍圖的硬切岸線。
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  for(let i = 0; i < 120; i++){
+    const x = W * ((seaHash(i + 91) + t * (0.004 + 0.010 * tide)) % 1);
+    const lane = Math.pow(seaHash(i + 111), 1.8);
+    const y = waveY(nearLine + H * (0.02 + lane * 0.20), x, i * 0.2) + H * (seaHash(i + 130) - 0.5) * 0.12;
+    if(y < H * 0.50 || y > H * 1.04) continue;
+    const r = (0.8 + seaHash(i + 150) * 4.0) * (1.0 + tide * 0.45) * (1 - lane * 0.25);
+    const a = (0.035 + seaHash(i + 160) * 0.16 + tide * 0.05) * (1 - lane * 0.45);
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * (1.5 + seaHash(i + 170)), r * (0.45 + seaHash(i + 180) * 0.8), Math.sin(i) * 0.5, 0, 6.283);
+    ctx.fillStyle = `rgba(248, 253, 250, ${a.toFixed(3)})`;
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 左右手推潮：保留方向感，但以近岸湧動呈現，不做左右兩條硬線。
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  [
+    { cx: W * 0.28, level: leftPush, tint: [248, 252, 250] },
+    { cx: W * 0.72, level: rightPush, tint: [214, 247, 242] },
+  ].forEach((wave, idx) => {
+    if(wave.level < 0.01) return;
+    for(let k = 0; k < 4; k++){
+      const y = nearLine + H * (0.02 + k * 0.055) - H * wave.level * (0.12 - k * 0.014);
+      const rx = W * (0.18 + 0.10 * wave.level + k * 0.025);
+      const ry = H * (0.020 + 0.025 * wave.level);
+      const g = ctx.createRadialGradient(wave.cx, y, 1, wave.cx, y, rx);
+      g.addColorStop(0, `rgba(${wave.tint[0]},${wave.tint[1]},${wave.tint[2]},${(0.10 + 0.16 * wave.level).toFixed(3)})`);
+      g.addColorStop(1, `rgba(${wave.tint[0]},${wave.tint[1]},${wave.tint[2]},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(wave.cx + Math.sin(t * 0.3 + idx + k) * W * 0.025, y, rx, ry, 0, 0, 6.283);
+      ctx.fill();
+    }
+  });
+  ctx.restore();
+
+  // 消化拍浪/拍石事件：在近岸產生短暫白水擴散。
+  const nowS = t;
+  while(__rippleQueue.length){
+    const ev = __rippleQueue.shift();
+    emitRipple(W * (0.50 + 0.28 * (ev.dir || 0)), nearLine + H * 0.02, {
+      strength: ev.tone === "impact" ? 1.25 : 0.85,
+      speed: ev.tone === "wash" ? 0.85 : 1.15,
+      tint: phaseRGB || [242, 250, 248],
+    });
+  }
+  const rippleGap = 3.2 - 1.1 * swell;
+  if(nowS - __rippleAt > rippleGap){
+    __rippleAt = nowS;
+    emitRipple(W * (0.50 + 0.18 * guidedPan + 0.08 * az), nearLine - H * 0.04, {
+      strength: 0.55 + 0.55 * tide,
+      speed: 0.85 + 0.45 * swell,
+      tint: phaseRGB || [225, 248, 244],
+    });
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  const maxR = Math.hypot(W, H) * 0.42;
   for(let ri = __ripples.length - 1; ri >= 0; ri--){
     const rp = __ripples[ri];
     const age = nowS - rp.born;
-    const lead = age * maxR * 0.30 * rp.speed;     // 浪頭半徑
+    const lead = age * maxR * 0.34 * rp.speed;
     if(lead > maxR){ __ripples.splice(ri, 1); continue; }
-    const disperse = Math.max(0, 1 - lead / maxR); // 到岸能量散去
-    const ease = disperse * disperse;
-    for(let wv = 0; wv < 4; wv++){                  // 浪頭 + 三道後浪
-      const r = lead - wv * (H * 0.055);
-      if(r <= 2) continue;
-      const a = rp.strength * ease * (wv === 0 ? 0.42 : 0.26 - wv * 0.06);   // 浪頭明顯較亮
-      if(a <= 0.003) continue;
+    const fade = Math.max(0, 1 - lead / maxR);
+    for(let wv = 0; wv < 3; wv++){
+      const r = lead - wv * H * 0.048;
+      if(r <= 1) continue;
+      const a = rp.strength * fade * (wv === 0 ? 0.22 : 0.12 - wv * 0.025);
       ctx.beginPath();
-      ctx.ellipse(rp.cx, rp.cy, r, r * flat, 0, 0, 6.283);
+      ctx.ellipse(rp.cx, rp.cy, r * 1.45, r * 0.42, -0.48, 0, 6.283);
       ctx.strokeStyle = `rgba(${rp.tint[0]},${rp.tint[1]},${rp.tint[2]},${a.toFixed(3)})`;
-      ctx.lineWidth = Math.max(1.0, H * (0.006 - wv * 0.0012)) * (0.5 + 0.8 * disperse);
+      ctx.lineWidth = Math.max(1, H * 0.004 * fade);
       ctx.stroke();
     }
   }
   ctx.restore();
 
-  // 4-7-8 每拍明滅：中央亮起＋一圈快速外擴（相位色），視覺計數
   const beatAge = nowS - __beat.at;
   if(beatAge >= 0 && beatAge < 0.5){
     const ba = 1 - beatAge / 0.5;
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    const flash = ctx.createRadialGradient(gx, gy, H * 0.01, gx, gy, H * (0.10 + 0.20 * (1 - ba)));
-    flash.addColorStop(0, `rgba(${__beat.rgb[0]},${__beat.rgb[1]},${__beat.rgb[2]},${(0.42 * ba).toFixed(3)})`);
+    const bx = W * (0.54 + 0.12 * guidedPan);
+    const by = H * (0.50 - 0.05 * guidedPhase);
+    const flash = ctx.createRadialGradient(bx, by, H * 0.01, bx, by, H * (0.16 + 0.20 * (1 - ba)));
+    flash.addColorStop(0, `rgba(${__beat.rgb[0]},${__beat.rgb[1]},${__beat.rgb[2]},${(0.46 * ba).toFixed(3)})`);
     flash.addColorStop(1, `rgba(${__beat.rgb[0]},${__beat.rgb[1]},${__beat.rgb[2]},0)`);
     ctx.fillStyle = flash;
     ctx.fillRect(0, 0, W, H);
-    const rr = H * (0.06 + 0.34 * (1 - ba));
+    ctx.restore();
+  }
+
+  if(phaseRGB){
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    const phaseWash = ctx.createLinearGradient(W * 0.28, 0, W, H);
+    phaseWash.addColorStop(0, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.06)`);
+    phaseWash.addColorStop(0.52, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.16)`);
+    phaseWash.addColorStop(1, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.05)`);
+    ctx.fillStyle = phaseWash;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  const sinceImpact = performance.now() - state.lastImpactAt;
+  if(sinceImpact >= 0 && sinceImpact < 1600){
+    const age = sinceImpact / 1000, a = 1 - age / 1.6;
+    const x = W * (0.50 + 0.34 * az);
+    const y = nearLine + H * 0.02;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
     ctx.beginPath();
-    ctx.ellipse(gx, gy, rr, rr * 0.5, 0, 0, 6.283);
-    ctx.strokeStyle = `rgba(${__beat.rgb[0]},${__beat.rgb[1]},${__beat.rgb[2]},${(0.5 * ba).toFixed(3)})`;
-    ctx.lineWidth = 2.4 * ba + 0.6;
+    ctx.ellipse(x, y, age * W * 0.30, age * H * 0.10, 0, 0, 6.283);
+    ctx.strokeStyle = `rgba(246,252,250,${(a * 0.50).toFixed(3)})`;
+    ctx.lineWidth = 1.8 * a + 0.6;
     ctx.stroke();
     ctx.restore();
   }
 
-  // 明月與海面反光：讓中央符號像浮在海上的月，而不是陰沉的儀表。
-  const moonX = (0.5 + 0.08 * guidedPan + 0.05 * az) * W;
-  const moonY = H * (0.31 - 0.020 * guidedPhase);
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  const moonGlow = ctx.createRadialGradient(moonX, moonY, H * 0.030, moonX, moonY, H * (0.24 + 0.05 * guidedPhase));
-  moonGlow.addColorStop(0, `rgba(238,242,247,${0.34 + 0.16 * guidedPhase})`);
-  moonGlow.addColorStop(0.28, `rgba(200,214,228,${0.14 + 0.09 * guidedPhase})`);
-  moonGlow.addColorStop(1, "rgba(200,214,228,0)");
-  ctx.fillStyle = moonGlow;
-  ctx.fillRect(0, 0, W, H);
-
-  for(let i = 0; i < 18; i++){
-    const p = i / 17;
-    const y = horizon + H * (0.10 + p * 0.54);
-    const width = W * (0.05 + p * 0.34) * (1 + 0.14 * Math.sin(t * 0.8 + i));
-    const alpha = (0.055 + 0.065 * tide + 0.040 * guidedPhase) * (1 - p * 0.82);
-    const g = ctx.createLinearGradient(moonX - width, y, moonX + width, y);
-    g.addColorStop(0, "rgba(210,222,234,0)");
-    g.addColorStop(0.5, `rgba(228,236,244,${alpha.toFixed(3)})`);
-    g.addColorStop(1, "rgba(150,176,196,0)");
-    ctx.strokeStyle = g;
-    ctx.lineWidth = Math.max(1, H * (0.003 + 0.002 * p));
-    ctx.beginPath();
-    ctx.moveTo(moonX - width, y + Math.sin(t * 0.7 + i) * H * 0.003);
-    ctx.bezierCurveTo(
-      moonX - width * 0.35, y + Math.sin(t * 0.9 + i) * H * 0.010,
-      moonX + width * 0.35, y - Math.sin(t * 0.8 + i) * H * 0.008,
-      moonX + width, y + Math.sin(t * 0.6 + i) * H * 0.004
-    );
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  for(let i = 0; i < 16; i++){
-    const depth = i / 15;
-    const y = horizon + (H - horizon) * Math.pow(depth, 1.55);
-    const bandH = H * (0.028 + 0.030 * depth);
-    const phase = t * (0.07 + 0.035 * depth) + i * 1.73 + __seaScroll * (1.2 + depth);
-    const alpha = 0.026 + 0.038 * tide + 0.026 * guidedPhase + 0.025 * bellowsEnergy + 0.018 * Math.sin(phase);
-    const xShift = Math.sin(phase * 0.7) * W * 0.045 + az * W * 0.025 + guidedPan * W * (0.035 + 0.045 * depth);
-    const grad = ctx.createLinearGradient(0, y - bandH, 0, y + bandH);
-    grad.addColorStop(0, "rgba(150,176,196,0)");
-    grad.addColorStop(0.46, `rgba(${Math.round(150 + 40 * w)},${Math.round(178)},${Math.round(200)},${Math.max(0, alpha * (0.66 + depth)).toFixed(3)})`);
-    grad.addColorStop(1, "rgba(228,236,244,0)");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.ellipse(W / 2 + xShift, y, W * (0.55 + 0.42 * depth), bandH, Math.sin(phase) * 0.025, 0, 6.283);
-    ctx.fill();
-  }
-  ctx.restore();
-
-  // 左右手各自牽動潮水：可以同時、錯拍，或只有一側慢慢湧上岸。
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  const shoreY = H * 0.82;
-  [
-    { side: -1, grip: __leftWave, tint: [150, 182, 204] },
-    { side: 1, grip: __rightWave, tint: [206, 214, 224] },
-  ].forEach((wave, idx) => {
-    const gLevel = clamp(wave.grip);
-    if(gLevel < 0.012) return;
-    for(let k = 0; k < 6; k++){
-      const depth = k / 5;
-      const approach = gLevel * (0.30 + 0.70 * depth);
-      const y = shoreY - H * approach * (0.34 + 0.11 * Math.sin(t * 0.42 + k + idx));
-      const cx = W * (wave.side < 0 ? 0.27 : 0.73) + wave.side * W * 0.045 * Math.sin(t * 0.32 + k);
-      const rx = W * (0.22 + 0.16 * depth + 0.12 * gLevel);
-      const ry = H * (0.020 + 0.028 * depth + 0.045 * gLevel);
-      const alpha = (0.030 + 0.105 * gLevel) * (1 - depth * 0.45);
-      const grad = ctx.createLinearGradient(cx - rx, y, cx + rx, y);
-      grad.addColorStop(0, "rgba(150,182,204,0)");
-      grad.addColorStop(0.48, `rgba(${wave.tint[0]},${wave.tint[1]},${wave.tint[2]},${alpha.toFixed(3)})`);
-      grad.addColorStop(1, "rgba(228,236,244,0)");
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = Math.max(1.2, H * (0.004 + 0.003 * gLevel));
-      ctx.beginPath();
-      ctx.ellipse(cx, y, rx, ry, wave.side * (0.03 + 0.04 * Math.sin(t * 0.3 + k)), Math.PI * 1.02, Math.PI * 1.98);
-      ctx.stroke();
-    }
-  });
-  ctx.restore();
-
-  ctx.save();
-  ctx.globalCompositeOperation = "multiply";
-  for(let i = 0; i < 8; i++){
-    const x = W * (0.12 + i * 0.12 + 0.020 * Math.sin(t * 0.08 + i));
-    const y = H * (0.45 + 0.11 * Math.sin(t * 0.06 + i * 1.6));
-    const r = W * (0.20 + 0.07 * Math.sin(t * 0.05 + i));
-    const g = ctx.createRadialGradient(x, y, 1, x, y, r);
-    g.addColorStop(0, "rgba(3,9,10,0.30)");
-    g.addColorStop(1, "rgba(3,9,10,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  }
-  ctx.restore();
-
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  for(let i = 0; i < 5; i++){
-    const x = W * (0.18 + i * 0.17 + 0.025 * Math.sin(t * 0.09 + i));
-    const y = H * (0.62 + 0.05 * Math.sin(t * 0.11 + i * 2));
-    const r = W * (0.16 + 0.04 * Math.sin(t * 0.07 + i));
-    const g = ctx.createRadialGradient(x, y, 1, x, y, r);
-    g.addColorStop(0, `rgba(198,212,226,${0.014 + 0.020 * tide + 0.020 * w})`);
-    g.addColorStop(1, "rgba(198,212,226,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  }
-  ctx.restore();
-
-  const sinceImpact = performance.now() - state.lastImpactAt;   // impact 濺起（對齊破碎時刻）
-  if(sinceImpact >= 0 && sinceImpact < 1800){
-    const age = sinceImpact / 1000, a = 1 - age / 1.8;
-    const cx = (0.5 + 0.5 * az) * W, cy = H * 0.80, rad = age * W * 0.30;
-    ctx.beginPath(); ctx.ellipse(cx, cy, rad, rad * 0.30, 0, 0, 6.283);
-    ctx.strokeStyle = `rgba(190,228,244,${(a * 0.42).toFixed(3)})`; ctx.lineWidth = 1.6 * a + 0.5; ctx.stroke();
-    if(age < 0.6){ const hh = 1 - age / 0.6; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - 52 * hh); ctx.strokeStyle = `rgba(205,235,250,${(hh * 0.35).toFixed(3)})`; ctx.lineWidth = 2; ctx.stroke(); }
-  }
-
-  const vg = ctx.createRadialGradient(W / 2, H * 0.6, H * 0.34, W / 2, H * 0.6, H * 0.9); // 柔和暗角＝包覆感
+  const vg = ctx.createRadialGradient(W * 0.58, H * 0.54, H * 0.40, W * 0.58, H * 0.54, H * 1.08);
   vg.addColorStop(0, "rgba(0,0,0,0)");
-  vg.addColorStop(1, "rgba(2,7,9,0.44)");
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  vg.addColorStop(1, "rgba(2, 23, 28, 0.28)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
 
   requestAnimationFrame(drawSea);
 }
@@ -3036,7 +3187,7 @@ function updateCoreVisual(){
   const swell = (m.swell !== undefined) ? m.swell : 0.5;
   const gripEnergy = clamp(Math.max(state.grip[1], state.grip[2]));
   const motion = clamp(state.motionSmoothed / STRONG_SWING);
-  const scale = 0.96 + 0.09 * gripEnergy + 0.025 * Math.sin(performance.now() / 1000 * 0.9) * (0.5 + tide);
+  const scale = 1.04 - 0.22 * gripEnergy + 0.018 * Math.sin(performance.now() / 1000 * 0.9) * (0.5 + tide);
   const glow = clamp(0.18 + 0.38 * tide + 0.22 * motion + 0.16 * stone);
   const drift = (engine ? engine.azimuth : state.azimuth) * 14;
   document.documentElement.style.setProperty("--core-scale", scale.toFixed(3));
