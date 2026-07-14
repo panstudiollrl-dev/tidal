@@ -45,6 +45,17 @@ Lefebvre 最後一本書（1992 遺作，與 Catherine Régulier 合著；英譯
 
 **它在 Tidal 的角色（詳見下方對話解說與 `RHYTHMANALYSIS.md`）**：Lefebvre 給的是「怎麼觀察與描述」，不是「怎麼分類」。握力球＝身體節拍器的字面化；海＝把循環節奏重新帶回線性的日常；guardrail（不固定節拍、不催促、不評分/診斷）＝拒絕 dressage；eurhythmia 是小心持有的方向，但只描述、不貼標籤（所以移除了即時節奏顯示）。
 
+## 四·五、呼吸・握力 → 身心狀態：回顧敘述的依據（2026-07-14 新增）
+
+Pan 要求 Arrival 的「小小回顧」不要逐項闡述參數，而是**綜合成一句身心印象**（例：「感覺你的呼吸比較淺、壓力比較大」），再讓使用者用握力表示符合程度。以下是這個「參數→身心語言」翻譯背後的實證，仍守 guardrail 6（族群相關 ≠ 個人診斷）。
+
+- **呼吸淺快 ↔ 壓力/焦慮喚起**：壓力啟動交感「戰或逃」，典型表現是淺而快的呼吸（tachypnea，成人 >20 次/分）；快速、不規則的呼吸與壓力、焦慮、疼痛經驗相關，可隨壓力管理練習回到正常。<https://medlineplus.gov/ency/article/007198.htm>、<https://www.lung.org/blog/respiratory-rate-vital-signs>
+- **慢呼吸 ↔ 較高主觀幸福感**：wellness 訓練後呼吸速率變慢者，自評 well-being 較高（Scientific Reports 2023）——支持「把吐氣拉長、週期放慢」作為引導方向。<https://www.nature.com/articles/s41598-023-43176-w>
+- **握力表現 ↔ 負向情緒/情緒調節**：握力任務與負向情感面向（神經質、焦慮敏感、知覺壓力、情感反應性）關聯最穩健；baseline 握力可預測生理壓力源下的厭惡感，握力變化追蹤內隱/外顯負向情感變化——握力可作為**情緒自我調節**面向的指標（Frontiers in Psychology 2017）。<https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2017.01367/full>
+- **握力穩定度（force steadiness）**：自主收縮的變異度是可量化指標，隨年齡/神經損傷上升；用 RMS jerk、fuzzy approximate entropy 描述其變異與複雜度——這是 Tidal 用「停留感/晃動」語言的量測根據，但只描述、不評級。<https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5879800/>
+
+**怎麼體會（給回顧文案的立場）**：這些相關讓「呼吸標記密＝可能較緊」「握力快速衝高又不穩＝張力偏滿」這類翻譯**有方向、但不精確**。所以回顧只給一句「我猜你現在大概是這樣」的印象，並**當場請使用者用握力校正**（貼近就握緊、不像就輕帶過）——把準確性交還給身體本人，而不是宣稱系統測得準。這正是 guardrail 6 與 Lefebvre「觀察者非裁判」立場的落地。
+
 ## 五、想讀「書」的入口
 
 - Michael Thaut, *Rhythm, Music, and the Brain*（節奏神經科學正典）
