@@ -7,16 +7,18 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #111823;
-    --panel: rgba(16, 23, 32, .14);
-    --panel2: rgba(255, 255, 255, .055);
-    --line: rgba(244, 226, 204, .14);
-    --text: #f7f0e5;
-    --muted: #c8c1b7;
-    --sea: #5ccfd1;
-    --foam: #ffd79a;
-    --warn: #ff9b7a;
-    --soft: #b8ded9;
+    /* 月霧海（Pan 2026-07-14 improvisation）：不再青綠/珊瑚，改成銀藍月霧 × 珍珠白，
+       低飽和、低對比、簡明柔和；暖只留地平線一絲遠火。 */
+    --bg: #0c1016;
+    --panel: rgba(14, 20, 28, .14);
+    --panel2: rgba(255, 255, 255, .050);
+    --line: rgba(214, 226, 236, .13);
+    --text: #eef1f4;
+    --muted: #b6bec8;
+    --sea: #8fb0c4;         /* 柔藍 */
+    --foam: #e9eef2;        /* 珍珠白（取代金） */
+    --warn: #d8a68a;        /* 收斂的暖砂 */
+    --soft: #b9c6d2;
     --core-scale: 1;
     --core-glow: .28;
     --core-tide: .2;
@@ -32,10 +34,11 @@
     --session-scale: 1;
     --heart-weather: .45;
     --session-water: 0;
-    --count-glow: 0;      /* 4-7-8 計數的明暗脈動（吸/停/吐每一拍閃一下光澤） */
-    --count-tone: 0;      /* 這一拍的色調：吸=暖(+1) 停=中(0) 吐=冷(-1) */
-    --phase-lum: 0;       /* 4-7-8 當前相位的整體光澤：吸漸亮、停最亮、吐轉暗 */
-    --phase-tone: 0;      /* 當前相位色調：吸暖、停中、吐冷 */
+    /* 4-7-8 三階段色彩（吸=青綠 停=暖金 吐=靛藍）；--phase-glow 0 時＝非 4-7-8，不染色 */
+    --phase-r: 143;
+    --phase-g: 176;
+    --phase-b: 196;
+    --phase-glow: 0;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; width: 100%; min-height: 100%; overflow-x: hidden; }
@@ -61,9 +64,9 @@
     inset: 0;
     z-index: 1;
     background:
-      radial-gradient(60% 46% at 50% 28%, rgba(255, 215, 154, .18), transparent 60%),
-      radial-gradient(72% 62% at 50% 64%, rgba(88, 207, 209, .10), transparent 72%),
-      linear-gradient(180deg, rgba(12, 18, 32, .05), rgba(17, 24, 35, .32));
+      radial-gradient(60% 46% at 50% 28%, rgba(206, 218, 230, .14), transparent 60%),
+      radial-gradient(72% 62% at 50% 64%, rgba(120, 150, 180, .10), transparent 72%),
+      linear-gradient(180deg, rgba(10, 14, 20, .05), rgba(10, 14, 20, .34));
     pointer-events: none;
   }
   .app {
@@ -231,14 +234,14 @@
     transform: translateX(var(--core-drift)) scale(var(--core-scale));
     transition: transform .45s ease;
     background:
-      linear-gradient(to top, rgba(92, 207, 209, .32) 0 calc(var(--cue-fill) * 100%), rgba(92, 207, 209, 0) calc(var(--cue-fill) * 100%)),
-      radial-gradient(circle at 38% 30%, rgba(255, 246, 221, .72), rgba(255, 215, 154, .28) 28%, rgba(122, 209, 205, .12) 58%, transparent 76%),
-      radial-gradient(circle at 58% 62%, rgba(255, 155, 122, .12), transparent 46%),
-      radial-gradient(circle at 50% 50%, rgba(242, 232, 210, .16), rgba(92, 207, 209, .08) 38%, rgba(17, 24, 35, .03) 72%, transparent 76%);
+      linear-gradient(to top, rgba(143, 176, 200, .34) 0 calc(var(--cue-fill) * 100%), rgba(143, 176, 200, 0) calc(var(--cue-fill) * 100%)),
+      radial-gradient(circle at 38% 30%, rgba(240, 244, 248, .74), rgba(198, 214, 228, .28) 28%, rgba(150, 178, 198, .12) 58%, transparent 76%),
+      radial-gradient(circle at 58% 62%, rgba(216, 206, 190, .10), transparent 46%),
+      radial-gradient(circle at 50% 50%, rgba(226, 232, 238, .15), rgba(143, 176, 200, .08) 38%, rgba(14, 20, 28, .03) 72%, transparent 76%);
     box-shadow:
-      inset 0 0 28px rgba(255, 246, 221, .12),
-      0 0 calc(46px + 84px * var(--core-glow)) rgba(255, 215, 154, calc(.18 + .30 * var(--core-glow))),
-      0 24px 90px rgba(92, 207, 209, .16);
+      inset 0 0 28px rgba(238, 242, 247, .12),
+      0 0 calc(46px + 84px * var(--core-glow)) rgba(200, 214, 228, calc(.16 + .26 * var(--core-glow))),
+      0 24px 90px rgba(80, 110, 130, .16);
     opacity: .94;
   }
   .core-orb::before,
@@ -252,18 +255,18 @@
   .core-orb::before {
     inset: 5%;
     border:
-      1px solid rgba(255, 232, 190, calc(.20 + .22 * var(--core-tide)));
+      1px solid rgba(214, 226, 236, calc(.20 + .22 * var(--core-tide)));
     transform: scale(calc(.92 + .04 * var(--core-tide))) rotate(var(--core-rot));
     box-shadow:
-      inset 0 0 0 18px rgba(224, 218, 185, .018),
-      inset 0 0 0 42px rgba(92, 207, 209, .024),
-      0 0 34px rgba(255, 183, 132, calc(.10 + .13 * var(--core-tide)));
+      inset 0 0 0 18px rgba(220, 228, 236, .018),
+      inset 0 0 0 42px rgba(143, 176, 200, .024),
+      0 0 34px rgba(180, 200, 218, calc(.10 + .13 * var(--core-tide)));
   }
   .core-orb::after {
     inset: 16%;
     background:
-      repeating-radial-gradient(circle, rgba(255, 232, 190, .12) 0 1px, transparent 1px 12px),
-      conic-gradient(from 18deg, transparent 0deg 34deg, rgba(255, 215, 154, .12) 42deg, transparent 54deg 104deg, rgba(92, 207, 209, .10) 112deg, transparent 124deg 360deg);
+      repeating-radial-gradient(circle, rgba(220, 228, 236, .12) 0 1px, transparent 1px 12px),
+      conic-gradient(from 18deg, transparent 0deg 34deg, rgba(206, 218, 230, .12) 42deg, transparent 54deg 104deg, rgba(143, 176, 200, .10) 112deg, transparent 124deg 360deg);
     opacity: calc(.22 + .24 * var(--core-tide));
     transform: rotate(var(--core-rot));
   }
@@ -286,24 +289,21 @@
     min-width: 188px;
     transform: translateX(calc(var(--core-drift) + var(--breath-pan-x))) scale(var(--session-scale));
     background:
-      linear-gradient(to top, rgba(92, 207, 209, .38) 0 calc(var(--session-water) * 100%), rgba(92, 207, 209, 0) calc(var(--session-water) * 100%)),
-      radial-gradient(circle at 40% calc(44% - 28% * var(--breath-phase)), rgba(255, 246, 221, calc(.54 + .20 * var(--breath-phase))), rgba(255, 215, 154, calc(.18 + .16 * var(--breath-phase))) 30%, transparent 60%),
-      radial-gradient(circle at calc(50% + var(--breath-pan-shift)) 54%, rgba(255, 155, 122, calc(.10 + .16 * var(--heart-weather))), transparent 46%),
-      radial-gradient(circle at 50% 50%, rgba(242, 232, 210, .13), rgba(92, 207, 209, calc(.08 + .09 * var(--heart-weather))) 38%, rgba(17, 24, 35, .04) 74%, transparent 78%);
-    /* 4-7-8 的光澤：相位整體亮度(--phase-lum) + 每拍脈動(--count-glow)；色調隨相位暖/冷(--phase-tone/--count-tone) */
-    filter:
-      brightness(calc(1 + 0.16 * var(--phase-lum) + 0.34 * var(--count-glow)))
-      saturate(calc(1 + 0.10 * var(--phase-lum)))
-      hue-rotate(calc((var(--phase-tone) + var(--count-tone)) * -13deg));
-    transition: transform .22s ease, box-shadow .32s ease, opacity .32s ease, filter .5s ease;
+      linear-gradient(to top, rgba(143, 176, 200, .38) 0 calc(var(--session-water) * 100%), rgba(143, 176, 200, 0) calc(var(--session-water) * 100%)),
+      radial-gradient(circle at 40% calc(44% - 28% * var(--breath-phase)), rgba(240, 244, 248, calc(.54 + .20 * var(--breath-phase))), rgba(198, 214, 228, calc(.18 + .16 * var(--breath-phase))) 30%, transparent 60%),
+      radial-gradient(circle at calc(50% + var(--breath-pan-shift)) 54%, rgba(200, 200, 214, calc(.10 + .14 * var(--heart-weather))), transparent 46%),
+      radial-gradient(circle at 50% 50%, rgba(226, 232, 238, .13), rgba(143, 176, 200, calc(.08 + .09 * var(--heart-weather))) 38%, rgba(14, 20, 28, .04) 74%, transparent 78%);
+    /* 4-7-8：整顆核心染上該相位的顏色（吸青綠／停暖金／吐靛藍），一眼可辨現在該做什麼 */
+    filter: drop-shadow(0 0 calc(40px * var(--phase-glow)) rgba(var(--phase-r), var(--phase-g), var(--phase-b), calc(.68 * var(--phase-glow))));
+    transition: transform .22s ease, box-shadow .32s ease, opacity .32s ease, filter .6s ease;
   }
   #phaseSession .core-orb::before {
     transform: scale(var(--breath-ring-scale)) rotate(calc(var(--core-rot) + var(--breath-pan-rot)));
-    border-color: rgba(255, 232, 190, calc(.24 + .28 * var(--heart-weather)));
+    border-color: rgba(210, 222, 234, calc(.24 + .28 * var(--heart-weather)));
     box-shadow:
-      inset 0 0 0 16px rgba(224, 218, 185, .024),
-      inset 0 0 0 52px rgba(92, 207, 209, .034),
-      0 0 calc(34px + 48px * var(--breath-phase)) rgba(255, 183, 132, calc(.14 + .18 * var(--heart-weather)));
+      inset 0 0 0 16px rgba(220, 228, 236, .024),
+      inset 0 0 0 52px rgba(143, 176, 200, .034),
+      0 0 calc(34px + 48px * var(--breath-phase)) rgba(180, 200, 218, calc(.14 + .18 * var(--heart-weather)));
   }
   #phaseSession .core-orb::after {
     opacity: calc(.32 + .42 * var(--breath-phase) + .20 * var(--heart-weather));
@@ -384,7 +384,7 @@
     margin: 12px auto 0;
     padding: 14px 16px;
     background: rgba(255, 246, 221, .05);
-    border: 1px solid rgba(255, 215, 154, .16);
+    border: 1px solid rgba(206, 218, 230, .16);
     border-radius: 10px;
   }
   .report-suggest b { color: var(--foam); font-weight: 650; }
@@ -411,16 +411,16 @@
   .preset-btn {
     min-height: 40px;
     padding: 9px 13px;
-    border-color: rgba(255, 215, 154, .16);
+    border-color: rgba(206, 218, 230, .16);
     background: rgba(255,255,255,.040);
     color: var(--muted);
     font-size: 14px;
   }
   .preset-btn.active {
-    background: rgba(255, 178, 132, .18);
+    background: rgba(150, 182, 204, .18);
     color: var(--text);
-    border-color: rgba(255, 215, 154, .36);
-    box-shadow: 0 0 30px rgba(255, 178, 132, .16);
+    border-color: rgba(206, 218, 230, .36);
+    box-shadow: 0 0 30px rgba(150, 182, 204, .16);
   }
   .breath-word {
     min-height: 30px;
@@ -440,7 +440,7 @@
   }
   .session-metrics span {
     padding: 5px 8px;
-    border: 1px solid rgba(255, 215, 154, .12);
+    border: 1px solid rgba(206, 218, 230, .12);
     border-radius: 999px;
     background: rgba(255,255,255,.025);
   }
@@ -460,7 +460,7 @@
     padding: 8px 12px;
     color: rgba(247, 240, 229, .88);
     background: rgba(22, 40, 54, .34);
-    border-color: rgba(255, 215, 154, .16);
+    border-color: rgba(206, 218, 230, .16);
   }
   .logline {
     margin-top: 10px;
@@ -831,8 +831,9 @@ class GripCalibrator {
     // 浮動滿刻度：追蹤觀察到的最大握力，慢慢適應；有界
     this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
     this.span = clamp(this.span, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
-    // 慢漂移併入 baseline：門檻「相對於你的握力範圍」而非固定值，小範圍球才不會被吃掉太多
-    if(delta < this.span * 0.15) this.baseline += (raw - this.baseline) * 0.08;
+    // 慢漂移併入 baseline：只在「幾乎已放開」時才重新歸零（this.level < 0.12）。
+    // 這樣持續握到一半不會被當成漂移吃掉而消失（Pan 2026-07-14：用一半握力感測就消失）。
+    if(this.level < 0.12 && delta < this.span * 0.12) this.baseline += (raw - this.baseline) * 0.05;
     const effScale = this.span * GRIP_HEADROOM;                 // 到你握力範圍的 82% 就算滿
     const rawLevel = clamp(posDelta / effScale);
     const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA）
@@ -1349,49 +1350,6 @@ class OceanEngine {
     state.lastImpactAt = performance.now() + swellT * 1000; // 視覺濺起對齊「破碎」時刻
     if(typeof queueRipple === "function") queueRipple(azJitter, "impact");   // 拍岸也送一道漣漪橫過海面
     return true;
-  }
-
-  // 4-7-8 吸氣計數用的一道海潮（Pan 2026-07-14）：從指定方位湧上岸、再散去。
-  // 比 impact 溫柔、時間更長，帶有界隨機，走空間音頻鏈（HRTF panner → dry/wet）。
-  // azimuth: -1(左) … +1(右)；tone: 'gather' 吸氣漸亮 / 'wash' 吐氣退散
-  shoreWave(azimuth = 0, tone = "gather"){
-    const now = this.ctx.currentTime;
-    const src = OceanEngine.noiseSource(this.ctx);
-    const bp = this.ctx.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.Q.value = 0.5;
-    const g = this.ctx.createGain();
-    g.gain.value = 0;
-    const pan = this.ctx.createPanner();
-    pan.panningModel = "HRTF";
-    pan.distanceModel = "inverse";
-    pan.refDistance = 1;
-    pan.maxDistance = 20;
-    pan.rolloffFactor = 1.1;
-    const az = clamp(azimuth + (Math.random() * 2 - 1) * 0.14, -1, 1);   // 每道浪方位帶一點隨機
-    const surgeT = (tone === "wash" ? 1.6 : 0.7) + Math.random() * 0.4;  // 湧上岸的時間
-    const peak = (tone === "wash" ? 0.16 : 0.22) + 0.10 * Math.random(); // 有界、溫柔
-    const near = 1.6, far = 4.4;
-    // 空間位移：從遠處湧到近岸（正面），再退回遠處散去——讓「湧動到岸邊再散去」有空間縱深
-    pan.positionX.setValueAtTime(Math.sin(az * Math.PI / 2) * far, now);
-    pan.positionZ.setValueAtTime(-Math.cos(az * Math.PI / 2) * far, now);
-    pan.positionX.linearRampToValueAtTime(Math.sin(az * Math.PI / 2) * near, now + surgeT);
-    pan.positionZ.linearRampToValueAtTime(-Math.cos(az * Math.PI / 2) * near, now + surgeT);
-    pan.positionZ.setTargetAtTime(-far, now + surgeT, 1.4);
-    bp.frequency.setValueAtTime(300, now);
-    bp.frequency.linearRampToValueAtTime(tone === "wash" ? 900 : 760, now + surgeT);
-    bp.frequency.setTargetAtTime(360, now + surgeT, 1.1);
-    src.connect(bp); bp.connect(g); g.connect(pan);
-    pan.connect(this.dry); pan.connect(this.convolver);   // 走既有 dry/wet 空間鏈
-    const N = 40;
-    const curve = new Float32Array(N);
-    for(let i = 0; i < N; i++){ const x = i / (N - 1); curve[i] = peak * Math.sin(Math.PI * x) * (0.6 + 0.4 * x); }
-    g.gain.setValueAtTime(0, now);
-    g.gain.setValueCurveAtTime(curve, now, surgeT);
-    g.gain.setTargetAtTime(0, now + surgeT, tone === "wash" ? 2.0 : 1.0);  // 散去（吐氣更長）
-    src.start(now);
-    src.stop(now + surgeT + (tone === "wash" ? 5.0 : 3.0));
-    if(typeof queueRipple === "function") queueRipple(az, tone);   // 視覺：從同方位送出定向漣漪
   }
 }
 
@@ -2267,7 +2225,7 @@ const BREATH_PRESETS = {
   },
   hold478: {
     title: "4-7-8 呼吸",
-    copy: "吸氣時，四道海潮從不同方向湧上岸；停住時，海面亮起、駐留成一片懸著的光；吐氣時，光轉暗，一道長浪慢慢散去。不用數，跟著海就好。",
+    copy: "吸氣＝青綠、停住＝暖金、吐氣＝靛藍。每一段用不同顏色和短震陪你數拍，跟著顏色走就好。",
     phases: [
       { name: "inhale", label: "吸進來", dur: 4 },
       { name: "hold", label: "停在空氣裡", dur: 7, hold: true },
@@ -2321,55 +2279,29 @@ function phaseAt(preset, elapsedSeconds){
   return { phase: preset.phases[0], local: 0, total, t: 0, cycle, index: 0 };
 }
 
-// 每拍閃一下光澤（明暗脈動），用來「數拍」而不靠震動
-function pulseCountGlow(intensity, tone){
-  const el = document.documentElement;
-  const toneVal = tone === "gather" ? "1" : tone === "exhale" ? "-1" : "0";
-  el.style.setProperty("--count-glow", intensity.toFixed(2));
-  el.style.setProperty("--count-tone", toneVal);
-  const timer = setTimeout(() => el.style.setProperty("--count-glow", "0"), 520);
-  state.guided.hapticTimers.push(timer);
-}
-
-function scheduleGuidedCue(delayMs, fn){
-  const timer = setTimeout(fn, Math.max(0, delayMs));
-  state.guided.hapticTimers.push(timer);
-}
-
 function guideHapticsForPhase(presetId, phase, phaseKey){
   if(state.guided.hapticKey === phaseKey) return;
   state.guided.hapticKey = phaseKey;
   clearGuidedHaptics();
   const unitMs = Math.max(180, (phase.dur * 1000) / Math.max(1, Math.round(phase.dur)));
 
-  // 4-7-8：關掉震動，改用「不同方向的海潮拍岸」計數 + 光澤/聲音隨相位改變（Pan 2026-07-14）。
-  // 吸4＝四道從不同方位湧上岸的海潮；停7＝駐音浮起、光澤轉亮、每拍明暗脈動（心跳代理計數）；
-  // 吐8＝換一種光澤與一道長長的退浪散去。震動在此 preset 完全不參與。
-  if(presetId === "hold478"){
-    const units = Math.round(phase.dur);
-    if(phase.name === "inhale"){
-      const azOrder = [-0.72, 0.34, -0.34, 0.72];   // 四道浪來自不同方向
-      for(let i = 0; i < units; i++){
-        scheduleGuidedCue(i * unitMs, () => {
-          if(engine) engine.shoreWave(azOrder[i % azOrder.length], "gather");
-          pulseCountGlow(0.55 + 0.12 * i, "gather");   // 吸＝漸亮
-        });
-      }
-    } else if(phase.name === "hold"){
-      // 停屏：駐音已由 setBreathGuide.drone 浮起；這裡只給七次很輕的明暗脈動（心跳代理）
-      for(let i = 0; i < units; i++){
-        scheduleGuidedCue(i * unitMs, () => pulseCountGlow(0.42, "hold"));
-      }
-    } else if(phase.name === "exhale"){
-      scheduleGuidedCue(0, () => { if(engine) engine.shoreWave((Math.random() * 2 - 1) * 0.6, "wash"); });
-      for(let i = 0; i < units; i++){
-        scheduleGuidedCue(i * unitMs, () => pulseCountGlow(0.36 - 0.02 * i, "exhale"));  // 吐＝轉暗
-      }
-    }
-    return;   // 4-7-8 不排任何震動
-  }
-
   if(!HAPTICS_ENABLED) return;
+
+  // 4-7-8：用短震動計數（Pan 2026-07-14：低頻音計數刪掉、改回短震；階段區分交給明顯的相位色彩）。
+  // 吸4＝每拍雙短震、強度逐拍上升；停7＝每拍一次單震；吐8＝每拍一次較長震、強度逐拍下降。
+  if(presetId === "hold478"){
+    if(phase.name === "inhale"){
+      scheduleUnitPulsePattern(4, unitMs, (i) => [
+        { offset: 0, intensity: 116 + i * 8, duration: 84 },
+        { offset: 220, intensity: 116 + i * 8, duration: 84 },
+      ]);
+    } else if(phase.name === "hold"){
+      scheduleUnitPulsePattern(7, unitMs, () => ({ offset: 0, intensity: 100, duration: 120 }));
+    } else if(phase.name === "exhale"){
+      scheduleUnitPulsePattern(8, unitMs, (i) => ({ offset: 0, intensity: 96 - i * 4, duration: Math.min(255, unitMs * 0.7) }));
+    }
+    return;
+  }
 
   if(presetId === "resonance"){
     if(phase.name === "inhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 86, duration: 125 }));
@@ -2440,15 +2372,19 @@ function updateGuidedSession(force = false){
     // 停屏 → 駐音層浮起（懸止非停頓）；吐氣時慢慢退掉
     if(ph.phase.hold) droneAmt = smooth01(Math.min(1, ph.local * 3));
     else if(ph.phase.name === "exhale") droneAmt = Math.max(0, 1 - ph.local * 2.2);
-    // 相位光澤：吸漸亮暖、停最亮、吐轉暗冷（Pan 2026-07-14；讓使用者自然知道現在在哪一段）
+    // 三階段各用「明顯不同的顏色」，讓使用者一眼知道現在要吸/停/吐（Pan 2026-07-14）。
+    // 吸＝青綠（漲）、停＝暖金（懸）、吐＝靛藍（退）。整個場景會被染成該色。
     const nm = ph.phase.name;
-    const lum = nm === "inhale" ? smooth01(ph.local) : ph.phase.hold ? 1 : (1 - smooth01(ph.local) * 0.9);
-    const tone = nm === "inhale" ? 1 : nm === "exhale" ? -1 : 0;
-    document.documentElement.style.setProperty("--phase-lum", lum.toFixed(3));
-    document.documentElement.style.setProperty("--phase-tone", tone.toString());
+    const PHASE_RGB = { inhale: [78, 206, 178], hold: [236, 190, 120], exhale: [116, 138, 224] };
+    const rgb = PHASE_RGB[ph.phase.hold ? "hold" : nm] || PHASE_RGB.inhale;
+    // 進相位時較飽、相位中維持（讓顏色一直在，不是一閃）
+    const glow = 0.62 + 0.30 * (nm === "inhale" ? smooth01(ph.local) : ph.phase.hold ? 1 : (1 - 0.4 * ph.local));
+    document.documentElement.style.setProperty("--phase-r", rgb[0]);
+    document.documentElement.style.setProperty("--phase-g", rgb[1]);
+    document.documentElement.style.setProperty("--phase-b", rgb[2]);
+    document.documentElement.style.setProperty("--phase-glow", glow.toFixed(3));
   } else {
-    document.documentElement.style.setProperty("--phase-lum", "0");
-    document.documentElement.style.setProperty("--phase-tone", "0");
+    document.documentElement.style.setProperty("--phase-glow", "0");
   }
   if(presetId === "alternate"){
     // 左右潮：浪真的在左邊或右邊湧起/退去，不只是 pan 中央床
@@ -2832,33 +2768,54 @@ function drawSea(){
   const bellowsEnergy = preset === "bellows" ? 1 : 0;
   const holdMist = preset === "hold478" && state.guided.phaseName === "hold" ? 1 : 0;
   __seaScroll += dt * (0.010 + 0.055 * tide);
+  // 4-7-8 三階段顏色（吸青綠／停暖金／吐靛藍）——整個海面會被明顯染色，一眼可辨（Pan 2026-07-14）
+  let phaseRGB = null;
+  if(preset === "hold478"){
+    const pn = state.guided.phaseName;
+    phaseRGB = pn === "hold" ? [236, 190, 120] : pn === "exhale" ? [116, 138, 224] : [78, 206, 178];
+  }
+  const w = heartWarm;   // 很小幅的暖度偏移，維持低飽和月霧感
 
+  // 月霧海底色：銀藍、低飽和、低對比
   const base = ctx.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, `rgb(${Math.round(16 + 18 * heartWarm)}, ${Math.round(22 + 8 * heartCool)}, ${Math.round(39 + 8 * heartCool)})`);
-  base.addColorStop(0.30, `rgb(${Math.round(24 + 48 * heartWarm)}, ${Math.round(45 + 16 * heartCool)}, ${Math.round(62 + 4 * heartCool)})`);
-  base.addColorStop(0.48, `rgb(${Math.round(72 + 72 * heartWarm)}, ${Math.round(89 + 12 * heartCool)}, ${Math.round(88 - 8 * heartWarm)})`);
-  base.addColorStop(0.66, `rgb(${Math.round(15 + 10 * heartWarm)}, ${Math.round(84 + 6 * heartCool)}, ${Math.round(91 + 12 * heartCool)})`);
-  base.addColorStop(1, `rgb(${Math.round(13 + 8 * heartWarm)}, ${Math.round(36 + 8 * heartCool)}, ${Math.round(43 + 5 * heartCool)})`);
+  base.addColorStop(0, `rgb(${Math.round(11 + 6 * w)}, ${Math.round(15)}, ${Math.round(22)})`);
+  base.addColorStop(0.32, `rgb(${Math.round(21 + 10 * w)}, ${Math.round(31)}, ${Math.round(43)})`);
+  base.addColorStop(0.50, `rgb(${Math.round(46 + 22 * w)}, ${Math.round(64)}, ${Math.round(82)})`);
+  base.addColorStop(0.68, `rgb(${Math.round(28 + 10 * w)}, ${Math.round(43)}, ${Math.round(55)})`);
+  base.addColorStop(1, `rgb(${Math.round(10 + 4 * w)}, ${Math.round(16)}, ${Math.round(23)})`);
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
 
   const horizon = H * (0.31 + 0.030 * (guidedPhase - 0.5) + 0.018 * Math.sin(t / 10) + 0.012 * rw);
   const horizonFog = ctx.createLinearGradient(0, horizon - H * 0.13, 0, horizon + H * 0.24);
-  horizonFog.addColorStop(0, "rgba(255,214,172,0)");
-  horizonFog.addColorStop(0.42, `rgba(${Math.round(226 + 24 * heartWarm)},${Math.round(154 + 38 * heartWarm)},${Math.round(126 - 18 * heartWarm)},${0.070 + 0.045 * swell + 0.095 * heartWarm + 0.045 * holdMist})`);
-  horizonFog.addColorStop(0.72, `rgba(92,207,209,${0.040 + 0.035 * swell})`);
-  horizonFog.addColorStop(1, "rgba(92,207,209,0)");
+  horizonFog.addColorStop(0, "rgba(205,190,168,0)");
+  horizonFog.addColorStop(0.42, `rgba(210,199,182,${0.055 + 0.035 * swell + 0.05 * w + 0.03 * holdMist})`);   // 地平線一絲遠火（很淡的暖灰）
+  horizonFog.addColorStop(0.72, `rgba(150,176,196,${0.045 + 0.035 * swell})`);
+  horizonFog.addColorStop(1, "rgba(150,176,196,0)");
   ctx.fillStyle = horizonFog;
   ctx.fillRect(0, horizon - H * 0.16, W, H * 0.42);
 
   const gx = (0.5 + 0.18 * az + 0.12 * guidedPan) * W;
   const gy = H * (0.46 - 0.030 * guidedPhase + 0.018 * Math.sin(t / 9) + 0.012 * rw);
   const coreGlow = ctx.createRadialGradient(gx, gy, H * 0.03, gx, gy, H * (0.52 + 0.16 * tide + 0.08 * guidedPhase));
-  coreGlow.addColorStop(0, `rgba(${Math.round(255)},${Math.round(222 + 12 * heartWarm)},${Math.round(170 - 20 * heartWarm)},${0.12 + 0.10 * tide + 0.08 * heartWarm + 0.05 * guidedPhase})`);
-  coreGlow.addColorStop(0.36, `rgba(${Math.round(92 + 42 * heartWarm)},${Math.round(207 - 20 * heartWarm)},${Math.round(209 - 30 * heartWarm)},${0.10 + 0.10 * swell + 0.050 * heartWarm})`);
-  coreGlow.addColorStop(1, "rgba(92,207,209,0)");
+  coreGlow.addColorStop(0, `rgba(238,241,244,${0.11 + 0.10 * tide + 0.05 * guidedPhase})`);            // 珍珠光
+  coreGlow.addColorStop(0.36, `rgba(150,176,200,${0.09 + 0.09 * swell})`);                              // 柔藍
+  coreGlow.addColorStop(1, "rgba(150,176,200,0)");
   ctx.fillStyle = coreGlow;
   ctx.fillRect(0, 0, W, H);
+
+  // 4-7-8 相位色染整個海面（明顯、但柔和地從中心向外）——讓使用者一眼知道現在吸/停/吐
+  if(phaseRGB){
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    const pw2 = ctx.createRadialGradient(gx, gy, H * 0.02, gx, gy, H * 0.78);
+    pw2.addColorStop(0, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.24)`);
+    pw2.addColorStop(0.5, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0.12)`);
+    pw2.addColorStop(1, `rgba(${phaseRGB[0]},${phaseRGB[1]},${phaseRGB[2]},0)`);
+    ctx.fillStyle = pw2;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
 
   // —— 潮汐漣漪：曼陀羅周圍的平面漣漪，有浪頭、後浪、到岸散去 ——
   const nowS = t;
@@ -2868,18 +2825,17 @@ function drawSea(){
     emitRipple(gx, gy, {
       strength: 0.55 + 0.55 * tide + 0.25 * guidedPhase,
       speed: 0.85 + 0.55 * swell,
-      tint: [Math.round(120 + 110 * heartWarm), Math.round(210 - 24 * heartWarm), Math.round(215 - 60 * heartWarm)],
+      tint: phaseRGB || [196, 214, 230],   // 4-7-8 用相位色的漣漪，其他用銀白
     });
   }
   __swellPrev = swell;
-  // 消化引擎事件（4-7-8 海潮、拍石）：從對應方位送出定向漣漪
+  // 消化引擎事件（拍石）：從對應方位送出定向漣漪
   while(__rippleQueue.length){
     const ev = __rippleQueue.shift();
-    const warm = ev.tone === "wash" || ev.tone === "impact";
     emitRipple(gx + (ev.dir || 0) * W * 0.26, gy + Math.abs(ev.dir || 0) * H * 0.02, {
       strength: ev.tone === "impact" ? 1.1 : 0.85,
       speed: ev.tone === "wash" ? 0.7 : 1.05,
-      tint: warm ? [255, 196, 150] : [150, 224, 224],
+      tint: phaseRGB || [210, 224, 236],
     });
   }
   // 繪製漣漪（浪頭較亮較銳、後浪遞減、半徑越大越淡＝到岸能量散去）；壓扁成平面漣漪
@@ -2914,9 +2870,9 @@ function drawSea(){
   ctx.save();
   ctx.globalCompositeOperation = "screen";
   const moonGlow = ctx.createRadialGradient(moonX, moonY, H * 0.030, moonX, moonY, H * (0.24 + 0.05 * guidedPhase));
-  moonGlow.addColorStop(0, `rgba(255,246,221,${0.36 + 0.17 * guidedPhase})`);
-  moonGlow.addColorStop(0.28, `rgba(255,215,154,${0.16 + 0.10 * guidedPhase})`);
-  moonGlow.addColorStop(1, "rgba(255,215,154,0)");
+  moonGlow.addColorStop(0, `rgba(238,242,247,${0.34 + 0.16 * guidedPhase})`);
+  moonGlow.addColorStop(0.28, `rgba(200,214,228,${0.14 + 0.09 * guidedPhase})`);
+  moonGlow.addColorStop(1, "rgba(200,214,228,0)");
   ctx.fillStyle = moonGlow;
   ctx.fillRect(0, 0, W, H);
 
@@ -2924,11 +2880,11 @@ function drawSea(){
     const p = i / 17;
     const y = horizon + H * (0.10 + p * 0.54);
     const width = W * (0.05 + p * 0.34) * (1 + 0.14 * Math.sin(t * 0.8 + i));
-    const alpha = (0.060 + 0.075 * tide + 0.045 * guidedPhase) * (1 - p * 0.82);
+    const alpha = (0.055 + 0.065 * tide + 0.040 * guidedPhase) * (1 - p * 0.82);
     const g = ctx.createLinearGradient(moonX - width, y, moonX + width, y);
-    g.addColorStop(0, "rgba(255,215,154,0)");
-    g.addColorStop(0.5, `rgba(255,237,199,${alpha.toFixed(3)})`);
-    g.addColorStop(1, "rgba(92,207,209,0)");
+    g.addColorStop(0, "rgba(210,222,234,0)");
+    g.addColorStop(0.5, `rgba(228,236,244,${alpha.toFixed(3)})`);
+    g.addColorStop(1, "rgba(150,176,196,0)");
     ctx.strokeStyle = g;
     ctx.lineWidth = Math.max(1, H * (0.003 + 0.002 * p));
     ctx.beginPath();
@@ -2952,9 +2908,9 @@ function drawSea(){
     const alpha = 0.026 + 0.038 * tide + 0.026 * guidedPhase + 0.025 * bellowsEnergy + 0.018 * Math.sin(phase);
     const xShift = Math.sin(phase * 0.7) * W * 0.045 + az * W * 0.025 + guidedPan * W * (0.035 + 0.045 * depth);
     const grad = ctx.createLinearGradient(0, y - bandH, 0, y + bandH);
-    grad.addColorStop(0, "rgba(92,207,209,0)");
-    grad.addColorStop(0.46, `rgba(${Math.round(92 + 94 * heartWarm)},${Math.round(207 - 18 * heartWarm)},${Math.round(209 - 46 * heartWarm)},${Math.max(0, alpha * (0.66 + depth)).toFixed(3)})`);
-    grad.addColorStop(1, "rgba(255,215,154,0)");
+    grad.addColorStop(0, "rgba(150,176,196,0)");
+    grad.addColorStop(0.46, `rgba(${Math.round(150 + 40 * w)},${Math.round(178)},${Math.round(200)},${Math.max(0, alpha * (0.66 + depth)).toFixed(3)})`);
+    grad.addColorStop(1, "rgba(228,236,244,0)");
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.ellipse(W / 2 + xShift, y, W * (0.55 + 0.42 * depth), bandH, Math.sin(phase) * 0.025, 0, 6.283);
@@ -2967,8 +2923,8 @@ function drawSea(){
   ctx.globalCompositeOperation = "screen";
   const shoreY = H * 0.82;
   [
-    { side: -1, grip: __leftWave, tint: [92, 207, 209] },
-    { side: 1, grip: __rightWave, tint: [255, 178, 132] },
+    { side: -1, grip: __leftWave, tint: [150, 182, 204] },
+    { side: 1, grip: __rightWave, tint: [206, 214, 224] },
   ].forEach((wave, idx) => {
     const gLevel = clamp(wave.grip);
     if(gLevel < 0.012) return;
@@ -2981,9 +2937,9 @@ function drawSea(){
       const ry = H * (0.020 + 0.028 * depth + 0.045 * gLevel);
       const alpha = (0.030 + 0.105 * gLevel) * (1 - depth * 0.45);
       const grad = ctx.createLinearGradient(cx - rx, y, cx + rx, y);
-      grad.addColorStop(0, "rgba(92,207,209,0)");
+      grad.addColorStop(0, "rgba(150,182,204,0)");
       grad.addColorStop(0.48, `rgba(${wave.tint[0]},${wave.tint[1]},${wave.tint[2]},${alpha.toFixed(3)})`);
-      grad.addColorStop(1, "rgba(255,215,154,0)");
+      grad.addColorStop(1, "rgba(228,236,244,0)");
       ctx.strokeStyle = grad;
       ctx.lineWidth = Math.max(1.2, H * (0.004 + 0.003 * gLevel));
       ctx.beginPath();
@@ -3014,8 +2970,8 @@ function drawSea(){
     const y = H * (0.62 + 0.05 * Math.sin(t * 0.11 + i * 2));
     const r = W * (0.16 + 0.04 * Math.sin(t * 0.07 + i));
     const g = ctx.createRadialGradient(x, y, 1, x, y, r);
-    g.addColorStop(0, `rgba(${Math.round(185 + 34 * heartWarm)},${Math.round(190 + 16 * heartWarm)},${Math.round(166 - 28 * heartWarm)},${0.014 + 0.020 * tide + 0.035 * heartWarm})`);
-    g.addColorStop(1, "rgba(180,190,166,0)");
+    g.addColorStop(0, `rgba(198,212,226,${0.014 + 0.020 * tide + 0.020 * w})`);
+    g.addColorStop(1, "rgba(198,212,226,0)");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
   }
