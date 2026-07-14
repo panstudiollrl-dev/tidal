@@ -1347,6 +1347,7 @@ class OceanEngine {
     }
     state.impactCount += 1;
     state.lastImpactAt = performance.now() + swellT * 1000; // 視覺濺起對齊「破碎」時刻
+    if(typeof queueRipple === "function") queueRipple(azJitter, "impact");   // 拍岸也送一道漣漪橫過海面
     return true;
   }
 
@@ -1390,6 +1391,7 @@ class OceanEngine {
     g.gain.setTargetAtTime(0, now + surgeT, tone === "wash" ? 2.0 : 1.0);  // 散去（吐氣更長）
     src.start(now);
     src.stop(now + surgeT + (tone === "wash" ? 5.0 : 3.0));
+    if(typeof queueRipple === "function") queueRipple(az, tone);   // 視覺：從同方位送出定向漣漪
   }
 }
 
@@ -2781,6 +2783,24 @@ setInterval(watchHidLiveness, 1000);
 // 海仍是主視覺：避免人工正弦線，改用厚霧、暗流、寬幅浪帶與中央潮汐曼荼羅。
 let __seaScroll = 0, __seaLast = performance.now() / 1000, __leftWave = 0, __rightWave = 0;
 function seaHash(n){ const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+
+// 潮汐漣漪（Pan 2026-07-14）：曼陀羅周圍平面式漣漪，但有真實潮汐感——浪頭、後浪、到岸能量散去。
+// 每個湧浪峰從中心送出一組漣漪向外擴散；4-7-8 的海潮事件從對應方位送出定向漣漪。
+let __ripples = [];
+let __swellPrev = 0.5, __rippleAt = 0;
+const __rippleQueue = [];   // 引擎（shoreWave/impact）丟事件進來，drawSea 消化成漣漪
+function queueRipple(dir, tone){ __rippleQueue.push({ dir, tone }); if(__rippleQueue.length > 12) __rippleQueue.shift(); }
+function emitRipple(cx, cy, opts){
+  opts = opts || {};
+  __ripples.push({
+    born: performance.now() / 1000,
+    cx, cy,
+    strength: opts.strength != null ? opts.strength : 1,
+    speed: opts.speed != null ? opts.speed : 1,
+    tint: opts.tint || [120, 210, 215],
+  });
+  if(__ripples.length > 48) __ripples.shift();
+}
 function drawSea(){
   const canvas = $("sea");
   const ctx = canvas.getContext("2d");
@@ -2839,6 +2859,54 @@ function drawSea(){
   coreGlow.addColorStop(1, "rgba(92,207,209,0)");
   ctx.fillStyle = coreGlow;
   ctx.fillRect(0, 0, W, H);
+
+  // —— 潮汐漣漪：曼陀羅周圍的平面漣漪，有浪頭、後浪、到岸散去 ——
+  const nowS = t;
+  // 每個湧浪峰送出一組同心漣漪（潮汐節律）；tide/session 呼吸相位讓它更飽滿
+  if(__swellPrev < 0.60 && swell >= 0.60 && nowS - __rippleAt > 0.9){
+    __rippleAt = nowS;
+    emitRipple(gx, gy, {
+      strength: 0.55 + 0.55 * tide + 0.25 * guidedPhase,
+      speed: 0.85 + 0.55 * swell,
+      tint: [Math.round(120 + 110 * heartWarm), Math.round(210 - 24 * heartWarm), Math.round(215 - 60 * heartWarm)],
+    });
+  }
+  __swellPrev = swell;
+  // 消化引擎事件（4-7-8 海潮、拍石）：從對應方位送出定向漣漪
+  while(__rippleQueue.length){
+    const ev = __rippleQueue.shift();
+    const warm = ev.tone === "wash" || ev.tone === "impact";
+    emitRipple(gx + (ev.dir || 0) * W * 0.26, gy + Math.abs(ev.dir || 0) * H * 0.02, {
+      strength: ev.tone === "impact" ? 1.1 : 0.85,
+      speed: ev.tone === "wash" ? 0.7 : 1.05,
+      tint: warm ? [255, 196, 150] : [150, 224, 224],
+    });
+  }
+  // 繪製漣漪（浪頭較亮較銳、後浪遞減、半徑越大越淡＝到岸能量散去）；壓扁成平面漣漪
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  const maxR = Math.hypot(W, H) * 0.52;   // 抵達「岸」＝畫面邊緣
+  const flat = 0.40;
+  for(let ri = __ripples.length - 1; ri >= 0; ri--){
+    const rp = __ripples[ri];
+    const age = nowS - rp.born;
+    const lead = age * maxR * 0.30 * rp.speed;     // 浪頭半徑
+    if(lead > maxR){ __ripples.splice(ri, 1); continue; }
+    const disperse = Math.max(0, 1 - lead / maxR); // 到岸能量散去
+    const ease = disperse * disperse;
+    for(let wv = 0; wv < 3; wv++){                  // 浪頭 + 兩道後浪
+      const r = lead - wv * (H * 0.05);
+      if(r <= 2) continue;
+      const a = rp.strength * ease * (wv === 0 ? 0.20 : 0.12 - wv * 0.035);
+      if(a <= 0.002) continue;
+      ctx.beginPath();
+      ctx.ellipse(rp.cx, rp.cy, r, r * flat, 0, 0, 6.283);
+      ctx.strokeStyle = `rgba(${rp.tint[0]},${rp.tint[1]},${rp.tint[2]},${a.toFixed(3)})`;
+      ctx.lineWidth = Math.max(0.8, H * (0.0045 - wv * 0.0012)) * (0.5 + 0.7 * disperse);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 
   // 明月與海面反光：讓中央符號像浮在海上的月，而不是陰沉的儀表。
   const moonX = (0.5 + 0.08 * guidedPan + 0.05 * az) * W;
