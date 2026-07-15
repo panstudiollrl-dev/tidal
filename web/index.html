@@ -307,6 +307,15 @@
   #phaseSession .core-orb.show-count .orb-phase-label {
     display: block;
   }
+  #guideOrb.show-count .orb-count {
+    display: grid;
+    font-size: clamp(34px, 7vw, 72px);
+    padding: 0 18px;
+    text-align: center;
+  }
+  #guideOrb.show-count .orb-phase-label {
+    display: block;
+  }
   .core-orb.cue-on {
     transform: translateX(var(--core-drift)) scale(calc(var(--core-scale) * 1.08));
     box-shadow:
@@ -617,7 +626,10 @@
 
       <section class="panel phase guide-panel active" id="phaseBefore">
         <h2>抵達</h2>
-        <div id="guideOrb" class="core-orb" aria-hidden="true"></div>
+        <div id="guideOrb" class="core-orb" aria-hidden="true">
+          <div class="orb-phase-label" id="guideOrbLabel"></div>
+          <div class="orb-count" id="guideOrbWord"></div>
+        </div>
         <div id="arrivalIntro">
           <div class="arrival-title">正在準備</div>
           <div class="arrival-copy">
@@ -1961,8 +1973,10 @@ function updateHandCue(now){
   if(elapsed < HAND_CUE_READY_MS){
     cue.cueOn = false;
     $("handCuePrompt").textContent = "準備…";
+    $("guideOrbLabel").textContent = "";
+    $("guideOrbWord").textContent = "準備";
     $("guideOrb").classList.remove("cue-on", "cue-success");
-    $("guideOrb").classList.add("cue-off");
+    $("guideOrb").classList.add("cue-off", "show-count");
     return;
   }
   const cueElapsed = elapsed - HAND_CUE_READY_MS;
@@ -1993,8 +2007,11 @@ function updateHandCue(now){
   const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
   if(!inOn && grip <= ARRIVAL_PRESS_OFF) cue.armed = true;
   $("handCuePrompt").textContent = inOn ? "請握起" : "請放鬆";
+  $("guideOrbLabel").textContent = cue.hand === "left" ? "左手" : "右手";
+  $("guideOrbWord").textContent = inOn ? "請握起" : "請放鬆";
   cue.fill += (clamp(grip) - cue.fill) * 0.25;
   document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
+  $("guideOrb").classList.add("show-count");
   $("guideOrb").classList.toggle("cue-on", inOn);
   $("guideOrb").classList.toggle("cue-off", !inOn);
   $("guideOrb").classList.toggle("cue-success", cue.fill > 0.35);
@@ -2005,7 +2022,9 @@ function finishHandCue(){
   if(cue.completed) return;
   cue.completed = true;
   document.documentElement.style.setProperty("--cue-fill", "0");
-  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success");
+  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success", "show-count");
+  $("guideOrbLabel").textContent = "";
+  $("guideOrbWord").textContent = "";
   const picked = cue.scores[2] > cue.scores[1] ? 2 : 1;
   if(cue.hand === "left"){
     state.handMap.left = picked;
