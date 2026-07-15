@@ -69,6 +69,17 @@
 
 ## 交接紀錄
 
+### 2026-07-15 — Claude｜救援：把 web/index.html revert 回驗證過的 0dbffa0（Codex 版本改壞了）
+> Pan：「已請 Codex 接手，但他弄了好多錯誤，請讀 md 挽救。」
+- **做了什麼**：`git checkout 0dbffa0 -- web/index.html`，把程式**還原到 Codex 接手前、我最後驗證過的狀態**（commit 0dbffa0）。其他 md 檔保留（Codex 在 GRIPBALL_PROTOCOL/DESIGN/AESTHETIC/web-README 加的是**真實的 Pan 回饋與未來方向，值得留**——見下）。
+- **為什麼 revert（Codex 在 index.html 的問題）**：Codex 在 0dbffa0..(其 7 個 commit) 對握力偵測大改（`GRIP_MIN_SPAN 300→80`、`MANUAL_478_ON 0.20→0.10`、`OFF 0.09→0.035`、加 per-slot rise/release delta、`HAND_CUE_PRESS_ON=0.16`、新 observeRest/observePress），把校正與 4-7-8 門檻降太低 → **稍微碰球就進下一階、左手沒做完就跳、輕觸誤判**（Pan 實測）。這推翻了我已用模擬驗證過的：死區 + 單純遲滯 + 時間節奏 cue。
+- **還原後驗證**：語法 OK；jsdom 0 錯誤；校正曲線（放開→0.002、輕握→0.49、中握→0.72）；4-7-8 模擬（進場殘握 0 誤觸、12 握→12 拍 3 頌缽）。0dbffa0 的左右手 cue 是**時間節奏**（每手固定時長跑 3 次 on/off，時間到才換手），不會「碰一下就跳」。
+- **保留 Codex md 記的有效回饋（＝下一步該做的，但要做對）**：
+  1. **校正要當 per-ball state estimation**（不是全域低門檻）：三次 cue 逐次學每顆球的 rest/baseline/舒適握壓 span/release threshold；有效握壓＝相對 baseline 明確上升＋到個人化門檻＋維持 ~450–700ms；成功後短確認、等真的放鬆才進下一手；左手三次完成才進右手。**這是有價值的方向，但上次 Codex 實作得太敏感壞了——下次要用「per-ball 估計＋穩定 hold」而不是「降全域門檻」。**（GRIPBALL_PROTOCOL §Arrival 校正、DESIGN §7.0.1、web/README 緊急項）
+  2. **新視覺參考 IMG_9778：不要畫浪，畫光穿過水**（AESTHETIC #11）：清澈淺海、水下 caustics 折射光紋、沙底、粉紫天空；握力改變光紋亮度/密度/流向與內核壓縮，而非人工海浪。
+  3. 4-7-8 手動握拍、只導引 4-7-8、屏住呼吸用語等，0dbffa0 都已有，維持。
+- **給下一位（含 Codex）**：動握力偵測前先跑 `node` 模擬（見本檔前幾則的測法）＋ jsdom；**不要為了小 input 的球把全域門檻降到輕碰就觸發**——那正是這次壞掉的原因。要做 per-ball 估計就好好做、加穩定 hold 條件。
+
 ### 2026-07-14 — Claude｜屏住呼吸、4-7-8 開頭顯示4、頌缽更明顯、低頻海潮近/遠包覆
 - 做了什麼（依 Pan 回饋）：
   1. **「憋氣」→「屏住呼吸」**（全部三處：copy、BREATH_PRESETS、MANUAL_478_PHASES）。

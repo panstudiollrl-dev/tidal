@@ -307,15 +307,6 @@
   #phaseSession .core-orb.show-count .orb-phase-label {
     display: block;
   }
-  #guideOrb.show-count .orb-count {
-    display: grid;
-    font-size: clamp(34px, 7vw, 72px);
-    padding: 0 18px;
-    text-align: center;
-  }
-  #guideOrb.show-count .orb-phase-label {
-    display: block;
-  }
   .core-orb.cue-on {
     transform: translateX(var(--core-drift)) scale(calc(var(--core-scale) * 1.08));
     box-shadow:
@@ -626,10 +617,7 @@
 
       <section class="panel phase guide-panel active" id="phaseBefore">
         <h2>抵達</h2>
-        <div id="guideOrb" class="core-orb" aria-hidden="true">
-          <div class="orb-phase-label" id="guideOrbLabel"></div>
-          <div class="orb-count" id="guideOrbWord"></div>
-        </div>
+        <div id="guideOrb" class="core-orb" aria-hidden="true"></div>
         <div id="arrivalIntro">
           <div class="arrival-title">正在準備</div>
           <div class="arrival-copy">
@@ -662,7 +650,7 @@
           <div class="arrival-copy">
             <p>先幫我認識你的握力。跟著提示：看到<b>請握起</b>就用你覺得舒適的力量握起，看到<b>請放鬆</b>就完全鬆開，這樣三次。</p>
           </div>
-          <div class="breath-word" id="handCuePrompt" style="display:none">準備…</div>
+          <div class="breath-word" id="handCuePrompt">準備…</div>
           <div class="hint" id="handCueHint">水位會跟著你的握力升降。</div>
         </div>
         <div id="arrivalBreath" style="display:none">
@@ -687,10 +675,10 @@
           <div class="arrival-title">小小回顧</div>
           <div class="report-impression" id="reportImpression">&nbsp;</div>
           <div class="arrival-copy" id="reportAgreeCopy">
-            <p>這只是一個猜測。請用穩定握住一下來回答：越用力表示越貼近，越小力表示越不像或越輕鬆。</p>
+            <p>這只是一個猜測。如果貼近現在的你，就把球握緊一會兒；沒那麼準，就輕輕握；完全不像，放著就好。</p>
           </div>
           <div class="agree-meter" id="agreeMeter"><span id="agreeFill"></span></div>
-          <div class="hint" id="reportHint">輕輕握住也算答案；穩定一小段時間就會繼續。</div>
+          <div class="hint" id="reportHint">用握力表示這段描述有多貼近你。</div>
           <div class="report-suggest" id="reportSuggest" style="display:none"></div>
           <div class="confirm-choice" id="arrivalConfirmHint">&nbsp;</div>
         </div>
@@ -728,26 +716,22 @@
       <section class="panel phase guide-panel" id="phaseAfter">
         <h2>結束後</h2>
         <div class="core-orb" aria-hidden="true"></div>
-        <div class="session-stage">
-          <div class="arrival-title" id="afterTitle">回看身體</div>
-          <div class="breath-word" id="afterValue">握住一下</div>
-          <div class="arrival-copy">
-            <p id="afterPrompt">用握力回答。握得越用力，表示越強；握住一小段時間就會進到下一題。</p>
-          </div>
-          <div class="arrival-progress"><span id="afterProgress"></span></div>
-          <div class="hint" id="afterHint">第 1 / 4 題</div>
-        </div>
-        <div style="display:none">
-          <div style="margin:14px 0 8px">現在的緊張程度 <b id="postValue">5</b>/10</div>
-          <div class="rating">
+        <div class="hint">回看身體，而不是評分好壞。哪一刻有被推著走？哪一刻可以停留？</div>
+        <div style="margin:14px 0 8px">現在的緊張程度 <b id="postValue">5</b>/10</div>
+        <div class="rating">
           <button class="icon ghost" id="postMinus">−</button>
           <input id="postRange" type="range" min="0" max="10" value="5" />
           <button class="icon ghost" id="postPlus">＋</button>
-          </div>
-          <input id="pushedRange" type="range" min="0" max="10" value="5" />
-          <input id="stayRange" type="range" min="0" max="10" value="5" />
-          <input id="agencyRange" type="range" min="0" max="10" value="5" />
-          <textarea id="rhythmNote" rows="3"></textarea>
+        </div>
+        <div style="margin:12px 0 8px">這段有多像「被節奏推著走」？ <b id="pushedValue">5</b>/10</div>
+        <input id="pushedRange" type="range" min="0" max="10" value="5" />
+        <div style="margin:12px 0 8px">有多能停留、呼吸、觀察？ <b id="stayValue">5</b>/10</div>
+        <input id="stayRange" type="range" min="0" max="10" value="5" />
+        <div style="margin:12px 0 8px">聲音有多像可被你塑形？ <b id="agencyValue">5</b>/10</div>
+        <input id="agencyRange" type="range" min="0" max="10" value="5" />
+        <div style="margin:12px 0 8px">一句筆記</div>
+        <textarea id="rhythmNote" rows="3" placeholder="例如：一開始被拍石嚇到，後來潮汐變慢時比較能停。"></textarea>
+        <div class="controls" style="margin-top:12px">
           <button id="btnSaveAfter">儲存這次紀錄</button>
         </div>
       </section>
@@ -793,7 +777,7 @@ const PRODUCT_ID = 0x0101;
 const MODE_9DOF_GRIP = 3;
 const AUTO_ONSET_DELTA = 450;
 // 浮動握力校正（Pan 2026-07-09：固定滿刻度太高，很用力才到 30%）。滿刻度會自動追蹤你的握力範圍。
-const GRIP_MIN_SPAN = 80;          // 滿刻度最小跨距。某些球 raw delta 很小，太高會讓校正永遠偏小。
+const GRIP_MIN_SPAN = 300;         // 滿刻度最小跨距（避免雜訊時過度靈敏）
 const GRIP_MAX_SPAN = 1400;        // 滿刻度上限（避免異常大值）
 const GRIP_HEADROOM = 1.0;         // 滿刻度＝觀察到的最大握力（前面各握三下的 cue 會把 span 拉到你的舒適最大）。
                                    // =1 讓最用力＝100%、輕握有比例，不必死命握（Pan 2026-07-14：之前 1.15 要很用力才有反應）。
@@ -815,24 +799,13 @@ const ARRIVAL_PRELUDE_SECONDS = 5;
 const ARRIVAL_PRESS_ON = 0.28;
 const ARRIVAL_PRESS_OFF = 0.16;
 // 4-7-8 數拍用較低門檻，好觸發（Pan 2026-07-14：很用力握數字也沒減少＝門檻太高）。放開＝任一手都降到 OFF 以下就重新武裝。
-const MANUAL_478_ON = 0.10;
-const MANUAL_478_OFF = 0.035;
-const MANUAL_478_RISE_DELTA = 0.035;
-const MANUAL_478_RELEASE_DELTA = 0.06;
-const BREATH_MARK_MIN_GAP_MS = 500;
-const BREATH_RELEASE_DELTA = 0.10;
-const AGREEMENT_MIN_LEVEL = 0.08;
-const AGREEMENT_HOLD_MS = 900;
-const AFTER_MIN_LEVEL = 0.08;
-const AFTER_HOLD_MS = 900;
-const AFTER_RELEASE_DELTA = 0.10;
+const MANUAL_478_ON = 0.20;
+const MANUAL_478_OFF = 0.09;
+const BREATH_MARK_MIN_GAP_MS = 900;
 const HAND_CUE_REPS = 3;
 const HAND_CUE_READY_MS = 1800;
-const HAND_CUE_CONFIRM_MS = 620;
-const HAND_CUE_PRESS_ON = 0.16;
-const HAND_CUE_PRESS_OFF = 0.08;
-const HAND_CUE_RISE_DELTA = 0.045;
-const HAND_CUE_RELEASE_DELTA = 0.08;
+const HAND_CUE_ON_MS = 1800;
+const HAND_CUE_OFF_MS = 2500;
 const HID_STALE_MS = 2500;
 const HID_MODE_RESEND_MS = 1400;
 
@@ -852,8 +825,6 @@ const state = {
   sessionEnd: null,
   samples: [],
   sessions: [],
-  afterSaved: false,
-  after: { index: 0, holdStart: 0, peak: 0, awaitRelease: false, releasePeak: 0 },
   impactCount: 0,
   lastImpactAt: 0,
   dominantMode: "unknown",
@@ -883,9 +854,6 @@ const state = {
     manual478: null,
     manual478LastPressAt: 0,
     manual478Pressed: false,
-    manual478SlotPressed: { 1: false, 2: false },
-    manual478SlotPeak: { 1: 0, 2: 0 },
-    manual478SlotLastLevel: { 1: 0, 2: 0 },
   },
   arrival: {
     step: "intro",
@@ -902,7 +870,6 @@ const state = {
     activePress: { 1: false, 2: false },
     lastEventAt: 0,
     breathHeld: false,
-    breathPeak: 0,
     confirmation: "",
     confirmationAt: null,
     confirmationAdvanceTimer: null,
@@ -918,9 +885,6 @@ const state = {
       armed: false,
       fill: 0,
       successSoundAt: 0,
-      stage: "ready",
-      stageStartedAt: 0,
-      releasePeak: 0,
     },
     report: null,
   },
@@ -928,29 +892,6 @@ const state = {
 
 class GripCalibrator {
   constructor(){ this.baseline = null; this.span = GRIP_MIN_SPAN; this.level = 0; }
-  observeRest(raw){
-    if(this.baseline === null){ this.baseline = raw; this.level = 0; return; }
-    const delta = raw - this.baseline;
-    // During the dark cue, learn the relaxed hand as relative zero. Only pull the
-    // baseline upward when the current signal is already near rest, so a late
-    // release does not erase the user's squeeze range.
-    if(delta < 0 || delta < this.span * 0.18 || this.level < 0.14){
-      const rate = delta < 0 ? 0.35 : 0.16;
-      this.baseline += (raw - this.baseline) * rate;
-      this.level *= 0.68;
-    }
-  }
-  observePress(raw){
-    if(this.baseline === null){ this.baseline = raw; return; }
-    const posDelta = Math.max(0, raw - this.baseline);
-    if(posDelta > GRIP_MIN_SPAN * 0.35){
-      // During the three cue squeezes, let each ball learn its own comfortable
-      // maximum quickly. This normalizes sensor sensitivity without forcing both
-      // hands to become identical.
-      const target = clamp(posDelta, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
-      this.span += (target - this.span) * 0.72;
-    }
-  }
   update(raw){
     if(this.baseline === null){ this.baseline = raw; return 0; }
     const delta = raw - this.baseline;
@@ -1441,25 +1382,17 @@ class OceanEngine {
     src.connect(bp);
     bp.connect(g);
     g.connect(this.impactPanner);
-    const startF = 180 + 360 * Math.random() + 220 * this.tide;
-    const crestAt = at + swellT * (0.62 + 0.30 * Math.random());
-    bp.frequency.setValueAtTime(startF, at);
-    bp.frequency.exponentialRampToValueAtTime(Math.max(180, brightness), crestAt);
-    bp.frequency.setTargetAtTime(260 + 480 * Math.random() + 280 * this.tide, crestAt, 0.45 + 0.65 * Math.random());
-    const N = 64;
+    bp.frequency.setValueAtTime(260 + 260 * this.tide * (0.7 + 0.6 * Math.random()), at);
+    bp.frequency.linearRampToValueAtTime(brightness, at + swellT);
+    bp.frequency.setTargetAtTime(430 + 320 * this.tide, at + swellT, 0.8);
+    const N = 48;
     const curve = new Float32Array(N);
-    const skew = 0.55 + Math.random() * 1.35;
-    const wobble = 0.04 + Math.random() * 0.10;
-    for(let i = 0; i < N; i++){
-      const x = i / (N - 1);
-      const lifted = Math.pow(x, skew);
-      curve[i] = peak * clamp(lifted + Math.sin(x * Math.PI * (2.0 + Math.random() * 2.5)) * wobble * x);
-    }
+    for(let i = 0; i < N; i++){ const x = i / (N - 1); curve[i] = peak * x * x; }
     g.gain.setValueAtTime(0, at);
     g.gain.setValueCurveAtTime(curve, at, swellT);
-    g.gain.setTargetAtTime(0, at + swellT * (0.86 + Math.random() * 0.28), tailDecay);
+    g.gain.setTargetAtTime(0, at + swellT, tailDecay);
     src.start(at);
-    src.stop(at + swellT + 2.4 + 1.6 * Math.random());
+    src.stop(at + swellT + 3.6);
   }
 
   impact(){
@@ -1468,45 +1401,35 @@ class OceanEngine {
     this.lastImpact = now;
     // 有界隨機（guardrail 3：有界，不自由生成）：每道浪的份量、蓄積、亮度、位置、尾巴都不同——
     // 真正的海裡沒有兩道一樣的浪（Pan 2026-07-13）。
-    const size = 0.62 + 0.78 * Math.random();                             // 份量 0.62–1.40
-    const swellT = 0.22 + 0.44 * Math.random();                          // 蓄積 0.22–0.66s
+    const size = 0.7 + 0.6 * Math.random();                              // 份量 0.7–1.3
+    const swellT = 0.30 + 0.28 * Math.random();                          // 蓄積 0.30–0.58s
     const peak = clamp((0.26 + 0.26 * this.tide) * size, 0, 0.60);       // 峰值仍有上限
-    const brightness = 950 + 1500 * Math.random() + 650 * this.tide;     // 破碎亮度每次不同
-    const tailDecay = 0.55 + 1.05 * Math.random();                       // 尾巴長短
-    const azJitter = clamp(this.azimuth + (Math.random() * 2 - 1) * 0.42, -1, 1);  // 位置在揮動方位附近漂
+    const brightness = 1400 + 900 * Math.random() + 500 * this.tide;     // 破碎亮度 1400–2800Hz
+    const tailDecay = 0.85 + 0.55 * Math.random();                       // 尾巴長短
+    const azJitter = clamp(this.azimuth + (Math.random() * 2 - 1) * 0.30, -1, 1);  // 位置在揮動方位附近漂
     const rad = azJitter * Math.PI / 2;
-    const dist = 1.8 + Math.random() * 1.8;
+    const dist = 2.1 + Math.random() * 1.2;
     this.impactPanner.positionX.setValueAtTime(Math.sin(rad) * dist, now);
     this.impactPanner.positionZ.setValueAtTime(-Math.cos(rad) * dist, now);
-    const burstCount = 1 + Math.floor(Math.random() * 3);
-    for(let i = 0; i < burstCount; i++){
-      const offset = i === 0 ? 0 : (0.08 + 0.34 * Math.random()) * i;
-      this.impactBurst(
-        now + offset,
-        swellT * (0.52 + 0.70 * Math.random()),
-        peak * (i === 0 ? 1 : 0.32 + 0.46 * Math.random()),
-        brightness * (0.62 + 0.74 * Math.random()),
-        tailDecay * (0.55 + 0.80 * Math.random())
-      );
-    }
+    this.impactBurst(now, swellT, peak, brightness, tailDecay);
     // 拍岸的低頻 body：改用「低通噪音爆」而非純正弦，避免電平/嗡音；仍有胸口的悶感（Pan 2026-07-14）。
     const body = OceanEngine.noiseSource(this.ctx);
     const blp = this.ctx.createBiquadFilter();
     blp.type = "lowpass";
-    blp.frequency.value = 80 + 105 * Math.random();
-    blp.Q.value = 0.36 + 0.42 * Math.random();
+    blp.frequency.value = 130;
+    blp.Q.value = 0.5;
     const tg = this.ctx.createGain();
     tg.gain.value = 0;
     body.connect(blp); blp.connect(tg); tg.connect(this.clip);
     tg.gain.setValueAtTime(0, now + swellT * 0.7);
-    tg.gain.linearRampToValueAtTime(peak * (0.22 + 0.34 * Math.random()), now + swellT);
-    tg.gain.setTargetAtTime(0, now + swellT, 0.22 + 0.52 * Math.random());
+    tg.gain.linearRampToValueAtTime(peak * 0.40, now + swellT);
+    tg.gain.setTargetAtTime(0, now + swellT, 0.4);
     body.start(now + swellT * 0.7);
     body.stop(now + swellT + 2.0);
     // 約 1/3 的浪有第二次較小的補拍（真實的浪常破碎兩段）
-    if(Math.random() < 0.48){
-      const gap = 0.16 + 0.48 * Math.random();
-      this.impactBurst(now + swellT + gap, swellT * (0.34 + 0.44 * Math.random()), peak * (0.22 + 0.34 * Math.random()), brightness * (0.42 + 0.55 * Math.random()), tailDecay * (0.45 + 0.60 * Math.random()));
+    if(Math.random() < 0.35){
+      const gap = 0.22 + 0.30 * Math.random();
+      this.impactBurst(now + swellT + gap, swellT * 0.55, peak * 0.45, brightness * 0.7, tailDecay * 0.8);
     }
     state.impactCount += 1;
     state.lastImpactAt = performance.now() + swellT * 1000; // 視覺濺起對齊「破碎」時刻
@@ -1520,7 +1443,7 @@ class OceanEngine {
   // azimuth −1(左)…+1(右)；distance 越小越近；intensity 0–1。
   singingBowl(azimuth = 0, distance = 3, intensity = 0.6){
     const now = this.ctx.currentTime;
-    if(now - (this.lastBowl || 0) < 0.06) return;      // Only guards duplicate reports from the same physical press.
+    if(now - (this.lastBowl || 0) < 0.35) return;      // 冷卻：連甩不會堆疊爆音
     this.lastBowl = now;
     const pan = this.ctx.createPanner();
     pan.panningModel = "HRTF";
@@ -1587,7 +1510,7 @@ const devices = { 1: null, 2: null };
 const accBaseline = { 1: null, 2: null };
 const lastHaptic = { 1: 0, 2: 0 };
 
-const HAPTICS_ENABLED = false;  // Haptics are off globally. 4-7-8 grip beats opt in with force=true.
+const HAPTICS_ENABLED = false;  // Pan 2026-07-14：震動先全部關掉，只保留聲音與視覺回應。
 function sendHaptic(slot, intensity, duration, force = false){
   if(!HAPTICS_ENABLED && !force) return;
   const dev = devices[slot];
@@ -1614,6 +1537,21 @@ function sendHapticAll(intensity, duration, force = false){
 function clearGuidedHaptics(){
   for(const timer of state.guided.hapticTimers) clearTimeout(timer);
   state.guided.hapticTimers = [];
+}
+
+function scheduleGuidedHaptic(delayMs, intensity, duration){
+  const timer = setTimeout(() => sendHapticAll(intensity, duration), Math.max(0, delayMs));
+  state.guided.hapticTimers.push(timer);
+}
+
+function scheduleUnitPulsePattern(units, unitMs, pulseForUnit){
+  for(let i = 0; i < units; i++){
+    const pulse = pulseForUnit(i);
+    if(!pulse) continue;
+    for(const p of Array.isArray(pulse) ? pulse : [pulse]){
+      scheduleGuidedHaptic(i * unitMs + (p.offset || 0), p.intensity, p.duration);
+    }
+  }
 }
 
 function resetArrival(){
@@ -1653,12 +1591,8 @@ function resetArrival(){
       completed: false,
       lastRep: -1,
       successThisRep: false,
-      armed: false,
       fill: 0,
       successSoundAt: 0,
-      stage: "ready",
-      stageStartedAt: 0,
-      releasePeak: 0,
     },
     report: null,
   };
@@ -1752,9 +1686,6 @@ function beginHandCue(hand){
   cue.armed = false;
   cue.fill = 0;
   cue.successSoundAt = 0;
-  cue.stage = "ready";
-  cue.stageStartedAt = cue.startedAt;
-  cue.releasePeak = 0;
   $("handCueTitle").textContent = hand === "left" ? "校正 · 左手" : "校正 · 右手";
   $("handCueHint").textContent = "";
   document.documentElement.style.setProperty("--cue-fill", "0");
@@ -1778,19 +1709,16 @@ function handleArrivalGrip(slot, level){
     return;
   }
   if(arrival.step !== "breath") return;
-  const maxGrip = Math.max(state.grip[1], state.grip[2]);
-  const anyOn = maxGrip >= ARRIVAL_PRESS_ON;
-  const anyOff = maxGrip <= ARRIVAL_PRESS_OFF || (arrival.breathHeld && (arrival.breathPeak - maxGrip) >= BREATH_RELEASE_DELTA);
-  if(anyOn && !arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
+  const anyHeld = Math.max(state.grip[1], state.grip[2]) >= ARRIVAL_PRESS_ON;
+  if(anyHeld && !arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
     arrival.events.push({
       t: (now - arrival.breathStart) / 1000,
       slot,
-      level: maxGrip,
+      level,
       type: "inhale",
     });
     arrival.lastEventAt = now;
     arrival.breathHeld = true;
-    arrival.breathPeak = maxGrip;
     if(engine){
       if(!state.audioFadedIn){
         state.audioFadedIn = true;
@@ -1801,17 +1729,15 @@ function handleArrivalGrip(slot, level){
       engine.cueWave(pan, 0.62);
     }
   }
-  if(arrival.breathHeld) arrival.breathPeak = Math.max(arrival.breathPeak || 0, maxGrip);
-  if(anyOff && arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
+  if(!anyHeld && arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
     arrival.events.push({
       t: (now - arrival.breathStart) / 1000,
       slot,
-      level: maxGrip,
+      level,
       type: "exhale",
     });
     arrival.lastEventAt = now;
     arrival.breathHeld = false;
-    arrival.breathPeak = maxGrip;
     if(engine) engine.cueWave(0, 0.34);
   }
   if(level <= ARRIVAL_PRESS_OFF) arrival.activePress[slot] = false;
@@ -1823,11 +1749,10 @@ function handleArrivalConfirmation(slot, level, now){
   const arrival = state.arrival;
   const held = Math.max(state.grip[1], state.grip[2]);
   if(arrival.reportSub === "agree"){
-    if(held >= AGREEMENT_MIN_LEVEL){
+    if(held >= ARRIVAL_PRESS_ON){
       if(!arrival.agreePressedAt) arrival.agreePressedAt = now;
       arrival.agreePeak = Math.max(arrival.agreePeak, held);
-      if(now - arrival.agreePressedAt >= AGREEMENT_HOLD_MS) finalizeAgreement(now);
-    } else if(arrival.agreePressedAt && now - arrival.agreePressedAt > 250){
+    } else if(arrival.agreePressedAt && now - arrival.agreePressedAt > 400){
       finalizeAgreement(now);           // 握過一下再放開 → 定案符合度、給建議
     } else {
       arrival.agreePressedAt = 0;        // 太短的誤觸，重來
@@ -1898,7 +1823,7 @@ function updateArrival(){
     const held = Math.max(state.grip[1], state.grip[2]);
     const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
     $("agreeFill").style.width = Math.round(clamp(shown) * 100) + "%";
-    if(held >= AGREEMENT_MIN_LEVEL){
+    if(held >= ARRIVAL_PRESS_ON){
       $("reportHint").textContent = held > 0.66 ? "很貼近。" : held > 0.33 ? "有點像。" : "不太像。";
     }
   }
@@ -1984,65 +1909,29 @@ function updateArrival(){
 function updateHandCue(now){
   const cue = state.arrival.handCue;
   if(!cue.startedAt) cue.startedAt = now;
-  const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
+  const cycle = HAND_CUE_ON_MS + HAND_CUE_OFF_MS;
   const elapsed = now - cue.startedAt;
   if(elapsed < HAND_CUE_READY_MS){
-    cue.stage = "ready";
     cue.cueOn = false;
     $("handCuePrompt").textContent = "準備…";
-    $("guideOrbLabel").textContent = "";
-    $("guideOrbWord").textContent = "準備";
     $("guideOrb").classList.remove("cue-on", "cue-success");
-    $("guideOrb").classList.add("cue-off", "show-count");
+    $("guideOrb").classList.add("cue-off");
     return;
   }
-
-  if(cue.stage === "ready" || !cue.stage){
-    cue.stage = "press";
-    cue.stageStartedAt = now;
-    cue.successThisRep = false;
-    cue.armed = grip <= HAND_CUE_PRESS_OFF;
-    cue.releasePeak = grip;
-    $("guideOrb").classList.remove("cue-success");
+  const cueElapsed = elapsed - HAND_CUE_READY_MS;
+  const rep = Math.floor(cueElapsed / cycle);
+  const doneAt = HAND_CUE_READY_MS + HAND_CUE_REPS * cycle;
+  if(elapsed >= doneAt){
+    finishHandCue();
+    return;
   }
-
-  if(cue.stage === "press" && cue.successThisRep){
-    cue.stage = "confirm";
-    cue.stageStartedAt = now;
-    cue.releasePeak = Math.max(cue.releasePeak || 0, grip);
-  }
-
-  if(cue.stage === "confirm" && now - cue.stageStartedAt >= HAND_CUE_CONFIRM_MS){
-    cue.stage = "release";
-    cue.stageStartedAt = now;
-    cue.cueOn = false;
-    cue.releasePeak = Math.max(cue.releasePeak || 0, grip);
-  }
-
-  if(cue.stage === "release"){
-    cue.releasePeak = Math.max(cue.releasePeak || 0, grip);
-    const released = grip <= HAND_CUE_PRESS_OFF || (cue.releasePeak - grip) >= HAND_CUE_RELEASE_DELTA;
-    if(released){
-      cue.rep += 1;
-      if(cue.rep >= HAND_CUE_REPS){
-        finishHandCue();
-        return;
-      }
-      cue.stage = "press";
-      cue.stageStartedAt = now;
-      cue.successThisRep = false;
-      cue.armed = grip <= HAND_CUE_PRESS_OFF;
-      cue.releasePeak = grip;
-      $("guideOrb").classList.remove("cue-success");
-    }
-  }
-
-  const inOn = cue.stage === "press" || cue.stage === "confirm";
+  const inOn = (cueElapsed % cycle) < HAND_CUE_ON_MS;
+  cue.rep = rep;
   cue.cueOn = inOn;
-  if(inOn && cue.lastRep !== cue.rep){
-    cue.lastRep = cue.rep;
+  if(inOn && cue.lastRep !== rep){
+    cue.lastRep = rep;
     cue.successThisRep = false;
-    cue.armed = grip <= HAND_CUE_PRESS_OFF;
+    cue.armed = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
     $("guideOrb").classList.remove("cue-success");
     if(engine){
       if(!state.audioFadedIn){
@@ -2054,13 +1943,11 @@ function updateHandCue(now){
     }
   }
   // 水位直接平滑跟著握力：握起→水灌高、放鬆→退掉。校正就是用你舒適的力量（Pan 2026-07-14）。
-  if(!inOn && grip <= HAND_CUE_PRESS_OFF) cue.armed = true;
+  const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
+  if(!inOn && grip <= ARRIVAL_PRESS_OFF) cue.armed = true;
   $("handCuePrompt").textContent = inOn ? "請握起" : "請放鬆";
-  $("guideOrbLabel").textContent = cue.hand === "left" ? "左手" : "右手";
-  $("guideOrbWord").textContent = inOn ? "請握起" : "請放鬆";
   cue.fill += (clamp(grip) - cue.fill) * 0.25;
   document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
-  $("guideOrb").classList.add("show-count");
   $("guideOrb").classList.toggle("cue-on", inOn);
   $("guideOrb").classList.toggle("cue-off", !inOn);
   $("guideOrb").classList.toggle("cue-success", cue.fill > 0.35);
@@ -2071,9 +1958,7 @@ function finishHandCue(){
   if(cue.completed) return;
   cue.completed = true;
   document.documentElement.style.setProperty("--cue-fill", "0");
-  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success", "show-count");
-  $("guideOrbLabel").textContent = "";
-  $("guideOrbWord").textContent = "";
+  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success");
   const picked = cue.scores[2] > cue.scores[1] ? 2 : 1;
   if(cue.hand === "left"){
     state.handMap.left = picked;
@@ -2099,7 +1984,7 @@ function finishArrival(){
   $("reportAgreeCopy").style.display = "";
   $("agreeMeter").style.opacity = "1";
   $("agreeFill").style.width = "0%";
-  $("reportHint").textContent = "輕輕握住也算答案；穩定一小段時間就會繼續。";
+  $("reportHint").textContent = "用握力表示這段描述有多貼近你。";
   $("reportSuggest").style.display = "none";
   $("reportSuggest").innerHTML = "";
   $("arrivalConfirmHint").innerHTML = "&nbsp;";
@@ -2273,33 +2158,20 @@ function setGrip(slot, level){
   const previous = state.grip[slot] || 0;
   state.grip[slot] = level;
   const cue = state.arrival.handCue;
-  const handCuePressEdge = (previous < HAND_CUE_PRESS_ON && level >= HAND_CUE_PRESS_ON) || (level - previous) >= HAND_CUE_RISE_DELTA;
-  if(state.arrival.step === "handCue" && cue.cueOn && level <= HAND_CUE_PRESS_OFF) cue.armed = true;
+  const pressEdge = previous < ARRIVAL_PRESS_ON && level >= ARRIVAL_PRESS_ON;
+  if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
   if(state.phase === "session" && state.guided.preset === "hold478"){
-    const slotPressed = state.guided.manual478SlotPressed || (state.guided.manual478SlotPressed = { 1: false, 2: false });
-    const slotPeak = state.guided.manual478SlotPeak || (state.guided.manual478SlotPeak = { 1: 0, 2: 0 });
-    const slotLast = state.guided.manual478SlotLastLevel || (state.guided.manual478SlotLastLevel = { 1: 0, 2: 0 });
-    const lastLevel = Number.isFinite(slotLast[slot]) ? slotLast[slot] : previous;
-    const rising = level - lastLevel;
-    // 每顆球各自偵測輕握，避免 input 較小的球被雙手最大值規則逼得太用力。
-    if(slotPressed[slot]){
-      slotPeak[slot] = Math.max(slotPeak[slot] || 0, level);
-      if(level <= MANUAL_478_OFF || (slotPeak[slot] - level) >= MANUAL_478_RELEASE_DELTA){
-        slotPressed[slot] = false;
-        slotPeak[slot] = level;
-      }
-    } else if(level >= MANUAL_478_ON && (previous < MANUAL_478_ON || rising >= MANUAL_478_RISE_DELTA)){
-      slotPressed[slot] = true;
-      slotPeak[slot] = level;
+    const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數
+    // 簡單遲滯：握過 ON 數一拍、掉到 OFF 以下才重新武裝。底部死區保證放開＝0，能確實掉到 OFF 以下（不卡）。
+    if(state.guided.manual478Pressed){
+      if(maxLevel <= MANUAL_478_OFF) state.guided.manual478Pressed = false;
+    } else if(maxLevel >= MANUAL_478_ON){
+      state.guided.manual478Pressed = true;
       requestAudioFadeIn();
       advanceManual478();
     }
-    slotLast[slot] = level;
-    state.guided.manual478Pressed = !!(slotPressed[1] || slotPressed[2]);
-    state.guided.manual478Peak = Math.max(slotPeak[1] || 0, slotPeak[2] || 0);
-    state.guided.manual478LastLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);
   }
-  if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && handCuePressEdge){
+  if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
     cue.scores[slot] += level;          // 記哪隻手在響應（左右手指派用）
     cue.successThisRep = true;
     cue.armed = false;
@@ -2325,14 +2197,14 @@ function setGrip(slot, level){
   engine.setSpread(slot === 2 ? Math.max(level, avgGrip) : avgGrip); // Ball2 仍強化石頭，但雙手也能帶出滾動
   if(level >= HARD_GRIP && previous < HARD_GRIP * 0.72 && performance.now() - state.lastGripImpactAt > 1800){
     state.lastGripImpactAt = performance.now();
-    if(state.audioFadedIn) engine.impact();
+    if(state.audioFadedIn && engine.impact()) sendHapticAll(104, 72);
   }
   const leftSlot = state.handMap.left || 1;
   const rightSlot = state.handMap.right || 2;
   const leftGrip = state.grip[leftSlot] || 0;
   const rightGrip = state.grip[rightSlot] || 0;
   const total = leftGrip + rightGrip;
-  const gripPan = total > 0.04 ? clamp((rightGrip - leftGrip) / (total + 0.28), -0.82, 0.82) : 0;
+  const gripPan = total > 0.04 ? (rightGrip - leftGrip) / (total + 0.12) : 0;
   engine.setGripCenter(gripPan, clamp(total));   // 質量中心方位 + 總力道 → 驅動 OBA 氣泡聲源位置
   engine.setSideGrip(leftGrip, rightGrip);       // 雙手各自的潮線也有聲音（對應視覺 __leftWave/__rightWave）
 }
@@ -2467,12 +2339,7 @@ function onReport(e, slot){
     updateHidStatus();
     if(state.arrival.step === "connect") updateConnectScene();
     const raw = dv.getUint16(2, true);
-    const c = calib[slot];
-    const cue = state.arrival.handCue;
-    if(state.arrival.step === "handCue" && cue && !cue.cueOn) c.observeRest(raw);
-    if(state.arrival.step === "handCue" && cue && cue.cueOn) c.observePress(raw);
-    const level = c.update(raw);
-    setGrip(slot, level);
+    setGrip(slot, calib[slot].update(raw));
   } else if(e.reportId === 3 && dv.byteLength >= 16){
     const ax = dv.getFloat32(4, true);
     const ay = dv.getFloat32(8, true);
@@ -2500,7 +2367,10 @@ function handleSwing(slot, ax, ay, az){
   // 4-7-8 的頌缽改由「每段第一次握」觸發（見 advanceManual478），不再用晃動——晃動太敏感、會一次好幾聲（Pan 2026-07-14）。
   if(state.phase === "session" && state.guided.preset === "hold478") return;
   if(state.grip[slot] >= HARD_GRIP && motion >= STRONG_SWING){
-    if(engine && state.audioFadedIn) engine.impact();
+    if(engine && state.audioFadedIn && engine.impact()) sendHaptic(slot, 110, 80);
+  } else if(state.phase !== "session"){
+    // 目前震動總開關關閉；保留呼叫點，方便日後重新設計觸覺語彙時接回。
+    sendHaptic(slot, 25 + 45 * clamp(motion / STRONG_SWING), 30);
   }
 }
 
@@ -2563,20 +2433,10 @@ const MANUAL_478_PHASES = [
 const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成這麼多輪才算「完全結束」→ 淡出（Pan 2026-07-14）。
 
 function resetManual478(){
-  const currentGrip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
-  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true, phaseJustEntered: true };
-  // Treat the current hand state as the starting point. If the user entered the
-  // practice while still squeezing, wait for a meaningful release; do not require
-  // a perfect absolute zero, because calibrated balls can retain residual level.
-  state.guided.manual478Pressed = currentGrip >= MANUAL_478_ON;
-  state.guided.manual478Peak = currentGrip;
-  state.guided.manual478LastLevel = currentGrip;
-  state.guided.manual478SlotPressed = {
-    1: (state.grip[1] || 0) >= MANUAL_478_ON,
-    2: (state.grip[2] || 0) >= MANUAL_478_ON,
-  };
-  state.guided.manual478SlotPeak = { 1: state.grip[1] || 0, 2: state.grip[2] || 0 };
-  state.guided.manual478SlotLastLevel = { 1: state.grip[1] || 0, 2: state.grip[2] || 0 };
+  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true };
+  // 進場先當成「已握住」＋高 peak：必須先真正放開才會開始數，避免「進入用的那一握」直接扣一拍（Pan 2026-07-14）。
+  state.guided.manual478Pressed = true;
+  state.guided.manual478Peak = 1;
   state.guided.manual478LastPressAt = 0;
 }
 
@@ -2610,13 +2470,10 @@ function advanceManual478(){
   const gap = state.guided.manual478LastPressAt ? now - state.guided.manual478LastPressAt : 0;
   state.guided.manual478LastPressAt = now;
   if(gap > 150 && gap < 12000) m.pressGaps.push(gap);   // 按壓間距 → 之後判「呼吸平均程度」
-  // The number currently visible is the beat being confirmed. When a new phase
-  // shows 4 / 7 / 8, that very next press must sound the bowl, before the count
-  // advances to 3 / 6 / 7.
-  if(m.phaseJustEntered) playBowlForHands();
-  m.phaseJustEntered = false;
   beatPulse(phase.rgb);
   sendHapticAll(95, 42, true);
+  // 每一段的「第一次握」＝一聲頌缽（不重複觸發）；每回 4-7-8＝三聲。方位＝兩手力道向量中心。
+  if(m.remaining === phase.count) playBowlForHands();
   m.remaining -= 1;
   if(m.remaining <= 0){
     m.phaseIndex = (m.phaseIndex + 1) % MANUAL_478_PHASES.length;
@@ -2625,7 +2482,6 @@ function advanceManual478(){
       if(m.completedCycles >= MANUAL_478_TARGET_CYCLES){ complete478(); return; }   // 完全結束才淡出
     }
     m.remaining = MANUAL_478_PHASES[m.phaseIndex].count;
-    m.phaseJustEntered = true;
     play478Voice(MANUAL_478_PHASES[m.phaseIndex]);
   }
   updateGuidedSession(true);
@@ -2698,8 +2554,56 @@ function guideHapticsForPhase(presetId, phase, phaseKey){
   if(state.guided.hapticKey === phaseKey) return;
   state.guided.hapticKey = phaseKey;
   clearGuidedHaptics();
-  // No automatic haptic scheduling. Haptic feedback is intentionally limited to
-  // user-confirmed 4-7-8 grip beats in advanceManual478().
+  const unitMs = Math.max(180, (phase.dur * 1000) / Math.max(1, Math.round(phase.dur)));
+
+  // 4-7-8：保留畫面的相位色明滅（beatPulse）作為數拍；sendHaptic 已關閉為 no-op。
+  if(presetId === "hold478"){
+    const rgb478 = phase.name === "hold" ? [236, 190, 120] : phase.name === "exhale" ? [116, 138, 224] : [78, 206, 178];
+    const nBeats = phase.name === "inhale" ? 4 : phase.name === "hold" ? 7 : 8;
+    if(phase.name === "inhale"){
+      // 進吸＝三下快速上行 marker；之後每拍一短 tick、強度逐拍上升
+      scheduleUnitPulsePattern(4, unitMs, (i) => i === 0
+        ? [{ offset: 0, intensity: 80, duration: 26 }, { offset: 110, intensity: 112, duration: 26 }, { offset: 220, intensity: 150, duration: 32 }]
+        : ({ offset: 0, intensity: 100 + i * 16, duration: 40 }));
+    } else if(phase.name === "hold"){
+      // 進停＝一下沉穩較長 marker；之後每拍一極短、穩定、稀疏的 tick
+      scheduleUnitPulsePattern(7, unitMs, (i) => i === 0
+        ? ({ offset: 0, intensity: 150, duration: 70 })
+        : ({ offset: 0, intensity: 74, duration: 26 }));
+    } else if(phase.name === "exhale"){
+      // 進吐＝三下快速下行 marker；之後每拍一短 tick、強度逐拍下降
+      scheduleUnitPulsePattern(8, unitMs, (i) => i === 0
+        ? [{ offset: 0, intensity: 150, duration: 32 }, { offset: 110, intensity: 112, duration: 26 }, { offset: 220, intensity: 74, duration: 26 }]
+        : ({ offset: 0, intensity: 130 - i * 8, duration: 44 }));
+    }
+    // 每拍的畫面明滅（相位色）——視覺計數，明顯可見
+    for(let i = 0; i < nBeats; i++){
+      const timer = setTimeout(() => beatPulse(rgb478), i * unitMs);
+      state.guided.hapticTimers.push(timer);
+    }
+    return;
+  }
+
+  if(presetId === "resonance"){
+    if(phase.name === "inhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 86, duration: 125 }));
+    if(phase.name === "exhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 62, duration: Math.min(255, unitMs * 0.70) }));
+    return;
+  }
+
+  if(presetId === "alternate"){
+    const leftSide = phase.name.toLowerCase().includes("left");
+    const slot = leftSide ? (state.handMap.left || 1) : (state.handMap.right || 2);
+    scheduleGuidedHaptic(0, 104, 130);
+    for(let i = 1; i < Math.round(phase.dur); i++){
+      const timer = setTimeout(() => sendHaptic(slot, 82, 108), i * unitMs);
+      state.guided.hapticTimers.push(timer);
+    }
+    return;
+  }
+
+  if(presetId === "bellows"){
+    scheduleGuidedHaptic(0, phase.name === "inhale" ? 116 : 82, 82);
+  }
 }
 
 function updateGuidedSession(force = false){
@@ -2901,8 +2805,6 @@ async function enterGuidedPractice(presetId = ""){
 function endSession(){
   state.phase = "after";
   state.sessionEnd = performance.now();
-  state.afterSaved = false;
-  state.after = { index: 0, holdStart: 0, peak: 0, awaitRelease: false, releasePeak: 0 };
   clearGuidedHaptics();
   if(engine){
     engine.setBreathGuide({ influence: 0, drone: 0, activate: 0, pan: 0 });  // 回到自走海，駐音/引導層退場
@@ -2912,88 +2814,10 @@ function endSession(){
   if(engine) engine.setBreathGuide({ influence: 0, activate: 0, pan: 0 });
   $("btnEndSession").disabled = true;
   setPhase();
-  updateAfterReflection(true);
-  log("Session 結束。用握力一題一題回看身體。");
+  log("Session 結束，請填寫結束後感受。");
 }
 
-const AFTER_STEPS = [
-  { key: "post", title: "現在的緊張程度", prompt: "越用力表示現在越緊張、越滿；越小力表示越平靜。", valueId: "postValue", rangeId: "postRange" },
-  { key: "pushed", title: "被節奏推著走", prompt: "越用力表示越像被節奏推著走；越小力表示比較能自己停留。", valueId: "pushedValue", rangeId: "pushedRange" },
-  { key: "stay", title: "能不能停留", prompt: "越用力表示越能停留、呼吸、觀察；越小力表示比較困難。", valueId: "stayValue", rangeId: "stayRange" },
-  { key: "agency", title: "聲音是否能被你塑形", prompt: "越用力表示聲音越像能被你塑形；越小力表示比較像被系統帶著走。", valueId: "agencyValue", rangeId: "agencyRange" },
-];
-
-function afterValueFromGrip(level){
-  return Math.round(clamp(level) * 10);
-}
-
-function updateAfterReflection(force = false){
-  if(state.phase !== "after") return;
-  const after = state.after || (state.after = { index: 0, holdStart: 0, peak: 0, awaitRelease: false, releasePeak: 0 });
-  if(after.saved){
-    $("afterTitle").textContent = "已儲存";
-    $("afterValue").textContent = "謝謝";
-    $("afterPrompt").textContent = "這次紀錄已經留在本機。";
-    $("afterProgress").style.width = "100%";
-    $("afterHint").textContent = "可以下載 CSV。";
-    return;
-  }
-  const step = AFTER_STEPS[after.index];
-  if(!step){
-    saveAfter(true);
-    return;
-  }
-  const now = performance.now();
-  const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
-  const value = afterValueFromGrip(Math.max(grip, after.peak || 0));
-  $("afterTitle").textContent = step.title;
-  $("afterPrompt").textContent = step.prompt;
-  $("afterValue").textContent = `${value} / 10`;
-  $("afterHint").textContent = after.awaitRelease ? "請先放開一下，準備下一題。" : `第 ${after.index + 1} / ${AFTER_STEPS.length} 題`;
-  document.documentElement.style.setProperty("--cue-fill", clamp(grip).toFixed(3));
-
-  if(after.awaitRelease){
-    const released = grip <= ARRIVAL_PRESS_OFF || (after.releasePeak - grip) >= AFTER_RELEASE_DELTA;
-    $("afterProgress").style.width = "0%";
-    if(released){
-      after.awaitRelease = false;
-      after.holdStart = 0;
-      after.peak = 0;
-      after.releasePeak = grip;
-      after.index += 1;
-      updateAfterReflection(true);
-    }
-    return;
-  }
-
-  if(grip >= AFTER_MIN_LEVEL){
-    if(!after.holdStart){
-      after.holdStart = now;
-      after.peak = grip;
-    }
-    after.peak = Math.max(after.peak, grip);
-    const elapsed = now - after.holdStart;
-    $("afterProgress").style.width = Math.round(clamp(elapsed / AFTER_HOLD_MS) * 100) + "%";
-    if(elapsed >= AFTER_HOLD_MS){
-      const answer = afterValueFromGrip(after.peak);
-      state[step.key] = answer;
-      if(step.valueId) $(step.valueId).textContent = answer;
-      if(step.rangeId) $(step.rangeId).value = answer;
-      after.awaitRelease = true;
-      after.releasePeak = after.peak;
-      after.holdStart = 0;
-      $("afterProgress").style.width = "100%";
-    }
-  } else {
-    after.holdStart = 0;
-    after.peak = 0;
-    $("afterProgress").style.width = "0%";
-  }
-}
-
-function saveAfter(stayOnAfter = false){
-  if(state.afterSaved) return;
-  state.afterSaved = true;
+function saveAfter(){
   state.note = $("rhythmNote").value.trim();
   const summary = {
     timestamp: new Date().toISOString(),
@@ -3038,14 +2862,8 @@ function saveAfter(stayOnAfter = false){
   };
   state.sessions.push(summary);
   $("btnCsv").disabled = false;
-  if(stayOnAfter){
-    if(!state.after) state.after = {};
-    state.after.saved = true;
-    updateAfterReflection(true);
-  } else {
-    state.phase = "summary";
-    setPhase();
-  }
+  state.phase = "summary";
+  setPhase();
   log(`已儲存：緊張 ${state.pre} → ${state.post}。`);
 }
 
@@ -3545,7 +3363,6 @@ function render(){
   // 仍在背景算 dominant_mode 供 session CSV 研究欄位用，但不顯示給使用者。
   updateArrival();
   updateGuidedSession();
-  updateAfterReflection();
   updateCoreVisual();
   state.dominantMode = analyzeMode().mode;
   $("sessionClock").textContent = Math.round(sessionSeconds()) + "s";
