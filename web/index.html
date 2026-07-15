@@ -892,6 +892,25 @@ const state = {
 
 class GripCalibrator {
   constructor(){ this.baseline = null; this.span = GRIP_MIN_SPAN; this.level = 0; }
+  observeRest(raw){
+    if(this.baseline === null){ this.baseline = raw; this.level = 0; return; }
+    const delta = raw - this.baseline;
+    // During the dark cue, learn the relaxed hand as relative zero. Only pull the
+    // baseline upward when the current signal is already near rest, so a late
+    // release does not erase the user's squeeze range.
+    if(delta < 0 || delta < this.span * 0.18 || this.level < 0.14){
+      const rate = delta < 0 ? 0.35 : 0.16;
+      this.baseline += (raw - this.baseline) * rate;
+      this.level *= 0.68;
+    }
+  }
+  observePress(raw){
+    if(this.baseline === null){ this.baseline = raw; return; }
+    const posDelta = Math.max(0, raw - this.baseline);
+    if(posDelta > this.span * 0.72){
+      this.span = clamp(posDelta, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
+    }
+  }
   update(raw){
     if(this.baseline === null){ this.baseline = raw; return 0; }
     const delta = raw - this.baseline;
@@ -1709,12 +1728,14 @@ function handleArrivalGrip(slot, level){
     return;
   }
   if(arrival.step !== "breath") return;
-  const anyHeld = Math.max(state.grip[1], state.grip[2]) >= ARRIVAL_PRESS_ON;
-  if(anyHeld && !arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
+  const maxGrip = Math.max(state.grip[1], state.grip[2]);
+  const anyOn = maxGrip >= ARRIVAL_PRESS_ON;
+  const anyOff = maxGrip <= ARRIVAL_PRESS_OFF;
+  if(anyOn && !arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
     arrival.events.push({
       t: (now - arrival.breathStart) / 1000,
       slot,
-      level,
+      level: maxGrip,
       type: "inhale",
     });
     arrival.lastEventAt = now;
@@ -1729,11 +1750,11 @@ function handleArrivalGrip(slot, level){
       engine.cueWave(pan, 0.62);
     }
   }
-  if(!anyHeld && arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
+  if(anyOff && arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
     arrival.events.push({
       t: (now - arrival.breathStart) / 1000,
       slot,
-      level,
+      level: maxGrip,
       type: "exhale",
     });
     arrival.lastEventAt = now;
@@ -2339,7 +2360,12 @@ function onReport(e, slot){
     updateHidStatus();
     if(state.arrival.step === "connect") updateConnectScene();
     const raw = dv.getUint16(2, true);
-    setGrip(slot, calib[slot].update(raw));
+    const c = calib[slot];
+    const cue = state.arrival.handCue;
+    if(state.arrival.step === "handCue" && cue && !cue.cueOn) c.observeRest(raw);
+    const level = c.update(raw);
+    if(state.arrival.step === "handCue" && cue && cue.cueOn && level >= ARRIVAL_PRESS_ON) c.observePress(raw);
+    setGrip(slot, level);
   } else if(e.reportId === 3 && dv.byteLength >= 16){
     const ax = dv.getFloat32(4, true);
     const ay = dv.getFloat32(8, true);
