@@ -662,7 +662,7 @@
           <div class="arrival-copy">
             <p>先幫我認識你的握力。跟著提示：看到<b>請握起</b>就用你覺得舒適的力量握起，看到<b>請放鬆</b>就完全鬆開，這樣三次。</p>
           </div>
-          <div class="breath-word" id="handCuePrompt">準備…</div>
+          <div class="breath-word" id="handCuePrompt" style="display:none">準備…</div>
           <div class="hint" id="handCueHint">水位會跟著你的握力升降。</div>
         </div>
         <div id="arrivalBreath" style="display:none">
@@ -815,10 +815,10 @@ const ARRIVAL_PRELUDE_SECONDS = 5;
 const ARRIVAL_PRESS_ON = 0.28;
 const ARRIVAL_PRESS_OFF = 0.16;
 // 4-7-8 數拍用較低門檻，好觸發（Pan 2026-07-14：很用力握數字也沒減少＝門檻太高）。放開＝任一手都降到 OFF 以下就重新武裝。
-const MANUAL_478_ON = 0.14;
-const MANUAL_478_OFF = 0.06;
-const MANUAL_478_RISE_DELTA = 0.055;
-const MANUAL_478_RELEASE_DELTA = 0.09;
+const MANUAL_478_ON = 0.10;
+const MANUAL_478_OFF = 0.035;
+const MANUAL_478_RISE_DELTA = 0.035;
+const MANUAL_478_RELEASE_DELTA = 0.06;
 const BREATH_MARK_MIN_GAP_MS = 500;
 const BREATH_RELEASE_DELTA = 0.10;
 const AGREEMENT_MIN_LEVEL = 0.08;
@@ -828,8 +828,11 @@ const AFTER_HOLD_MS = 900;
 const AFTER_RELEASE_DELTA = 0.10;
 const HAND_CUE_REPS = 3;
 const HAND_CUE_READY_MS = 1800;
-const HAND_CUE_ON_MS = 1800;
-const HAND_CUE_OFF_MS = 2500;
+const HAND_CUE_CONFIRM_MS = 620;
+const HAND_CUE_PRESS_ON = 0.16;
+const HAND_CUE_PRESS_OFF = 0.08;
+const HAND_CUE_RISE_DELTA = 0.045;
+const HAND_CUE_RELEASE_DELTA = 0.08;
 const HID_STALE_MS = 2500;
 const HID_MODE_RESEND_MS = 1400;
 
@@ -880,6 +883,9 @@ const state = {
     manual478: null,
     manual478LastPressAt: 0,
     manual478Pressed: false,
+    manual478SlotPressed: { 1: false, 2: false },
+    manual478SlotPeak: { 1: 0, 2: 0 },
+    manual478SlotLastLevel: { 1: 0, 2: 0 },
   },
   arrival: {
     step: "intro",
@@ -912,6 +918,9 @@ const state = {
       armed: false,
       fill: 0,
       successSoundAt: 0,
+      stage: "ready",
+      stageStartedAt: 0,
+      releasePeak: 0,
     },
     report: null,
   },
@@ -1644,8 +1653,12 @@ function resetArrival(){
       completed: false,
       lastRep: -1,
       successThisRep: false,
+      armed: false,
       fill: 0,
       successSoundAt: 0,
+      stage: "ready",
+      stageStartedAt: 0,
+      releasePeak: 0,
     },
     report: null,
   };
@@ -1739,6 +1752,9 @@ function beginHandCue(hand){
   cue.armed = false;
   cue.fill = 0;
   cue.successSoundAt = 0;
+  cue.stage = "ready";
+  cue.stageStartedAt = cue.startedAt;
+  cue.releasePeak = 0;
   $("handCueTitle").textContent = hand === "left" ? "校正 · 左手" : "校正 · 右手";
   $("handCueHint").textContent = "";
   document.documentElement.style.setProperty("--cue-fill", "0");
@@ -1968,9 +1984,10 @@ function updateArrival(){
 function updateHandCue(now){
   const cue = state.arrival.handCue;
   if(!cue.startedAt) cue.startedAt = now;
-  const cycle = HAND_CUE_ON_MS + HAND_CUE_OFF_MS;
+  const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
   const elapsed = now - cue.startedAt;
   if(elapsed < HAND_CUE_READY_MS){
+    cue.stage = "ready";
     cue.cueOn = false;
     $("handCuePrompt").textContent = "準備…";
     $("guideOrbLabel").textContent = "";
@@ -1979,20 +1996,53 @@ function updateHandCue(now){
     $("guideOrb").classList.add("cue-off", "show-count");
     return;
   }
-  const cueElapsed = elapsed - HAND_CUE_READY_MS;
-  const rep = Math.floor(cueElapsed / cycle);
-  const doneAt = HAND_CUE_READY_MS + HAND_CUE_REPS * cycle;
-  if(elapsed >= doneAt){
-    finishHandCue();
-    return;
-  }
-  const inOn = (cueElapsed % cycle) < HAND_CUE_ON_MS;
-  cue.rep = rep;
-  cue.cueOn = inOn;
-  if(inOn && cue.lastRep !== rep){
-    cue.lastRep = rep;
+
+  if(cue.stage === "ready" || !cue.stage){
+    cue.stage = "press";
+    cue.stageStartedAt = now;
     cue.successThisRep = false;
-    cue.armed = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
+    cue.armed = grip <= HAND_CUE_PRESS_OFF;
+    cue.releasePeak = grip;
+    $("guideOrb").classList.remove("cue-success");
+  }
+
+  if(cue.stage === "press" && cue.successThisRep){
+    cue.stage = "confirm";
+    cue.stageStartedAt = now;
+    cue.releasePeak = Math.max(cue.releasePeak || 0, grip);
+  }
+
+  if(cue.stage === "confirm" && now - cue.stageStartedAt >= HAND_CUE_CONFIRM_MS){
+    cue.stage = "release";
+    cue.stageStartedAt = now;
+    cue.cueOn = false;
+    cue.releasePeak = Math.max(cue.releasePeak || 0, grip);
+  }
+
+  if(cue.stage === "release"){
+    cue.releasePeak = Math.max(cue.releasePeak || 0, grip);
+    const released = grip <= HAND_CUE_PRESS_OFF || (cue.releasePeak - grip) >= HAND_CUE_RELEASE_DELTA;
+    if(released){
+      cue.rep += 1;
+      if(cue.rep >= HAND_CUE_REPS){
+        finishHandCue();
+        return;
+      }
+      cue.stage = "press";
+      cue.stageStartedAt = now;
+      cue.successThisRep = false;
+      cue.armed = grip <= HAND_CUE_PRESS_OFF;
+      cue.releasePeak = grip;
+      $("guideOrb").classList.remove("cue-success");
+    }
+  }
+
+  const inOn = cue.stage === "press" || cue.stage === "confirm";
+  cue.cueOn = inOn;
+  if(inOn && cue.lastRep !== cue.rep){
+    cue.lastRep = cue.rep;
+    cue.successThisRep = false;
+    cue.armed = grip <= HAND_CUE_PRESS_OFF;
     $("guideOrb").classList.remove("cue-success");
     if(engine){
       if(!state.audioFadedIn){
@@ -2004,8 +2054,7 @@ function updateHandCue(now){
     }
   }
   // 水位直接平滑跟著握力：握起→水灌高、放鬆→退掉。校正就是用你舒適的力量（Pan 2026-07-14）。
-  const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
-  if(!inOn && grip <= ARRIVAL_PRESS_OFF) cue.armed = true;
+  if(!inOn && grip <= HAND_CUE_PRESS_OFF) cue.armed = true;
   $("handCuePrompt").textContent = inOn ? "請握起" : "請放鬆";
   $("guideOrbLabel").textContent = cue.hand === "left" ? "左手" : "右手";
   $("guideOrbWord").textContent = inOn ? "請握起" : "請放鬆";
@@ -2222,34 +2271,35 @@ function requestAudioFadeIn(){
 
 function setGrip(slot, level){
   const previous = state.grip[slot] || 0;
-  const otherSlot = slot === 1 ? 2 : 1;
-  const previousMaxGrip = Math.max(previous, state.grip[otherSlot] || 0);
   state.grip[slot] = level;
   const cue = state.arrival.handCue;
-  const pressEdge = previous < ARRIVAL_PRESS_ON && level >= ARRIVAL_PRESS_ON;
-  if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
+  const handCuePressEdge = (previous < HAND_CUE_PRESS_ON && level >= HAND_CUE_PRESS_ON) || (level - previous) >= HAND_CUE_RISE_DELTA;
+  if(state.arrival.step === "handCue" && cue.cueOn && level <= HAND_CUE_PRESS_OFF) cue.armed = true;
   if(state.phase === "session" && state.guided.preset === "hold478"){
-    const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數
-    const lastLevel = Number.isFinite(state.guided.manual478LastLevel) ? state.guided.manual478LastLevel : previousMaxGrip;
-    const rising = maxLevel - lastLevel;
-    // 4-7-8 must survive residual pressure: some balls never fall neatly below
-    // OFF after calibration. Re-arm on either a true low value or a clear drop
-    // from the last squeeze peak, then count the next rising squeeze.
-    if(state.guided.manual478Pressed){
-      state.guided.manual478Peak = Math.max(state.guided.manual478Peak || 0, maxLevel);
-      if(maxLevel <= MANUAL_478_OFF || (state.guided.manual478Peak - maxLevel) >= MANUAL_478_RELEASE_DELTA){
-        state.guided.manual478Pressed = false;
-        state.guided.manual478Peak = maxLevel;
+    const slotPressed = state.guided.manual478SlotPressed || (state.guided.manual478SlotPressed = { 1: false, 2: false });
+    const slotPeak = state.guided.manual478SlotPeak || (state.guided.manual478SlotPeak = { 1: 0, 2: 0 });
+    const slotLast = state.guided.manual478SlotLastLevel || (state.guided.manual478SlotLastLevel = { 1: 0, 2: 0 });
+    const lastLevel = Number.isFinite(slotLast[slot]) ? slotLast[slot] : previous;
+    const rising = level - lastLevel;
+    // 每顆球各自偵測輕握，避免 input 較小的球被雙手最大值規則逼得太用力。
+    if(slotPressed[slot]){
+      slotPeak[slot] = Math.max(slotPeak[slot] || 0, level);
+      if(level <= MANUAL_478_OFF || (slotPeak[slot] - level) >= MANUAL_478_RELEASE_DELTA){
+        slotPressed[slot] = false;
+        slotPeak[slot] = level;
       }
-    } else if(maxLevel >= MANUAL_478_ON && (previousMaxGrip < MANUAL_478_ON || rising >= MANUAL_478_RISE_DELTA)){
-      state.guided.manual478Pressed = true;
-      state.guided.manual478Peak = maxLevel;
+    } else if(level >= MANUAL_478_ON && (previous < MANUAL_478_ON || rising >= MANUAL_478_RISE_DELTA)){
+      slotPressed[slot] = true;
+      slotPeak[slot] = level;
       requestAudioFadeIn();
       advanceManual478();
     }
-    state.guided.manual478LastLevel = maxLevel;
+    slotLast[slot] = level;
+    state.guided.manual478Pressed = !!(slotPressed[1] || slotPressed[2]);
+    state.guided.manual478Peak = Math.max(slotPeak[1] || 0, slotPeak[2] || 0);
+    state.guided.manual478LastLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);
   }
-  if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
+  if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && handCuePressEdge){
     cue.scores[slot] += level;          // 記哪隻手在響應（左右手指派用）
     cue.successThisRep = true;
     cue.armed = false;
@@ -2521,6 +2571,12 @@ function resetManual478(){
   state.guided.manual478Pressed = currentGrip >= MANUAL_478_ON;
   state.guided.manual478Peak = currentGrip;
   state.guided.manual478LastLevel = currentGrip;
+  state.guided.manual478SlotPressed = {
+    1: (state.grip[1] || 0) >= MANUAL_478_ON,
+    2: (state.grip[2] || 0) >= MANUAL_478_ON,
+  };
+  state.guided.manual478SlotPeak = { 1: state.grip[1] || 0, 2: state.grip[2] || 0 };
+  state.guided.manual478SlotLastLevel = { 1: state.grip[1] || 0, 2: state.grip[2] || 0 };
   state.guided.manual478LastPressAt = 0;
 }
 
