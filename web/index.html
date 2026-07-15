@@ -694,8 +694,8 @@
           <div class="arrival-copy" id="reportAgreeCopy">
             <p>這只是一個猜測。如果貼近現在的你，就把球握緊一會兒；沒那麼準，就輕輕握；完全不像，放著就好。</p>
           </div>
-          <div class="agree-meter" id="agreeMeter"><span id="agreeFill"></span></div>
-          <div class="hint" id="reportHint">用握力表示這段描述有多貼近你。</div>
+          <div class="agree-meter" id="agreeMeter" style="display:none"><span id="agreeFill"></span></div>
+          <div class="hint" id="reportHint" style="display:none">用握力表示這段描述有多貼近你。</div>
           <div class="report-suggest" id="reportSuggest" style="display:none"></div>
           <div class="confirm-choice" id="arrivalConfirmHint">&nbsp;</div>
         </div>
@@ -1792,8 +1792,9 @@ function finalizeAgreement(now = performance.now()){
   const ack = a >= 0.66 ? "謝謝你。那我們就從這個理解開始。"
             : a >= 0.33 ? "謝謝你。也許只對了一半，那就把它當成一個線索。"
             : "謝謝你告訴我。那我們先放下這個猜測，直接聽身體。";
-  $("agreeMeter").style.opacity = "0.35";
-  $("reportHint").textContent = "";
+  // 定案：球水位停在你的相符程度、球上顯示對應標籤
+  document.documentElement.style.setProperty("--cue-fill", clamp(a).toFixed(3));
+  $("cueOrbPrompt").textContent = a >= 0.66 ? "很貼近" : a >= 0.33 ? "有點像" : "不太像";
   $("reportAgreeCopy").style.display = "none";
   const rec = arrival.report || {};
   $("reportSuggest").style.display = "block";
@@ -1837,12 +1838,17 @@ function updateArrival(){
     }
   }
   if(arrival.step === "report" && arrival.reportSub === "agree"){
-    const held = Math.max(state.grip[1], state.grip[2]);
+    // 相符程度＝中央球水位：握越用力＝這段描述越貼近你。文字也在球上，對應著水位（Pan 2026-07-15）。
+    const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
     const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
-    $("agreeFill").style.width = Math.round(clamp(shown) * 100) + "%";
-    if(held >= ARRIVAL_PRESS_ON){
-      $("reportHint").textContent = held > 0.66 ? "很貼近。" : held > 0.33 ? "有點像。" : "不太像。";
-    }
+    arrival.orbFill = (arrival.orbFill || 0) + (shown - (arrival.orbFill || 0)) * 0.25;
+    const rs = document.documentElement.style;
+    rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
+    rs.setProperty("--fill-r", "110"); rs.setProperty("--fill-g", "224"); rs.setProperty("--fill-b", "226");
+    $("guideOrb").classList.add("show-cue-text");
+    $("cueOrbPrompt").textContent = held >= ARRIVAL_PRESS_ON
+      ? (arrival.orbFill > 0.62 ? "很貼近" : arrival.orbFill > 0.32 ? "有點像" : "不太像")
+      : "握出有多貼近";
   }
   if(arrival.step === "prelude" && arrival.preludeStart){
     const elapsed = (now - arrival.preludeStart) / 1000;
@@ -1999,11 +2005,13 @@ function finishArrival(){
   state.arrival.agreePeak = 0;
   state.arrival.agreement = null;
   state.arrival.agreePressedAt = 0;
+  state.arrival.orbFill = 0;
   $("reportImpression").textContent = report.impression;
   $("reportAgreeCopy").style.display = "";
-  $("agreeMeter").style.opacity = "1";
-  $("agreeFill").style.width = "0%";
-  $("reportHint").textContent = "用握力表示這段描述有多貼近你。";
+  // 相符程度用中央球水位＋球上文字表示（Pan 2026-07-15）
+  document.documentElement.style.setProperty("--cue-fill", "0");
+  $("guideOrb").classList.add("show-cue-text");
+  $("cueOrbPrompt").textContent = "握出有多貼近";
   $("reportSuggest").style.display = "none";
   $("reportSuggest").innerHTML = "";
   $("arrivalConfirmHint").innerHTML = "&nbsp;";
