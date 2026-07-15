@@ -790,8 +790,10 @@ const ARRIVAL_HOLD_SECONDS = 1.8;
 const ARRIVAL_HOLD_INTRO_MS = 1800;
 const ARRIVAL_HOLD_RELEASE_DELAY_MS = 650;
 const ARRIVAL_PRELUDE_SECONDS = 5;
-const ARRIVAL_PRESS_ON = 0.18;
-const ARRIVAL_PRESS_OFF = 0.08;
+// 壓縮曲線（GRIP_GAMMA 0.55）會把微小殘壓也放大成 ~0.1，故放開門檻要高一點才偵測得到「放開」，
+// 否則抵達的握持題會卡住（Pan 2026-07-14：卡在用握力表達緊張程度）。ON/OFF 之間留 hysteresis。
+const ARRIVAL_PRESS_ON = 0.28;
+const ARRIVAL_PRESS_OFF = 0.16;
 const BREATH_MARK_MIN_GAP_MS = 900;
 const HAND_CUE_REPS = 3;
 const HAND_CUE_READY_MS = 1800;
@@ -853,6 +855,7 @@ const state = {
     holdIntroAt: null,
     holdStart: null,
     holdReleaseAt: null,
+    holdDoneAt: null,
     holdComplete: false,
     events: [],
     holdSamples: [],
@@ -1518,6 +1521,7 @@ function resetArrival(){
     holdIntroAt: null,
     holdStart: null,
     holdReleaseAt: null,
+    holdDoneAt: null,
     holdComplete: false,
     events: [],
     holdSamples: [],
@@ -1826,15 +1830,20 @@ function updateArrival(){
       ? "可以放開了。"
       : "留在這個力道裡，讓它穩一下。";
     if(elapsed >= ARRIVAL_HOLD_SECONDS){
+      if(!arrival.holdDoneAt) arrival.holdDoneAt = now;
       if(level <= ARRIVAL_PRESS_OFF){
         if(!arrival.holdReleaseAt) arrival.holdReleaseAt = now;
         $("holdHint").textContent = "收到了。";
-        if(now - arrival.holdReleaseAt >= ARRIVAL_HOLD_RELEASE_DELAY_MS){
-          arrival.holdComplete = true;
-          finishArrival();
-        }
       } else {
         arrival.holdReleaseAt = null;
+        $("holdHint").textContent = "可以放開了。";
+      }
+      // 放開後短暫確認就完成；即使沒偵測到放開，停留 ~3.5 秒也自動繼續（保險，不卡住）
+      const releasedOk = arrival.holdReleaseAt && now - arrival.holdReleaseAt >= ARRIVAL_HOLD_RELEASE_DELAY_MS;
+      const timedOut = now - arrival.holdDoneAt >= 3500;
+      if(releasedOk || timedOut){
+        arrival.holdComplete = true;
+        finishArrival();
       }
     }
   }
