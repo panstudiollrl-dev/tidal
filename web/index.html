@@ -777,7 +777,7 @@ const PRODUCT_ID = 0x0101;
 const MODE_9DOF_GRIP = 3;
 const AUTO_ONSET_DELTA = 450;
 // 浮動握力校正（Pan 2026-07-09：固定滿刻度太高，很用力才到 30%）。滿刻度會自動追蹤你的握力範圍。
-const GRIP_MIN_SPAN = 300;         // 滿刻度最小跨距（避免雜訊時過度靈敏）
+const GRIP_MIN_SPAN = 80;          // 滿刻度最小跨距。某些球 raw delta 很小，太高會讓校正永遠偏小。
 const GRIP_MAX_SPAN = 1400;        // 滿刻度上限（避免異常大值）
 const GRIP_HEADROOM = 1.0;         // 滿刻度＝觀察到的最大握力（前面各握三下的 cue 會把 span 拉到你的舒適最大）。
                                    // =1 讓最用力＝100%、輕握有比例，不必死命握（Pan 2026-07-14：之前 1.15 要很用力才有反應）。
@@ -907,8 +907,12 @@ class GripCalibrator {
   observePress(raw){
     if(this.baseline === null){ this.baseline = raw; return; }
     const posDelta = Math.max(0, raw - this.baseline);
-    if(posDelta > this.span * 0.72){
-      this.span = clamp(posDelta, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
+    if(posDelta > GRIP_MIN_SPAN * 0.35){
+      // During the three cue squeezes, let each ball learn its own comfortable
+      // maximum quickly. This normalizes sensor sensitivity without forcing both
+      // hands to become identical.
+      const target = clamp(posDelta, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
+      this.span += (target - this.span) * 0.72;
     }
   }
   update(raw){
@@ -2228,7 +2232,7 @@ function setGrip(slot, level){
   const leftGrip = state.grip[leftSlot] || 0;
   const rightGrip = state.grip[rightSlot] || 0;
   const total = leftGrip + rightGrip;
-  const gripPan = total > 0.04 ? (rightGrip - leftGrip) / (total + 0.12) : 0;
+  const gripPan = total > 0.04 ? clamp((rightGrip - leftGrip) / (total + 0.28), -0.82, 0.82) : 0;
   engine.setGripCenter(gripPan, clamp(total));   // 質量中心方位 + 總力道 → 驅動 OBA 氣泡聲源位置
   engine.setSideGrip(leftGrip, rightGrip);       // 雙手各自的潮線也有聲音（對應視覺 __leftWave/__rightWave）
 }
@@ -2366,8 +2370,8 @@ function onReport(e, slot){
     const c = calib[slot];
     const cue = state.arrival.handCue;
     if(state.arrival.step === "handCue" && cue && !cue.cueOn) c.observeRest(raw);
+    if(state.arrival.step === "handCue" && cue && cue.cueOn) c.observePress(raw);
     const level = c.update(raw);
-    if(state.arrival.step === "handCue" && cue && cue.cueOn && level >= ARRIVAL_PRESS_ON) c.observePress(raw);
     setGrip(slot, level);
   } else if(e.reportId === 3 && dv.byteLength >= 16){
     const ax = dv.getFloat32(4, true);
@@ -2459,7 +2463,7 @@ const MANUAL_478_PHASES = [
 const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成這麼多輪才算「完全結束」→ 淡出（Pan 2026-07-14）。
 
 function resetManual478(){
-  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true };
+  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true, phaseJustEntered: true };
   // 進場先當成「已握住」＋高 peak：必須先真正放開才會開始數，避免「進入用的那一握」直接扣一拍（Pan 2026-07-14）。
   state.guided.manual478Pressed = true;
   state.guided.manual478Peak = 1;
@@ -2496,8 +2500,11 @@ function advanceManual478(){
   const gap = state.guided.manual478LastPressAt ? now - state.guided.manual478LastPressAt : 0;
   state.guided.manual478LastPressAt = now;
   if(gap > 150 && gap < 12000) m.pressGaps.push(gap);   // 按壓間距 → 之後判「呼吸平均程度」
-  // 每一段的「第一次握」＝一聲頌缽（不重複觸發）；每回 4-7-8＝三聲。方位＝兩手力道向量中心。
-  if(m.remaining === phase.count) playBowlForHands();
+  // The number currently visible is the beat being confirmed. When a new phase
+  // shows 4 / 7 / 8, that very next press must sound the bowl, before the count
+  // advances to 3 / 6 / 7.
+  if(m.phaseJustEntered) playBowlForHands();
+  m.phaseJustEntered = false;
   beatPulse(phase.rgb);
   sendHapticAll(95, 42, true);
   m.remaining -= 1;
@@ -2508,6 +2515,7 @@ function advanceManual478(){
       if(m.completedCycles >= MANUAL_478_TARGET_CYCLES){ complete478(); return; }   // 完全結束才淡出
     }
     m.remaining = MANUAL_478_PHASES[m.phaseIndex].count;
+    m.phaseJustEntered = true;
     play478Voice(MANUAL_478_PHASES[m.phaseIndex]);
   }
   updateGuidedSession(true);
