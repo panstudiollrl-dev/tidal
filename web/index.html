@@ -301,6 +301,23 @@
     pointer-events: none;
     white-space: nowrap;
   }
+  /* 校正提示語在球上（Pan 2026-07-15：校正提示語移到球上） */
+  .orb-cue-text {
+    position: absolute;
+    inset: 0;
+    display: none;
+    place-items: center;
+    z-index: 3;
+    color: rgba(250, 254, 252, .96);
+    font-size: clamp(24px, 4.2vw, 40px);
+    font-weight: 640;
+    line-height: 1.1;
+    text-align: center;
+    text-shadow: 0 1px 2px rgba(6,12,18,.8), 0 0 26px rgba(48, 130, 132, .4);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #guideOrb.show-cue-text .orb-cue-text { display: grid; }
   #phaseSession .core-orb.show-count .orb-count {
     display: grid;
   }
@@ -617,7 +634,7 @@
 
       <section class="panel phase guide-panel active" id="phaseBefore">
         <h2>抵達</h2>
-        <div id="guideOrb" class="core-orb" aria-hidden="true"></div>
+        <div id="guideOrb" class="core-orb" aria-hidden="true"><div class="orb-cue-text" id="cueOrbPrompt"></div></div>
         <div id="arrivalIntro">
           <div class="arrival-title">正在準備</div>
           <div class="arrival-copy">
@@ -650,7 +667,7 @@
           <div class="arrival-copy">
             <p>先幫我認識你的握力。跟著提示：看到<b>請握起</b>就用你覺得舒適的力量握起，看到<b>請放鬆</b>就完全鬆開，這樣三次。</p>
           </div>
-          <div class="breath-word" id="handCuePrompt">準備…</div>
+          <div class="breath-word" id="handCuePrompt" style="display:none">準備…</div>
           <div class="hint" id="handCueHint">水位會跟著你的握力升降。</div>
         </div>
         <div id="arrivalBreath" style="display:none">
@@ -1913,7 +1930,8 @@ function updateHandCue(now){
   const elapsed = now - cue.startedAt;
   if(elapsed < HAND_CUE_READY_MS){
     cue.cueOn = false;
-    $("handCuePrompt").textContent = "準備…";
+    $("cueOrbPrompt").textContent = "準備…";
+    $("guideOrb").classList.add("show-cue-text");
     $("guideOrb").classList.remove("cue-on", "cue-success");
     $("guideOrb").classList.add("cue-off");
     return;
@@ -1945,7 +1963,8 @@ function updateHandCue(now){
   // 水位直接平滑跟著握力：握起→水灌高、放鬆→退掉。校正就是用你舒適的力量（Pan 2026-07-14）。
   const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
   if(!inOn && grip <= ARRIVAL_PRESS_OFF) cue.armed = true;
-  $("handCuePrompt").textContent = inOn ? "請握起" : "請放鬆";
+  $("cueOrbPrompt").textContent = inOn ? "請握起" : "請放鬆";   // 提示語在球上
+  $("guideOrb").classList.add("show-cue-text");
   cue.fill += (clamp(grip) - cue.fill) * 0.25;
   document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
   $("guideOrb").classList.toggle("cue-on", inOn);
@@ -3074,6 +3093,45 @@ setInterval(watchHidLiveness, 1000);
 let __seaScroll = 0, __seaLast = performance.now() / 1000, __leftWave = 0, __rightWave = 0;
 function seaHash(n){ const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 
+// 水下 caustics 折射光紋（Pan 2026-07-15 參考圖 IMG_9778：清澈淺海、光穿過水在沙底織成的白色光網）。
+// 用小尺寸離屏 canvas 逐像素算，drawImage 放大＝自帶柔化。近底較大、較亮。
+let __caustic = null, __causticFrame = 0, __causticFailed = false;
+function ensureCaustic(){
+  if(__caustic) return __caustic;
+  if(__causticFailed) return null;
+  if(typeof document === "undefined" || !document.createElement){ __causticFailed = true; return null; }
+  const cw = 200, ch = 150;
+  const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+  const cx = c.getContext("2d");
+  if(!cx || !cx.createImageData || !cx.putImageData){ __causticFailed = true; return null; }
+  __caustic = { canvas: c, ctx: cx, img: cx.createImageData(cw, ch), w: cw, h: ch };
+  return __caustic;
+}
+function renderCaustic(cs, t, bright, density){
+  const { img, w, h } = cs, d = img.data;
+  for(let j = 0; j < h; j++){
+    const v = j / (h - 1);                         // 0 遠(水面) … 1 近(前景沙底)
+    const persp = 0.4 + 1.2 * v;                   // 近＝光網格更大
+    const depthBright = 0.30 + 0.95 * v;           // 近＝更亮
+    for(let i = 0; i < w; i++){
+      const u = i / (w - 1);
+      let x = (u - 0.5) * density * persp;
+      let y = v * density * persp * 1.25 - t * 0.22;
+      x += 0.75 * Math.sin(y * 1.6 + t * 0.5);      // domain warp → 有機、非規則
+      y += 0.75 * Math.sin(x * 1.6 - t * 0.42);
+      const s1 = (Math.sin(x + t * 0.7) + Math.sin(y * 1.2 - t * 0.5) + Math.sin((x + y) * 0.8 + t * 0.2)) / 3;
+      const s2 = (Math.sin(x * 2.2 - t * 0.9) + Math.sin(y * 2.4 + t * 0.6)) / 2;   // 較細的第二層，讓光網更密更像參考圖
+      let c1 = 1 - Math.min(1, Math.abs(s1) / 0.30); c1 *= c1;
+      let c2 = 1 - Math.min(1, Math.abs(s2) / 0.22); c2 *= c2;
+      let c = Math.max(c1, 0.65 * c2);              // 主光網 + 細節
+      const a = Math.max(0, Math.min(1, c * depthBright * bright)) * 255;
+      const o = (j * w + i) * 4;
+      d[o] = 255; d[o + 1] = 255; d[o + 2] = 250; d[o + 3] = a | 0;
+    }
+  }
+  cs.ctx.putImageData(img, 0, 0);
+}
+
 // 潮汐漣漪（Pan 2026-07-14）：曼陀羅周圍平面式漣漪，但有真實潮汐感——浪頭、後浪、到岸能量散去。
 // 每個湧浪峰從中心送出一組漣漪向外擴散；4-7-8 的海潮事件從對應方位送出定向漣漪。
 let __ripples = [];
@@ -3130,164 +3188,68 @@ function drawSea(){
   const phaseMix = phaseRGB ? 0.18 : 0;
   const mix = (base, idx, amt = phaseMix) => phaseRGB ? Math.round(base * (1 - amt) + phaseRGB[idx] * amt) : base;
 
-  // 站在海岸看出去：近處是水膜與白浪，遠方是青綠海面；不再畫一條俯視岸線。
-  const skySea = ctx.createLinearGradient(0, 0, 0, H);
-  skySea.addColorStop(0, `rgb(${mix(15,0,0.10)}, ${mix(82,1,0.10)}, ${mix(102,2,0.10)})`);
-  skySea.addColorStop(0.32, `rgb(${mix(36,0,0.12)}, ${mix(145,1,0.12)}, ${mix(156,2,0.12)})`);
-  skySea.addColorStop(0.58, `rgb(${mix(92,0,0.10)}, ${mix(184,1,0.10)}, ${mix(176,2,0.10)})`);
-  skySea.addColorStop(0.78, "rgb(202, 224, 216)");
-  skySea.addColorStop(1, "rgb(229, 232, 222)");
-  ctx.fillStyle = skySea;
-  ctx.fillRect(0, 0, W, H);
+  // 清澈淺海 × 水下 caustics × 粉紫天空（Pan 2026-07-15 參考圖 IMG_9778）。不畫浪，畫光穿過水。
+  const waterTop = H * (0.44 - 0.02 * guidedPhase);   // 水面線；呼吸相位讓水面微升降
 
-  const horizon = H * (0.28 + 0.018 * Math.sin(t * 0.08) - 0.018 * guidedPhase);
-  const horizonMist = ctx.createLinearGradient(0, horizon - H * 0.10, 0, horizon + H * 0.18);
-  horizonMist.addColorStop(0, "rgba(226, 242, 238, 0)");
-  horizonMist.addColorStop(0.52, "rgba(226, 242, 238, 0.22)");
-  horizonMist.addColorStop(1, "rgba(226, 242, 238, 0)");
-  ctx.fillStyle = horizonMist;
-  ctx.fillRect(0, horizon - H * 0.14, W, H * 0.36);
+  // 粉紫黃昏天空（上淡紫→中粉→近水面霧白），低對比、柔和。
+  const sky = ctx.createLinearGradient(0, 0, 0, waterTop + H * 0.04);
+  sky.addColorStop(0, "rgb(190, 184, 224)");
+  sky.addColorStop(0.45, "rgb(224, 200, 224)");
+  sky.addColorStop(0.82, "rgb(234, 214, 222)");
+  sky.addColorStop(1, "rgb(228, 222, 216)");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, waterTop + H * 0.06);
 
-  const nearPush = clamp(0.16 + tide * 0.62 + guidedPhase * 0.12);   // 握力越大＝浪推越靠近岸（Pan 2026-07-14）
-  const leftPush = clamp(__leftWave);
-  const rightPush = clamp(__rightWave);
-  const nearLine = H * (0.86 - nearPush * 0.30);                     // 範圍加大：放鬆時退遠、用力時湧到近岸
-  function waveY(base, x, k = 0){
-    const p = x / W;
-    const side = p < 0.5 ? leftPush * (1 - p * 1.45) : rightPush * ((p - 0.5) * 1.45);
-    return base
-      - H * side * 0.12
-      + Math.sin(p * 6.2 + t * 0.42 + k) * H * 0.018
-      + Math.sin(p * 13.5 - t * 0.28 + k * 1.7) * H * 0.010;
-  }
+  // 模糊的沙色地平線帶（遠岸/淺灘霧化，不硬切）。
+  const hz = ctx.createLinearGradient(0, waterTop - H * 0.06, 0, waterTop + H * 0.05);
+  hz.addColorStop(0, "rgba(214, 204, 188, 0)");
+  hz.addColorStop(0.5, "rgba(210, 200, 182, 0.55)");
+  hz.addColorStop(1, "rgba(196, 210, 198, 0)");
+  ctx.fillStyle = hz;
+  ctx.fillRect(0, waterTop - H * 0.07, W, H * 0.13);
 
-  // 遠處寬浪帶，保持海面生命力，但線條很淡。
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  for(let k = 0; k < 10; k++){
-    const depth = k / 9;
-    const base = horizon + H * (0.12 + depth * 0.43);
-    const alpha = 0.020 + 0.032 * (1 - depth) + 0.020 * swell;
-    ctx.beginPath();
-    for(let x = -W * 0.05; x <= W * 1.05; x += W / 28){
-      const y = waveY(base, x, k * 0.8) + Math.sin(t * 0.18 + k) * H * 0.006;
-      if(x <= -W * 0.04) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  // 水體：上青綠（較深）→ 下淺沙奶白（前景很淺）。握力越大→更飽和的青綠。
+  const sat = 0.5 + 0.5 * tide;
+  const water = ctx.createLinearGradient(0, waterTop, 0, H);
+  water.addColorStop(0, `rgb(${Math.round(120 - 30 * sat)}, ${Math.round(210 + 6 * sat)}, ${Math.round(206)})`);
+  water.addColorStop(0.28, `rgb(${Math.round(150 - 24 * sat)}, ${Math.round(220)}, ${Math.round(206)})`);
+  water.addColorStop(0.62, "rgb(196, 226, 204)");
+  water.addColorStop(1, "rgb(228, 224, 198)");
+  ctx.fillStyle = water;
+  ctx.fillRect(0, waterTop, W, H - waterTop);
+
+  // 水下 caustics 光網：離屏算好放大到水域，screen 疊加。亮度/密度隨握力（tide）增強、隨呼吸微動。
+  const cs = ensureCaustic();
+  if(cs){
+    __causticFrame++;
+    if(__causticFrame % 2 === 0 || state.phase !== "session"){   // 每兩幀更新一次省效能
+      const bright = 0.55 + 0.45 * tide + 0.10 * guidedPhase;
+      const density = 6.5 + 3.0 * tide;
+      renderCaustic(cs, t, bright, density);
     }
-    ctx.strokeStyle = `rgba(222, 248, 244, ${alpha.toFixed(3)})`;
-    ctx.lineWidth = H * (0.003 + 0.005 * (1 - depth));
-    ctx.lineCap = "round";
-    ctx.stroke();
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(cs.canvas, 0, waterTop, W, H - waterTop);
+    ctx.restore();
   }
-  ctx.restore();
-
-  // 近岸白浪：從畫面下方向上推，左右手分別讓左/右浪緣提前湧上來。
+  // 水面亮線：水/天交界的一道細光。
   ctx.save();
   ctx.globalCompositeOperation = "screen";
-  for(let k = 0; k < 7; k++){
-    const depth = k / 6;
-    const base = nearLine + H * (depth * 0.060 + 0.030 * Math.sin(t * 0.34 + k));
-    const alpha = (0.14 + 0.26 * (1 - depth) + 0.16 * tide) * (1 - depth * 0.55);
-    ctx.beginPath();
-    for(let x = -W * 0.08; x <= W * 1.08; x += W / 34){
-      const y = waveY(base, x, k + 4) + Math.sin(x / W * 18 + t * 0.85 + k) * H * 0.010;
-      if(x <= -W * 0.07) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = `rgba(247, 252, 249, ${alpha.toFixed(3)})`;
-    ctx.lineWidth = H * (0.018 + 0.030 * (1 - depth) + 0.014 * tide);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.stroke();
-  }
+  const surf = ctx.createLinearGradient(0, waterTop - H * 0.012, 0, waterTop + H * 0.02);
+  surf.addColorStop(0, "rgba(245,250,246,0)");
+  surf.addColorStop(0.5, `rgba(245,252,248,${(0.22 + 0.2 * tide).toFixed(3)})`);
+  surf.addColorStop(1, "rgba(245,250,246,0)");
+  ctx.fillStyle = surf;
+  ctx.fillRect(0, waterTop - H * 0.014, W, H * 0.034);
   ctx.restore();
 
-  // 前景水膜，像站在濕沙上看浪退去。
-  const film = ctx.createLinearGradient(0, H * 0.58, 0, H);
-  film.addColorStop(0, "rgba(210, 240, 234, 0)");
-  film.addColorStop(0.44, `rgba(188, 230, 224, ${0.08 + 0.15 * tide})`);
-  film.addColorStop(1, `rgba(247, 246, 238, ${0.36 + 0.18 * tide})`);
-  ctx.fillStyle = film;
-  ctx.fillRect(0, H * 0.56, W, H * 0.44);
+  const horizon = waterTop;   // 供下方 beat flash 等沿用
 
-  // 破碎白水和泡沫顆粒集中在近岸，避免像空拍圖的硬切岸線。
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  for(let i = 0; i < 120; i++){
-    const x = W * ((seaHash(i + 91) + t * (0.004 + 0.010 * tide)) % 1);
-    const lane = Math.pow(seaHash(i + 111), 1.8);
-    const y = waveY(nearLine + H * (0.02 + lane * 0.20), x, i * 0.2) + H * (seaHash(i + 130) - 0.5) * 0.12;
-    if(y < H * 0.50 || y > H * 1.04) continue;
-    const r = (0.8 + seaHash(i + 150) * 4.0) * (1.0 + tide * 0.45) * (1 - lane * 0.25);
-    const a = (0.035 + seaHash(i + 160) * 0.16 + tide * 0.05) * (1 - lane * 0.45);
-    ctx.beginPath();
-    ctx.ellipse(x, y, r * (1.5 + seaHash(i + 170)), r * (0.45 + seaHash(i + 180) * 0.8), Math.sin(i) * 0.5, 0, 6.283);
-    ctx.fillStyle = `rgba(248, 253, 250, ${a.toFixed(3)})`;
-    ctx.fill();
-  }
-  ctx.restore();
-
-  // 左右手推潮：保留方向感，但以近岸湧動呈現，不做左右兩條硬線。
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  [
-    { cx: W * 0.28, level: leftPush, tint: [248, 252, 250] },
-    { cx: W * 0.72, level: rightPush, tint: [214, 247, 242] },
-  ].forEach((wave, idx) => {
-    if(wave.level < 0.01) return;
-    for(let k = 0; k < 4; k++){
-      const y = nearLine + H * (0.02 + k * 0.055) - H * wave.level * (0.12 - k * 0.014);
-      const rx = W * (0.18 + 0.10 * wave.level + k * 0.025);
-      const ry = H * (0.020 + 0.025 * wave.level);
-      const g = ctx.createRadialGradient(wave.cx, y, 1, wave.cx, y, rx);
-      g.addColorStop(0, `rgba(${wave.tint[0]},${wave.tint[1]},${wave.tint[2]},${(0.10 + 0.16 * wave.level).toFixed(3)})`);
-      g.addColorStop(1, `rgba(${wave.tint[0]},${wave.tint[1]},${wave.tint[2]},0)`);
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.ellipse(wave.cx + Math.sin(t * 0.3 + idx + k) * W * 0.025, y, rx, ry, 0, 0, 6.283);
-      ctx.fill();
-    }
-  });
-  ctx.restore();
-
-  // 消化拍浪/拍石事件：在近岸產生短暫白水擴散。
+  // caustics 場景不畫海浪/白浪/漣漪；清空事件佇列避免堆積（改成光穿過水，Pan 2026-07-15）。
   const nowS = t;
-  while(__rippleQueue.length){
-    const ev = __rippleQueue.shift();
-    emitRipple(W * (0.50 + 0.28 * (ev.dir || 0)), nearLine + H * 0.02, {
-      strength: ev.tone === "impact" ? 1.25 : 0.85,
-      speed: ev.tone === "wash" ? 0.85 : 1.15,
-      tint: phaseRGB || [242, 250, 248],
-    });
-  }
-  const rippleGap = 3.2 - 1.1 * swell;
-  if(nowS - __rippleAt > rippleGap){
-    __rippleAt = nowS;
-    emitRipple(W * (0.50 + 0.18 * guidedPan + 0.08 * az), nearLine - H * 0.04, {
-      strength: 0.55 + 0.55 * tide,
-      speed: 0.85 + 0.45 * swell,
-      tint: phaseRGB || [225, 248, 244],
-    });
-  }
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  const maxR = Math.hypot(W, H) * 0.42;
-  for(let ri = __ripples.length - 1; ri >= 0; ri--){
-    const rp = __ripples[ri];
-    const age = nowS - rp.born;
-    const lead = age * maxR * 0.34 * rp.speed;
-    if(lead > maxR){ __ripples.splice(ri, 1); continue; }
-    const fade = Math.max(0, 1 - lead / maxR);
-    for(let wv = 0; wv < 3; wv++){
-      const r = lead - wv * H * 0.048;
-      if(r <= 1) continue;
-      const a = rp.strength * fade * (wv === 0 ? 0.22 : 0.12 - wv * 0.025);
-      ctx.beginPath();
-      ctx.ellipse(rp.cx, rp.cy, r * 1.45, r * 0.42, -0.48, 0, 6.283);
-      ctx.strokeStyle = `rgba(${rp.tint[0]},${rp.tint[1]},${rp.tint[2]},${a.toFixed(3)})`;
-      ctx.lineWidth = Math.max(1, H * 0.004 * fade);
-      ctx.stroke();
-    }
-  }
-  ctx.restore();
+  __rippleQueue.length = 0;
+  __ripples.length = 0;
 
   const beatAge = nowS - __beat.at;
   if(beatAge >= 0 && beatAge < 0.5){
@@ -3316,24 +3278,10 @@ function drawSea(){
     ctx.restore();
   }
 
-  const sinceImpact = performance.now() - state.lastImpactAt;
-  if(sinceImpact >= 0 && sinceImpact < 1600){
-    const age = sinceImpact / 1000, a = 1 - age / 1.6;
-    const x = W * (0.50 + 0.34 * az);
-    const y = nearLine + H * 0.02;
-    ctx.save();
-    ctx.globalCompositeOperation = "screen";
-    ctx.beginPath();
-    ctx.ellipse(x, y, age * W * 0.30, age * H * 0.10, 0, 0, 6.283);
-    ctx.strokeStyle = `rgba(246,252,250,${(a * 0.50).toFixed(3)})`;
-    ctx.lineWidth = 1.8 * a + 0.6;
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  const vg = ctx.createRadialGradient(W * 0.58, H * 0.54, H * 0.40, W * 0.58, H * 0.54, H * 1.08);
+  // 柔和暗角，很淡，維持清澈明亮的參考感（不再用深青壓邊）。
+  const vg = ctx.createRadialGradient(W * 0.5, H * 0.5, H * 0.5, W * 0.5, H * 0.5, H * 1.05);
   vg.addColorStop(0, "rgba(0,0,0,0)");
-  vg.addColorStop(1, "rgba(2, 23, 28, 0.28)");
+  vg.addColorStop(1, "rgba(40, 40, 60, 0.14)");
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, W, H);
 

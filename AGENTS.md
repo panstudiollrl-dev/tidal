@@ -69,6 +69,14 @@
 
 ## 交接紀錄
 
+### 2026-07-15 — Claude｜海面改成「清澈淺海＋水下 caustics」（IMG_9778）、校正提示語移到球上
+- 做了什麼（依 Pan 回饋）：
+  1. **海面視覺改成參考圖風格（IMG_9778）**：Pan 上傳過/下海面照——粉紫黃昏天空、模糊沙色地平線、清澈青綠淺海、水下白色 caustics 折射光網（越前景越大越亮）。`drawSea()` **移除原本站在岸邊的白浪/泡沫/漣漪畫法**，改成：粉紫天空漸層 + 沙色地平線霧帶 + 水體（上青綠→下淺沙奶白）+ **離屏逐像素算的 caustics 光網**（`ensureCaustic`/`renderCaustic`，200×150 offscreen，domain-warp 兩層 sin 取零交越＝有機光網，drawImage 放大自帶柔化，screen 疊加）。**握力(tide)→caustics 亮度/密度增強、水色更飽和青綠**；呼吸相位微動水面。render_preview（`caustic_calm`/`caustic_grip`）確認接近參考圖。
+  2. **4-7-8 頌缽時機**：Pan 澄清「壓下去看到 4/7/8 時各響一下」＝每段第一次握（remaining===phase.count）響一聲。0dbffa0 已是這行為，維持（Pan 之前看到的是 Codex 版）。
+  3. **校正提示語移到球上**：`請握起/請放鬆` 從獨立文字改成顯示在中央球內（`#cueOrbPrompt` + `.orb-cue-text` + `#guideOrb.show-cue-text`），獨立 `#handCuePrompt` 隱藏。
+- 驗證：語法 OK；jsdom 0 錯誤（caustic offscreen 在無 createImageData 環境會 graceful 停用）；render_preview 兩圖看過達標。真機請 Pan 確認 caustics 手感（握力→光網更亮更密）與校正提示在球上。
+- 註：caustics 是逐像素離屏（每兩幀更新一次省效能）；若某些裝置卡頓，可降 offscreen 尺寸或更新頻率。AESTHETIC #11 的方向已落地。
+
 ### 2026-07-15 — Claude｜救援：把 web/index.html revert 回驗證過的 0dbffa0（Codex 版本改壞了）
 > Pan：「已請 Codex 接手，但他弄了好多錯誤，請讀 md 挽救。」
 - **做了什麼**：`git checkout 0dbffa0 -- web/index.html`，把程式**還原到 Codex 接手前、我最後驗證過的狀態**（commit 0dbffa0）。其他 md 檔保留（Codex 在 GRIPBALL_PROTOCOL/DESIGN/AESTHETIC/web-README 加的是**真實的 Pan 回饋與未來方向，值得留**——見下）。
