@@ -794,6 +794,9 @@ const ARRIVAL_PRELUDE_SECONDS = 5;
 // 否則抵達的握持題會卡住（Pan 2026-07-14：卡在用握力表達緊張程度）。ON/OFF 之間留 hysteresis。
 const ARRIVAL_PRESS_ON = 0.28;
 const ARRIVAL_PRESS_OFF = 0.16;
+// 4-7-8 數拍用較低門檻，好觸發（Pan 2026-07-14：很用力握數字也沒減少＝門檻太高）。放開＝任一手都降到 OFF 以下就重新武裝。
+const MANUAL_478_ON = 0.20;
+const MANUAL_478_OFF = 0.09;
 const BREATH_MARK_MIN_GAP_MS = 900;
 const HAND_CUE_REPS = 3;
 const HAND_CUE_READY_MS = 1800;
@@ -1416,7 +1419,8 @@ class OceanEngine {
     out.gain.value = 1;
     out.connect(pan);
     pan.connect(this.dry);
-    pan.connect(this.convolver);                        // 進殘響＝空間尾巴
+    pan.connect(this.convolver);                        // 房間殘響（空間著色）
+    pan.connect(this.impactPre);                        // 再送長殘響尾巴＝很好的包覆感（Pan 2026-07-14）
     const f0 = 300 + (Math.random() * 2 - 1) * 8;       // 主模 ~300Hz，每次略不同
     const ratios = [1, 2.75, 5.38, 8.90];               // 輕度非諧（文獻：各缽相近）
     const amps   = [1.0, 0.5, 0.26, 0.13];
@@ -1828,7 +1832,7 @@ function updateArrival(){
     $("holdProgress").style.width = Math.round(clamp(elapsed / ARRIVAL_HOLD_SECONDS) * 100) + "%";
     $("holdHint").textContent = elapsed >= ARRIVAL_HOLD_SECONDS
       ? "可以放開了。"
-      : "留在這個力道裡，讓它穩一下。";
+      : "留在這個力道裡，請保持片刻。";
     if(elapsed >= ARRIVAL_HOLD_SECONDS){
       if(!arrival.holdDoneAt) arrival.holdDoneAt = now;
       if(level <= ARRIVAL_PRESS_OFF){
@@ -2027,32 +2031,11 @@ function gripBalanceMetrics(samples){
 }
 
 function recommendBreathPreset({ eventCount, pattern, peak, rise, stability, balance }){
-  if(peak > 0.70 || rise > 0.90 || stability > 0.11){
-    return {
-      id: "hold478",
-      label: "4-7-8",
-      reason: "身體裡的張力或能量比較滿；先用有停留和長吐的場景，把這股滿慢慢放出去。",
-    };
-  }
-  if(balance.delta > 0.42){
-    return {
-      id: "alternate",
-      label: "左右潮",
-      reason: "身體感覺有一點偏向其中一側；可以用左右往返的海，讓注意力回到兩邊之間的流動。",
-    };
-  }
-  if(eventCount < 4 || pattern.closeRun >= 2 || pattern.closeRatio > 0.34 || pattern.driftRatio > 1.8){
-    return {
-      id: "resonance",
-      label: "海潮",
-      reason: "呼吸標記還在找節奏，先不要進太複雜的法；讓海用穩定的漲退陪你接住現在的呼吸。",
-    };
-  }
-  return {
-    id: "resonance",
-    label: "海潮",
-    reason: "剛才的呼吸標記相對連續，先從最自然的海潮開始，再看身體要不要切換到別的場景。",
-  };
+  // 現階段一律只導引到 4-7-8（Pan 2026-07-14：其他先放著就好）。理由文案隨狀態微調，但都進 4-7-8。
+  const reason = peak > 0.70 || rise > 0.90 || stability > 0.11
+    ? "身體裡的能量比較滿；用 4-7-8 的長吐，把它慢慢放出去。"
+    : "先用 4-7-8 的節奏，吸氣、憋住、慢慢吐，陪你把呼吸放長。";
+  return { id: "hold478", label: "4-7-8", reason };
 }
 
 function breathPatternMetrics(intervals){
@@ -2127,8 +2110,9 @@ function setGrip(slot, level){
   const pressEdge = previous < ARRIVAL_PRESS_ON && level >= ARRIVAL_PRESS_ON;
   if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
   if(state.phase === "session" && state.guided.preset === "hold478"){
-    if(level <= ARRIVAL_PRESS_OFF) state.guided.manual478Pressed = false;
-    if(pressEdge && !state.guided.manual478Pressed){
+    const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數（低門檻好觸發）
+    if(maxLevel <= MANUAL_478_OFF) state.guided.manual478Pressed = false;
+    if(maxLevel >= MANUAL_478_ON && !state.guided.manual478Pressed){
       state.guided.manual478Pressed = true;
       requestAudioFadeIn();
       advanceManual478();
@@ -2327,24 +2311,8 @@ function handleSwing(slot, ax, ay, az){
     return;
   }
   if(engine) engine.setSwing(dir, clamp(motion));
-  // 4-7-8：甩動＝擊發頌缽（不觸發拍岸）。方位＝兩手用力的總向量中心；力道→遠近，都映到 HRTF＝空間感。
-  if(state.phase === "session" && state.guided.preset === "hold478"){
-    if(engine && state.audioFadedIn && motion >= SWING_MIN * 1.3){
-      const leftSlot = state.handMap.left || 1;
-      const rightSlot = state.handMap.right || 2;
-      const L = state.grip[leftSlot] || 0;
-      const R = state.grip[rightSlot] || 0;
-      const tot = L + R;
-      const az = tot > 0.05
-        ? clamp((R - L) / tot, -1, 1)                       // 兩手：力道加權中心
-        : (slot === rightSlot ? 0.7 : -0.7);                // 沒握力：用甩動的那手定位
-      const near = clamp(Math.max(tot, motion / STRONG_SWING));
-      const dist = 4.6 - 2.8 * near;                        // 力道大＝近
-      const intensity = clamp(0.32 + 0.68 * clamp(motion / STRONG_SWING));
-      engine.singingBowl(az, dist, intensity);
-    }
-    return;
-  }
+  // 4-7-8 的頌缽改由「每段第一次握」觸發（見 advanceManual478），不再用晃動——晃動太敏感、會一次好幾聲（Pan 2026-07-14）。
+  if(state.phase === "session" && state.guided.preset === "hold478") return;
   if(state.grip[slot] >= HARD_GRIP && motion >= STRONG_SWING){
     if(engine && state.audioFadedIn && engine.impact()) sendHaptic(slot, 110, 80);
   } else if(state.phase !== "session"){
@@ -2424,6 +2392,19 @@ function manual478State(){
   return { m, phase };
 }
 
+// 依兩手當下握力的向量中心，擊發一聲頌缽（HRTF 方位＋遠近＝空間感）。
+function playBowlForHands(){
+  if(!engine) return;
+  const L = state.grip[state.handMap.left || 1] || 0;
+  const R = state.grip[state.handMap.right || 2] || 0;
+  const tot = L + R;
+  const az = tot > 0.05 ? clamp((R - L) / tot, -1, 1) : 0;   // 兩手：力道加權中心；單手＝偏那側
+  const near = clamp(tot);
+  const dist = 4.4 - 2.6 * near;                              // 力道大＝近
+  const intensity = clamp(0.42 + 0.55 * near);
+  engine.singingBowl(az, dist, intensity);
+}
+
 function advanceManual478(){
   const now = performance.now();
   if(state.phase !== "session" || state.guided.preset !== "hold478") return;
@@ -2435,6 +2416,8 @@ function advanceManual478(){
   if(gap > 150 && gap < 12000) m.pressGaps.push(gap);   // 按壓間距 → 之後判「呼吸平均程度」
   beatPulse(phase.rgb);
   sendHapticAll(95, 42, true);
+  // 每一段的「第一次握」＝一聲頌缽（不重複觸發）；每回 4-7-8＝三聲。方位＝兩手力道向量中心。
+  if(m.remaining === phase.count) playBowlForHands();
   m.remaining -= 1;
   if(m.remaining <= 0){
     m.phaseIndex = (m.phaseIndex + 1) % MANUAL_478_PHASES.length;
