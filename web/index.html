@@ -799,8 +799,10 @@ const ARRIVAL_PRELUDE_SECONDS = 5;
 const ARRIVAL_PRESS_ON = 0.28;
 const ARRIVAL_PRESS_OFF = 0.16;
 // 4-7-8 數拍用較低門檻，好觸發（Pan 2026-07-14：很用力握數字也沒減少＝門檻太高）。放開＝任一手都降到 OFF 以下就重新武裝。
-const MANUAL_478_ON = 0.20;
-const MANUAL_478_OFF = 0.09;
+const MANUAL_478_ON = 0.14;
+const MANUAL_478_OFF = 0.06;
+const MANUAL_478_RISE_DELTA = 0.055;
+const MANUAL_478_RELEASE_DELTA = 0.09;
 const BREATH_MARK_MIN_GAP_MS = 900;
 const HAND_CUE_REPS = 3;
 const HAND_CUE_READY_MS = 1800;
@@ -2184,20 +2186,32 @@ function requestAudioFadeIn(){
 
 function setGrip(slot, level){
   const previous = state.grip[slot] || 0;
+  const otherSlot = slot === 1 ? 2 : 1;
+  const previousMaxGrip = Math.max(previous, state.grip[otherSlot] || 0);
   state.grip[slot] = level;
   const cue = state.arrival.handCue;
   const pressEdge = previous < ARRIVAL_PRESS_ON && level >= ARRIVAL_PRESS_ON;
   if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
   if(state.phase === "session" && state.guided.preset === "hold478"){
     const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數
-    // 簡單遲滯：握過 ON 數一拍、掉到 OFF 以下才重新武裝。底部死區保證放開＝0，能確實掉到 OFF 以下（不卡）。
+    const lastLevel = Number.isFinite(state.guided.manual478LastLevel) ? state.guided.manual478LastLevel : previousMaxGrip;
+    const rising = maxLevel - lastLevel;
+    // 4-7-8 must survive residual pressure: some balls never fall neatly below
+    // OFF after calibration. Re-arm on either a true low value or a clear drop
+    // from the last squeeze peak, then count the next rising squeeze.
     if(state.guided.manual478Pressed){
-      if(maxLevel <= MANUAL_478_OFF) state.guided.manual478Pressed = false;
-    } else if(maxLevel >= MANUAL_478_ON){
+      state.guided.manual478Peak = Math.max(state.guided.manual478Peak || 0, maxLevel);
+      if(maxLevel <= MANUAL_478_OFF || (state.guided.manual478Peak - maxLevel) >= MANUAL_478_RELEASE_DELTA){
+        state.guided.manual478Pressed = false;
+        state.guided.manual478Peak = maxLevel;
+      }
+    } else if(maxLevel >= MANUAL_478_ON && (previousMaxGrip < MANUAL_478_ON || rising >= MANUAL_478_RISE_DELTA)){
       state.guided.manual478Pressed = true;
+      state.guided.manual478Peak = maxLevel;
       requestAudioFadeIn();
       advanceManual478();
     }
+    state.guided.manual478LastLevel = maxLevel;
   }
   if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
     cue.scores[slot] += level;          // 記哪隻手在響應（左右手指派用）
@@ -2463,10 +2477,14 @@ const MANUAL_478_PHASES = [
 const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成這麼多輪才算「完全結束」→ 淡出（Pan 2026-07-14）。
 
 function resetManual478(){
+  const currentGrip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
   state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true, phaseJustEntered: true };
-  // 進場先當成「已握住」＋高 peak：必須先真正放開才會開始數，避免「進入用的那一握」直接扣一拍（Pan 2026-07-14）。
-  state.guided.manual478Pressed = true;
-  state.guided.manual478Peak = 1;
+  // Treat the current hand state as the starting point. If the user entered the
+  // practice while still squeezing, wait for a meaningful release; do not require
+  // a perfect absolute zero, because calibrated balls can retain residual level.
+  state.guided.manual478Pressed = currentGrip >= MANUAL_478_ON;
+  state.guided.manual478Peak = currentGrip;
+  state.guided.manual478LastLevel = currentGrip;
   state.guided.manual478LastPressAt = 0;
 }
 
