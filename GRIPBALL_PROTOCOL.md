@@ -74,3 +74,19 @@ send_command(dev, cmd_id=11, data_bytes=cmd_data)
 
 第一顆偵測到的 serial → **Ball 1（方向）**；第二顆 → **Ball 2（潮汐）**。
 每顆各自維護 baseline 與 level，互不干擾；球可在執行中加入或離開（nature_loop 每秒掃描一次）。
+
+## Arrival 校正注意（2026-07-15 實測問題）
+
+Pan 實測指出：最近的 web prototype 把校正與 4-7-8 門檻降得太低，導致**稍微碰到球就算成功**，甚至左手尚未真正完成三次、右手尚未測試就跳到下一階。這不是可接受的校正。
+
+接手者請把校正當成 per-ball state estimation，而不是固定常數觸發：
+
+- 每顆球維護自己的 `rest floor / baseline / comfortable press span / release threshold`。
+- 三次 cue 的目的不是快速通過，而是逐次學到「這顆球 + 這隻手」的舒適握壓範圍。
+- 有效握壓應同時滿足：
+  - cue 已亮起，且使用者先前處於可視為放鬆的狀態；
+  - 相對 baseline 有明確上升；
+  - 到達該顆球當前估計的舒適門檻；
+  - 維持一小段時間（建議 450–700ms 起測），避免輕觸、雜訊或瞬間 spike。
+- 成功後不要立刻跳下一手；先顯示短確認，再等使用者真的放鬆，才進入下一次 cue。
+- 30 秒呼吸覺察與 4-7-8 也應使用校正後的 per-ball threshold + hysteresis，而不是全域低門檻。input 小的球要更友善，但不能把輕碰當成有意圖的握壓。
