@@ -232,7 +232,10 @@
     transform: translateX(var(--core-drift)) scale(var(--core-scale));
     transition: transform .45s ease;
     background:
-      linear-gradient(to top, rgba(143, 176, 200, .34) 0 calc(var(--cue-fill) * 100%), rgba(143, 176, 200, 0) calc(var(--cue-fill) * 100%)),
+      linear-gradient(to top,
+        rgba(110, 224, 226, .55) 0 calc(var(--cue-fill) * 100%),
+        rgba(198, 248, 246, .90) calc(var(--cue-fill) * 100%) calc(var(--cue-fill) * 100% + 3px),
+        rgba(110, 224, 226, 0) calc(var(--cue-fill) * 100% + 3px)),
       radial-gradient(circle at 38% 30%, rgba(240, 244, 248, .74), rgba(198, 214, 228, .28) 28%, rgba(150, 178, 198, .12) 58%, transparent 76%),
       radial-gradient(circle at 58% 62%, rgba(216, 206, 190, .10), transparent 46%),
       radial-gradient(circle at 50% 50%, rgba(226, 232, 238, .15), rgba(143, 176, 200, .08) 38%, rgba(14, 20, 28, .03) 72%, transparent 76%);
@@ -319,7 +322,11 @@
     min-width: 248px;
     transform: translateX(calc(var(--core-drift) + var(--breath-pan-x))) scale(var(--session-scale));
     background:
-      linear-gradient(to top, rgba(143, 176, 200, .38) 0 calc(var(--session-water) * 100%), rgba(143, 176, 200, 0) calc(var(--session-water) * 100%)),
+      /* 能量水位：握力越大水灌越高，明亮 aqua ＋ waterline 亮線，明顯看得到升降（Pan 2026-07-14） */
+      linear-gradient(to top,
+        rgba(110, 224, 226, .60) 0 calc(var(--session-water) * 100%),
+        rgba(198, 248, 246, .92) calc(var(--session-water) * 100%) calc(var(--session-water) * 100% + 4px),
+        rgba(110, 224, 226, 0) calc(var(--session-water) * 100% + 4px)),
       radial-gradient(circle at 40% calc(44% - 28% * var(--breath-phase)), rgba(240, 244, 248, calc(.54 + .20 * var(--breath-phase))), rgba(198, 214, 228, calc(.18 + .16 * var(--breath-phase))) 30%, transparent 60%),
       radial-gradient(circle at calc(50% + var(--breath-pan-shift)) 54%, rgba(200, 200, 214, calc(.10 + .14 * var(--heart-weather))), transparent 46%),
       radial-gradient(circle at 50% 50%, rgba(226, 232, 238, .13), rgba(143, 176, 200, calc(.08 + .09 * var(--heart-weather))) 38%, rgba(14, 20, 28, .04) 74%, transparent 78%);
@@ -767,10 +774,13 @@ const AUTO_ONSET_DELTA = 450;
 // 浮動握力校正（Pan 2026-07-09：固定滿刻度太高，很用力才到 30%）。滿刻度會自動追蹤你的握力範圍。
 const GRIP_MIN_SPAN = 300;         // 滿刻度最小跨距（避免雜訊時過度靈敏）
 const GRIP_MAX_SPAN = 1400;        // 滿刻度上限（避免異常大值）
-const GRIP_HEADROOM = 1.15;        // 滿刻度＝觀察到的最大握力 ×1.15（留 headroom）。>1 讓最用力也只到 ~87%，
-                                   // 一般握才會照力道呈現不同水位，不會不管怎麼握都貼到 100%（Pan 2026-07-14）。
+const GRIP_HEADROOM = 1.0;         // 滿刻度＝觀察到的最大握力（前面各握三下的 cue 會把 span 拉到你的舒適最大）。
+                                   // =1 讓最用力＝100%、輕握有比例，不必死命握（Pan 2026-07-14：之前 1.15 要很用力才有反應）。
 const GRIP_SPAN_DECAY = 0.99975;   // 觀察到的最大握力慢慢遺忘、重新適應（每筆 report 乘一次）
-const GRIP_GAMMA = 0.75;           // 握力→聲音% 曲線：<1＝中低握就有明顯變化；=1 線性；>1＝要更用力才變化
+// 握力→水位的「自然對應曲線」：不是線性。依 Stevens 冪定律（S=k·Iⁿ；握力是 Stevens 1960 的經典連續量），
+// 用 pow(level, GRIP_GAMMA) 做知覺補償。GRIP_GAMMA<1＝壓縮曲線，低-中握就有明顯反應、末段趨緩，握起來最自然
+// （等同 Max/MSP `scale` 物件第 5 參數 exponent 的作用——把線性輸入彎成知覺線性）。0.55 比 0.75 更靈敏。
+const GRIP_GAMMA = 0.55;
 const HARD_GRIP = 0.7;
 const SWING_MIN = 0.5;
 const STRONG_SWING = 1.4;
@@ -988,28 +998,17 @@ class OceanEngine {
     this.sideL = this.buildSideChain(-1);
     this.sideR = this.buildSideChain(1);
 
-    // 駐音層（4-7-8 停屏的「懸止」，見 BREATHING.md §9）：微差拍雙正弦＋窄帶噪音。
-    // 停屏時浮起、其他相位維持極低但**不為零**——懸止不是停頓，聲音永不消失。
+    // 駐音層（4-7-8 停屏的「懸止」，見 BREATHING.md §9）：**只用帶通噪音、無純正弦**（Pan 2026-07-14：
+    // 純正弦＝持續電平/嗡音；駐音改成airy 的風鳴感）。且**只在 4-7-8 停屏時浮起，其他時候完全為 0**（不 drone）。
     this.droneGain = ctx.createGain();
     this.droneGain.gain.value = 0;
     this.droneBP = ctx.createBiquadFilter();
     this.droneBP.type = "bandpass";
-    this.droneBP.frequency.value = 210;
-    this.droneBP.Q.value = 2.2;
+    this.droneBP.frequency.value = 260;
+    this.droneBP.Q.value = 0.8;                  // 低 Q＝airy、不共振成音高
     this.droneNoise = OceanEngine.noiseSource(ctx);
     this.droneNoise.connect(this.droneBP);
     this.droneBP.connect(this.droneGain);
-    this.droneOscA = ctx.createOscillator();
-    this.droneOscA.type = "sine";
-    this.droneOscA.frequency.value = 104;
-    this.droneOscB = ctx.createOscillator();
-    this.droneOscB.type = "sine";
-    this.droneOscB.frequency.value = 104.7;      // 微差拍 ~0.7Hz：懸止中仍有極慢的呼吸
-    this.droneOscMix = ctx.createGain();
-    this.droneOscMix.gain.value = 0.14;   // Pan 2026-07-14：降低純正弦成分，懸止改以帶通噪音為主，避免電平音
-    this.droneOscA.connect(this.droneOscMix);
-    this.droneOscB.connect(this.droneOscMix);
-    this.droneOscMix.connect(this.droneGain);
     this.droneGain.connect(this.clip);
 
     this.fxBus = ctx.createGain();
@@ -1055,8 +1054,6 @@ class OceanEngine {
     this.sub.start();
     this.wide.start();
     this.droneNoise.start();
-    this.droneOscA.start();
-    this.droneOscB.start();
     this.tide = 0;
     this.spread = 0;
     this.azimuth = 0;
@@ -1069,6 +1066,7 @@ class OceanEngine {
     this.t0 = ctx.currentTime;
     this.lastSwing = 0;
     this.lastImpact = 0;
+    this.lastBowl = 0;
     this.rw = 0;      // 有界隨機漫步（讓巨觀動態不機械、像千層浪的隨機性）
     this.rw2 = 0;
     this.metrics = { swell: 0, energy: 0.15, foam: 0, cutoff: 800, rw: 0, rw2: 0 };
@@ -1270,7 +1268,7 @@ class OceanEngine {
     this.sideL.lp.frequency.setTargetAtTime(420 + 520 * sideLTgt, now, 0.9);
     this.sideR.lp.frequency.setTargetAtTime(420 + 520 * sideRTgt, now, 0.9);
     // 駐音層：guided.drone 由 4-7-8 停屏相位推起；平時維持極低（不為零）
-    this.droneGain.gain.setTargetAtTime(0.010 + 0.15 * clamp(guided.drone || 0), now, 1.1);
+    this.droneGain.gain.setTargetAtTime(0.16 * clamp(guided.drone || 0), now, 1.1);   // 無 floor：只有 4-7-8 停屏才有駐音，平時完全靜（Pan 2026-07-14：不要持續低音）
     this.metrics.pebble = stoneAmt * roll;
 
     if(now - this.lastSwing > 0.3) this.azTarget *= 0.985;
@@ -1386,6 +1384,70 @@ class OceanEngine {
     state.lastImpactAt = performance.now() + swellT * 1000; // 視覺濺起對齊「破碎」時刻
     if(typeof queueRipple === "function") queueRipple(azJitter, "impact");   // 拍岸也送一道漣漪橫過海面
     return true;
+  }
+
+  // 頌缽（Tibetan singing bowl）——模態合成物理建模（Pan 2026-07-14）。
+  // 依文獻：(2,0) 主模主導、輕度非諧泛音、每模一對微失諧正弦＝招牌 beating、長衰減。
+  // 走 HRTF panner → 既有 dry/wet 空間鏈；方位/遠近由呼叫端用雙手力道向量給。
+  // azimuth −1(左)…+1(右)；distance 越小越近；intensity 0–1。
+  singingBowl(azimuth = 0, distance = 3, intensity = 0.6){
+    const now = this.ctx.currentTime;
+    if(now - (this.lastBowl || 0) < 0.35) return;      // 冷卻：連甩不會堆疊爆音
+    this.lastBowl = now;
+    const pan = this.ctx.createPanner();
+    pan.panningModel = "HRTF";
+    pan.distanceModel = "inverse";
+    pan.refDistance = 1;
+    pan.maxDistance = 24;
+    pan.rolloffFactor = 1.1;
+    const rad = clamp(azimuth, -1, 1) * Math.PI / 2;
+    const d = Math.max(1.2, distance);
+    pan.positionX.setValueAtTime(Math.sin(rad) * d, now);
+    pan.positionZ.setValueAtTime(-Math.cos(rad) * d, now);
+    const out = this.ctx.createGain();
+    out.gain.value = 1;
+    out.connect(pan);
+    pan.connect(this.dry);
+    pan.connect(this.convolver);                        // 進殘響＝空間尾巴
+    const f0 = 300 + (Math.random() * 2 - 1) * 8;       // 主模 ~300Hz，每次略不同
+    const ratios = [1, 2.75, 5.38, 8.90];               // 輕度非諧（文獻：各缽相近）
+    const amps   = [1.0, 0.5, 0.26, 0.13];
+    const decays = [7.0, 4.6, 3.0, 2.0];                // 高模衰減較快
+    const peak = clamp(intensity, 0.15, 1) * 0.13;      // 有界，過 master tanh
+    ratios.forEach((rt, i) => {
+      const f = f0 * rt;
+      const beat = 0.7 + i * 0.5;                       // 幾 Hz 的拍頻＝bowl 不對稱造成的 beating
+      [-beat, beat].forEach((db, bi) => {
+        const osc = this.ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = f + db;
+        const g = this.ctx.createGain();
+        g.gain.value = 0;
+        osc.connect(g);
+        g.connect(out);
+        const a = peak * amps[i] * (bi === 0 ? 0.6 : 0.4);
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(a, now + 0.010); // 快速起音（敲擊）
+        g.gain.setTargetAtTime(0, now + 0.010, decays[i]); // 長指數衰減
+        osc.start(now);
+        osc.stop(now + decays[i] * 4 + 0.5);
+      });
+    });
+    // 敲擊瞬態：短帶通噪音（槌頭觸缽的一下）
+    const nz = OceanEngine.noiseSource(this.ctx);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = f0 * 3.5;
+    bp.Q.value = 0.6;
+    const ng = this.ctx.createGain();
+    ng.gain.value = 0;
+    nz.connect(bp);
+    bp.connect(ng);
+    ng.connect(out);
+    ng.gain.setValueAtTime(peak * 0.6, now);
+    ng.gain.setTargetAtTime(0, now, 0.05);
+    nz.start(now);
+    nz.stop(now + 0.4);
   }
 }
 
@@ -2252,6 +2314,24 @@ function handleSwing(slot, ax, ay, az){
     return;
   }
   if(engine) engine.setSwing(dir, clamp(motion));
+  // 4-7-8：甩動＝擊發頌缽（不觸發拍岸）。方位＝兩手用力的總向量中心；力道→遠近，都映到 HRTF＝空間感。
+  if(state.phase === "session" && state.guided.preset === "hold478"){
+    if(engine && state.audioFadedIn && motion >= SWING_MIN * 1.3){
+      const leftSlot = state.handMap.left || 1;
+      const rightSlot = state.handMap.right || 2;
+      const L = state.grip[leftSlot] || 0;
+      const R = state.grip[rightSlot] || 0;
+      const tot = L + R;
+      const az = tot > 0.05
+        ? clamp((R - L) / tot, -1, 1)                       // 兩手：力道加權中心
+        : (slot === rightSlot ? 0.7 : -0.7);                // 沒握力：用甩動的那手定位
+      const near = clamp(Math.max(tot, motion / STRONG_SWING));
+      const dist = 4.6 - 2.8 * near;                        // 力道大＝近
+      const intensity = clamp(0.32 + 0.68 * clamp(motion / STRONG_SWING));
+      engine.singingBowl(az, dist, intensity);
+    }
+    return;
+  }
   if(state.grip[slot] >= HARD_GRIP && motion >= STRONG_SWING){
     if(engine && state.audioFadedIn && engine.impact()) sendHaptic(slot, 110, 80);
   } else if(state.phase !== "session"){
