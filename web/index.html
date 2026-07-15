@@ -1401,17 +1401,25 @@ class OceanEngine {
     src.connect(bp);
     bp.connect(g);
     g.connect(this.impactPanner);
-    bp.frequency.setValueAtTime(260 + 260 * this.tide * (0.7 + 0.6 * Math.random()), at);
-    bp.frequency.linearRampToValueAtTime(brightness, at + swellT);
-    bp.frequency.setTargetAtTime(430 + 320 * this.tide, at + swellT, 0.8);
-    const N = 48;
+    const startF = 180 + 360 * Math.random() + 220 * this.tide;
+    const crestAt = at + swellT * (0.62 + 0.30 * Math.random());
+    bp.frequency.setValueAtTime(startF, at);
+    bp.frequency.exponentialRampToValueAtTime(Math.max(180, brightness), crestAt);
+    bp.frequency.setTargetAtTime(260 + 480 * Math.random() + 280 * this.tide, crestAt, 0.45 + 0.65 * Math.random());
+    const N = 64;
     const curve = new Float32Array(N);
-    for(let i = 0; i < N; i++){ const x = i / (N - 1); curve[i] = peak * x * x; }
+    const skew = 0.55 + Math.random() * 1.35;
+    const wobble = 0.04 + Math.random() * 0.10;
+    for(let i = 0; i < N; i++){
+      const x = i / (N - 1);
+      const lifted = Math.pow(x, skew);
+      curve[i] = peak * clamp(lifted + Math.sin(x * Math.PI * (2.0 + Math.random() * 2.5)) * wobble * x);
+    }
     g.gain.setValueAtTime(0, at);
     g.gain.setValueCurveAtTime(curve, at, swellT);
-    g.gain.setTargetAtTime(0, at + swellT, tailDecay);
+    g.gain.setTargetAtTime(0, at + swellT * (0.86 + Math.random() * 0.28), tailDecay);
     src.start(at);
-    src.stop(at + swellT + 3.6);
+    src.stop(at + swellT + 2.4 + 1.6 * Math.random());
   }
 
   impact(){
@@ -1420,35 +1428,45 @@ class OceanEngine {
     this.lastImpact = now;
     // 有界隨機（guardrail 3：有界，不自由生成）：每道浪的份量、蓄積、亮度、位置、尾巴都不同——
     // 真正的海裡沒有兩道一樣的浪（Pan 2026-07-13）。
-    const size = 0.7 + 0.6 * Math.random();                              // 份量 0.7–1.3
-    const swellT = 0.30 + 0.28 * Math.random();                          // 蓄積 0.30–0.58s
+    const size = 0.62 + 0.78 * Math.random();                             // 份量 0.62–1.40
+    const swellT = 0.22 + 0.44 * Math.random();                          // 蓄積 0.22–0.66s
     const peak = clamp((0.26 + 0.26 * this.tide) * size, 0, 0.60);       // 峰值仍有上限
-    const brightness = 1400 + 900 * Math.random() + 500 * this.tide;     // 破碎亮度 1400–2800Hz
-    const tailDecay = 0.85 + 0.55 * Math.random();                       // 尾巴長短
-    const azJitter = clamp(this.azimuth + (Math.random() * 2 - 1) * 0.30, -1, 1);  // 位置在揮動方位附近漂
+    const brightness = 950 + 1500 * Math.random() + 650 * this.tide;     // 破碎亮度每次不同
+    const tailDecay = 0.55 + 1.05 * Math.random();                       // 尾巴長短
+    const azJitter = clamp(this.azimuth + (Math.random() * 2 - 1) * 0.42, -1, 1);  // 位置在揮動方位附近漂
     const rad = azJitter * Math.PI / 2;
-    const dist = 2.1 + Math.random() * 1.2;
+    const dist = 1.8 + Math.random() * 1.8;
     this.impactPanner.positionX.setValueAtTime(Math.sin(rad) * dist, now);
     this.impactPanner.positionZ.setValueAtTime(-Math.cos(rad) * dist, now);
-    this.impactBurst(now, swellT, peak, brightness, tailDecay);
+    const burstCount = 1 + Math.floor(Math.random() * 3);
+    for(let i = 0; i < burstCount; i++){
+      const offset = i === 0 ? 0 : (0.08 + 0.34 * Math.random()) * i;
+      this.impactBurst(
+        now + offset,
+        swellT * (0.52 + 0.70 * Math.random()),
+        peak * (i === 0 ? 1 : 0.32 + 0.46 * Math.random()),
+        brightness * (0.62 + 0.74 * Math.random()),
+        tailDecay * (0.55 + 0.80 * Math.random())
+      );
+    }
     // 拍岸的低頻 body：改用「低通噪音爆」而非純正弦，避免電平/嗡音；仍有胸口的悶感（Pan 2026-07-14）。
     const body = OceanEngine.noiseSource(this.ctx);
     const blp = this.ctx.createBiquadFilter();
     blp.type = "lowpass";
-    blp.frequency.value = 130;
-    blp.Q.value = 0.5;
+    blp.frequency.value = 80 + 105 * Math.random();
+    blp.Q.value = 0.36 + 0.42 * Math.random();
     const tg = this.ctx.createGain();
     tg.gain.value = 0;
     body.connect(blp); blp.connect(tg); tg.connect(this.clip);
     tg.gain.setValueAtTime(0, now + swellT * 0.7);
-    tg.gain.linearRampToValueAtTime(peak * 0.40, now + swellT);
-    tg.gain.setTargetAtTime(0, now + swellT, 0.4);
+    tg.gain.linearRampToValueAtTime(peak * (0.22 + 0.34 * Math.random()), now + swellT);
+    tg.gain.setTargetAtTime(0, now + swellT, 0.22 + 0.52 * Math.random());
     body.start(now + swellT * 0.7);
     body.stop(now + swellT + 2.0);
     // 約 1/3 的浪有第二次較小的補拍（真實的浪常破碎兩段）
-    if(Math.random() < 0.35){
-      const gap = 0.22 + 0.30 * Math.random();
-      this.impactBurst(now + swellT + gap, swellT * 0.55, peak * 0.45, brightness * 0.7, tailDecay * 0.8);
+    if(Math.random() < 0.48){
+      const gap = 0.16 + 0.48 * Math.random();
+      this.impactBurst(now + swellT + gap, swellT * (0.34 + 0.44 * Math.random()), peak * (0.22 + 0.34 * Math.random()), brightness * (0.42 + 0.55 * Math.random()), tailDecay * (0.45 + 0.60 * Math.random()));
     }
     state.impactCount += 1;
     state.lastImpactAt = performance.now() + swellT * 1000; // 視覺濺起對齊「破碎」時刻
@@ -1462,7 +1480,7 @@ class OceanEngine {
   // azimuth −1(左)…+1(右)；distance 越小越近；intensity 0–1。
   singingBowl(azimuth = 0, distance = 3, intensity = 0.6){
     const now = this.ctx.currentTime;
-    if(now - (this.lastBowl || 0) < 0.35) return;      // 冷卻：連甩不會堆疊爆音
+    if(now - (this.lastBowl || 0) < 0.06) return;      // Only guards duplicate reports from the same physical press.
     this.lastBowl = now;
     const pan = this.ctx.createPanner();
     pan.panningModel = "HRTF";
@@ -1529,7 +1547,7 @@ const devices = { 1: null, 2: null };
 const accBaseline = { 1: null, 2: null };
 const lastHaptic = { 1: 0, 2: 0 };
 
-const HAPTICS_ENABLED = false;  // Pan 2026-07-14：震動先全部關掉，只保留聲音與視覺回應。
+const HAPTICS_ENABLED = false;  // Haptics are off globally. 4-7-8 grip beats opt in with force=true.
 function sendHaptic(slot, intensity, duration, force = false){
   if(!HAPTICS_ENABLED && !force) return;
   const dev = devices[slot];
@@ -1556,21 +1574,6 @@ function sendHapticAll(intensity, duration, force = false){
 function clearGuidedHaptics(){
   for(const timer of state.guided.hapticTimers) clearTimeout(timer);
   state.guided.hapticTimers = [];
-}
-
-function scheduleGuidedHaptic(delayMs, intensity, duration){
-  const timer = setTimeout(() => sendHapticAll(intensity, duration), Math.max(0, delayMs));
-  state.guided.hapticTimers.push(timer);
-}
-
-function scheduleUnitPulsePattern(units, unitMs, pulseForUnit){
-  for(let i = 0; i < units; i++){
-    const pulse = pulseForUnit(i);
-    if(!pulse) continue;
-    for(const p of Array.isArray(pulse) ? pulse : [pulse]){
-      scheduleGuidedHaptic(i * unitMs + (p.offset || 0), p.intensity, p.duration);
-    }
-  }
 }
 
 function resetArrival(){
@@ -2218,7 +2221,7 @@ function setGrip(slot, level){
   engine.setSpread(slot === 2 ? Math.max(level, avgGrip) : avgGrip); // Ball2 仍強化石頭，但雙手也能帶出滾動
   if(level >= HARD_GRIP && previous < HARD_GRIP * 0.72 && performance.now() - state.lastGripImpactAt > 1800){
     state.lastGripImpactAt = performance.now();
-    if(state.audioFadedIn && engine.impact()) sendHapticAll(104, 72);
+    if(state.audioFadedIn) engine.impact();
   }
   const leftSlot = state.handMap.left || 1;
   const rightSlot = state.handMap.right || 2;
@@ -2393,10 +2396,7 @@ function handleSwing(slot, ax, ay, az){
   // 4-7-8 的頌缽改由「每段第一次握」觸發（見 advanceManual478），不再用晃動——晃動太敏感、會一次好幾聲（Pan 2026-07-14）。
   if(state.phase === "session" && state.guided.preset === "hold478") return;
   if(state.grip[slot] >= HARD_GRIP && motion >= STRONG_SWING){
-    if(engine && state.audioFadedIn && engine.impact()) sendHaptic(slot, 110, 80);
-  } else if(state.phase !== "session"){
-    // 目前震動總開關關閉；保留呼叫點，方便日後重新設計觸覺語彙時接回。
-    sendHaptic(slot, 25 + 45 * clamp(motion / STRONG_SWING), 30);
+    if(engine && state.audioFadedIn) engine.impact();
   }
 }
 
@@ -2496,10 +2496,10 @@ function advanceManual478(){
   const gap = state.guided.manual478LastPressAt ? now - state.guided.manual478LastPressAt : 0;
   state.guided.manual478LastPressAt = now;
   if(gap > 150 && gap < 12000) m.pressGaps.push(gap);   // 按壓間距 → 之後判「呼吸平均程度」
-  beatPulse(phase.rgb);
-  sendHapticAll(95, 42, true);
   // 每一段的「第一次握」＝一聲頌缽（不重複觸發）；每回 4-7-8＝三聲。方位＝兩手力道向量中心。
   if(m.remaining === phase.count) playBowlForHands();
+  beatPulse(phase.rgb);
+  sendHapticAll(95, 42, true);
   m.remaining -= 1;
   if(m.remaining <= 0){
     m.phaseIndex = (m.phaseIndex + 1) % MANUAL_478_PHASES.length;
@@ -2580,56 +2580,8 @@ function guideHapticsForPhase(presetId, phase, phaseKey){
   if(state.guided.hapticKey === phaseKey) return;
   state.guided.hapticKey = phaseKey;
   clearGuidedHaptics();
-  const unitMs = Math.max(180, (phase.dur * 1000) / Math.max(1, Math.round(phase.dur)));
-
-  // 4-7-8：保留畫面的相位色明滅（beatPulse）作為數拍；sendHaptic 已關閉為 no-op。
-  if(presetId === "hold478"){
-    const rgb478 = phase.name === "hold" ? [236, 190, 120] : phase.name === "exhale" ? [116, 138, 224] : [78, 206, 178];
-    const nBeats = phase.name === "inhale" ? 4 : phase.name === "hold" ? 7 : 8;
-    if(phase.name === "inhale"){
-      // 進吸＝三下快速上行 marker；之後每拍一短 tick、強度逐拍上升
-      scheduleUnitPulsePattern(4, unitMs, (i) => i === 0
-        ? [{ offset: 0, intensity: 80, duration: 26 }, { offset: 110, intensity: 112, duration: 26 }, { offset: 220, intensity: 150, duration: 32 }]
-        : ({ offset: 0, intensity: 100 + i * 16, duration: 40 }));
-    } else if(phase.name === "hold"){
-      // 進停＝一下沉穩較長 marker；之後每拍一極短、穩定、稀疏的 tick
-      scheduleUnitPulsePattern(7, unitMs, (i) => i === 0
-        ? ({ offset: 0, intensity: 150, duration: 70 })
-        : ({ offset: 0, intensity: 74, duration: 26 }));
-    } else if(phase.name === "exhale"){
-      // 進吐＝三下快速下行 marker；之後每拍一短 tick、強度逐拍下降
-      scheduleUnitPulsePattern(8, unitMs, (i) => i === 0
-        ? [{ offset: 0, intensity: 150, duration: 32 }, { offset: 110, intensity: 112, duration: 26 }, { offset: 220, intensity: 74, duration: 26 }]
-        : ({ offset: 0, intensity: 130 - i * 8, duration: 44 }));
-    }
-    // 每拍的畫面明滅（相位色）——視覺計數，明顯可見
-    for(let i = 0; i < nBeats; i++){
-      const timer = setTimeout(() => beatPulse(rgb478), i * unitMs);
-      state.guided.hapticTimers.push(timer);
-    }
-    return;
-  }
-
-  if(presetId === "resonance"){
-    if(phase.name === "inhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 86, duration: 125 }));
-    if(phase.name === "exhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 62, duration: Math.min(255, unitMs * 0.70) }));
-    return;
-  }
-
-  if(presetId === "alternate"){
-    const leftSide = phase.name.toLowerCase().includes("left");
-    const slot = leftSide ? (state.handMap.left || 1) : (state.handMap.right || 2);
-    scheduleGuidedHaptic(0, 104, 130);
-    for(let i = 1; i < Math.round(phase.dur); i++){
-      const timer = setTimeout(() => sendHaptic(slot, 82, 108), i * unitMs);
-      state.guided.hapticTimers.push(timer);
-    }
-    return;
-  }
-
-  if(presetId === "bellows"){
-    scheduleGuidedHaptic(0, phase.name === "inhale" ? 116 : 82, 82);
-  }
+  // No automatic haptic scheduling. Haptic feedback is intentionally limited to
+  // user-confirmed 4-7-8 grip beats in advanceManual478().
 }
 
 function updateGuidedSession(force = false){
