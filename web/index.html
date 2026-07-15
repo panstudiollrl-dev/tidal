@@ -1288,10 +1288,12 @@ class OceanEngine {
     const roll = 0.35 + 0.65 * clamp((0.55 - swell) * 2.0);                   // 退浪相位滾得最盛
     this.pebbleGain.gain.setTargetAtTime((0.030 + 0.52 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.24);
     this.pebbleBP.frequency.setTargetAtTime(380 + 420 * stoneAmt, now, 1.0);  // 石頭壓在低-中頻（錄音主體 120-2000Hz）
-    // 低頻包覆床＝海底湧動、氣泡感（噪音床，非純音）。Pan 2026-07-14 偏好這個、不要純正弦「電平聲」。
+    // 低頻包覆床＝海底湧動（噪音床，非純音）。Pan 2026-07-14：低頻不能音量一致——
+    // 浪靠近岸（tide 高）要飽滿、包覆；退去（tide 低）要明顯變小、變遠。加大 tide 動態範圍、縮短時間常數跟得上。
     const breathBody = guided.influence * guided.phase;                       // 吸氣相位 → 低頻水體靠近
-    this.subGain.gain.setTargetAtTime(0.20 + 0.44 * energy * (0.45 + 0.55 * swell) + 0.10 * sp + 0.12 * breathBody, now, 0.95);
-    this.subLP.frequency.setTargetAtTime(118 + 46 * swell * energy, now, 1.3);  // 湧上來時低頻稍微「打開」，有水體移動感
+    const near = this.tide;                                                    // 握力帶來的浪靠近程度
+    this.subGain.gain.setTargetAtTime(0.06 + 0.56 * near * (0.5 + 0.5 * swell) + 0.10 * breathBody, now, 0.55);   // 近＝飽滿包覆、遠＝很小
+    this.subLP.frequency.setTargetAtTime(96 + 70 * near + 30 * swell, now, 0.9);   // 近＝低頻打開更飽滿，遠＝只剩很深的一點
     // 寬幅海床：能量越高越寬越亮；風箱模式（activate）更亮
     this.wideGain.gain.setTargetAtTime(0.05 + 0.13 * energy * (0.5 + 0.5 * set) + 0.04 * guided.activate, now, 1.1);
     this.wideLP.frequency.setTargetAtTime(300 + 380 * energy + 260 * guided.activate, now, 1.4);
@@ -1463,7 +1465,7 @@ class OceanEngine {
     const ratios = [1, 2.75, 5.38, 8.90];               // 輕度非諧（文獻：各缽相近）
     const amps   = [1.0, 0.5, 0.26, 0.13];
     const decays = [7.0, 4.6, 3.0, 2.0];                // 高模衰減較快
-    const peak = clamp(intensity, 0.15, 1) * 0.13;      // 有界，過 master tanh
+    const peak = clamp(intensity, 0.2, 1) * 0.22;       // 更明顯（Pan 2026-07-14：頌缽聲不夠明顯）；仍有界過 master tanh
     ratios.forEach((rt, i) => {
       const f = f0 * rt;
       const beat = 0.7 + i * 0.5;                       // 幾 Hz 的拍頻＝bowl 不對稱造成的 beating
@@ -2399,10 +2401,10 @@ const BREATH_PRESETS = {
   },
   hold478: {
     title: "4-7-8 呼吸",
-    copy: "吸氣＝青綠、憋氣＝暖金、吐氣＝靛藍。每一段用不同顏色陪你數拍，跟著顏色走就好。",
+    copy: "吸氣＝青綠、屏住呼吸＝暖金、吐氣＝靛藍。每一段用不同顏色陪你數拍，跟著顏色走就好。",
     phases: [
       { name: "inhale", label: "吸進來", dur: 4 },
-      { name: "hold", label: "憋氣", dur: 7, hold: true },
+      { name: "hold", label: "屏住呼吸", dur: 7, hold: true },
       { name: "exhale", label: "慢慢吐出去", dur: 8 },
     ],
     targetPeriod: 19,
@@ -2424,7 +2426,7 @@ const BREATH_PRESETS = {
 
 const MANUAL_478_PHASES = [
   { name: "inhale", label: "吸氣", count: 4, rgb: [78, 206, 178], curve: 1, drone: 0, voice: "audio/478-inhale.wav" },
-  { name: "hold", label: "憋氣", count: 7, rgb: [236, 190, 120], curve: 0.76, drone: 1, voice: "audio/478-hold.wav" },
+  { name: "hold", label: "屏住呼吸", count: 7, rgb: [236, 190, 120], curve: 0.76, drone: 1, voice: "audio/478-hold.wav" },
   { name: "exhale", label: "吐氣", count: 8, rgb: [116, 138, 224], curve: 0, drone: 0.15, voice: "audio/478-exhale.wav" },
 ];
 
@@ -2719,14 +2721,14 @@ function updateManual478Session(preset){
   $("sessionTitle").textContent = "4-7-8 呼吸";
   document.querySelector("#phaseSession .core-orb")?.classList.add("show-count");
   if(m.intro){
-    // 開始前的引導＋換幕：明確告訴使用者「現在要開始了」，先放開球、準備好握第一下才開始數。
-    $("sessionCopy").textContent = "先把球放開。準備好，就握第一下開始——之後每數一下就握一下。";
-    $("breathWord").textContent = "現在要開始了";
+    // 開始前：數字「4」先出現、告訴使用者現在要開始了；等使用者握下第一下才發頌缽並開始數（Pan 2026-07-14）。
+    $("sessionCopy").textContent = "準備好就握一下開始——之後每數一下就握一下。";
+    $("breathWord").textContent = "現在要開始了，握一下開始";
     $("breathMetric").textContent = "準備開始";
-    $("heartMetric").textContent = "4-7-8 呼吸";
-    $("gripMetric").textContent = "放開球，準備好就握一下";
-    $("orbPhaseLabel").textContent = "準備好就握一下";
-    $("orbCount").textContent = "";
+    $("heartMetric").textContent = "握一下開始";
+    $("gripMetric").textContent = "準備好就握一下";
+    $("orbPhaseLabel").textContent = `現在${phase.label}`;   // 現在吸氣
+    $("orbCount").textContent = phase.count;                 // 開頭的 4 先出現
   } else {
     $("sessionCopy").textContent = "每數一下就握一下球。握一下，感覺一下，再進下一拍。";
     $("breathWord").textContent = `現在${phase.label}`;
