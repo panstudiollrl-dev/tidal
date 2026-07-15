@@ -642,11 +642,12 @@
           </div>
         </div>
         <div id="arrivalHandCue" style="display:none">
-          <div class="arrival-title" id="handCueTitle">左手</div>
+          <div class="arrival-title" id="handCueTitle">校正 · 左手</div>
           <div class="arrival-copy">
-            <p>亮起時按住，暗下時放開。</p>
+            <p>先幫我認識你的握力。跟著提示：看到<b>請握起</b>就用你覺得舒適的力量握起，看到<b>請放鬆</b>就完全鬆開，這樣三次。</p>
           </div>
-          <div class="hint" id="handCueHint">&nbsp;</div>
+          <div class="breath-word" id="handCuePrompt">準備…</div>
+          <div class="hint" id="handCueHint">水位會跟著你的握力升降。</div>
         </div>
         <div id="arrivalBreath" style="display:none">
           <div class="arrival-title">聽見呼吸</div>
@@ -1289,7 +1290,11 @@ class OceanEngine {
   }
 
   setSpread(level){ this.spread += (level - this.spread) * 0.05; }
-  setTide(level){ this.tide += (level - this.tide) * 0.045; }   // Pan 2026-07-13：握住時海底湧動要更明確，但仍平滑
+  setTide(level){
+    // 握起＝新的浪快速湧向岸；放鬆＝浪到峰頂後慢慢退去（Pan 2026-07-14：自我覺察呼吸的核心）。
+    const k = level > this.tide ? 0.11 : 0.028;   // 非對稱：漲快、退慢
+    this.tide += (level - this.tide) * k;
+  }
   setGripPan(pan){ this.gripPan = clamp(pan, -1, 1); }
   setBreathGuide(guide){
     this.breathGuide = Object.assign({}, this.breathGuide, guide);
@@ -1633,7 +1638,7 @@ function beginHandCue(hand){
   cue.armed = false;
   cue.fill = 0;
   cue.successSoundAt = 0;
-  $("handCueTitle").textContent = hand === "left" ? "左手" : "右手";
+  $("handCueTitle").textContent = hand === "left" ? "校正 · 左手" : "校正 · 右手";
   $("handCueHint").textContent = "";
   document.documentElement.style.setProperty("--cue-fill", "0");
   $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success");
@@ -1842,6 +1847,7 @@ function updateHandCue(now){
   const elapsed = now - cue.startedAt;
   if(elapsed < HAND_CUE_READY_MS){
     cue.cueOn = false;
+    $("handCuePrompt").textContent = "準備…";
     $("guideOrb").classList.remove("cue-on", "cue-success");
     $("guideOrb").classList.add("cue-off");
     return;
@@ -1860,8 +1866,6 @@ function updateHandCue(now){
     cue.lastRep = rep;
     cue.successThisRep = false;
     cue.armed = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
-    cue.fill = 0;
-    document.documentElement.style.setProperty("--cue-fill", "0");
     $("guideOrb").classList.remove("cue-success");
     if(engine){
       if(!state.audioFadedIn){
@@ -1872,14 +1876,15 @@ function updateHandCue(now){
       engine.cueWave(cue.hand === "left" ? -0.58 : 0.58);
     }
   }
-  if(!inOn){
-    if(Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF) cue.armed = true;
-    cue.fill = Math.max(0, cue.fill - 0.018);
-    document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
-  }
+  // 水位直接平滑跟著握力：握起→水灌高、放鬆→退掉。校正就是用你舒適的力量（Pan 2026-07-14）。
+  const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
+  if(!inOn && grip <= ARRIVAL_PRESS_OFF) cue.armed = true;
+  $("handCuePrompt").textContent = inOn ? "請握起" : "請放鬆";
+  cue.fill += (clamp(grip) - cue.fill) * 0.25;
+  document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
   $("guideOrb").classList.toggle("cue-on", inOn);
   $("guideOrb").classList.toggle("cue-off", !inOn);
-  $("guideOrb").classList.toggle("cue-success", cue.fill > 0.12);
+  $("guideOrb").classList.toggle("cue-success", cue.fill > 0.35);
 }
 
 function finishHandCue(){
@@ -2121,11 +2126,10 @@ function setGrip(slot, level){
     }
   }
   if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
-    cue.scores[slot] += level;
-    cue.fill = clamp(Math.max(cue.fill, 0.20) + level * 0.08, 0, 1);
+    cue.scores[slot] += level;          // 記哪隻手在響應（左右手指派用）
     cue.successThisRep = true;
     cue.armed = false;
-    document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
+    // 水位由 updateHandCue 直接跟著握力，不再用累加（Pan：很用力也只到 1/4）。
     $("guideOrb").classList.add("cue-success");
     const now = performance.now();
     if(engine && now - cue.successSoundAt > 650){
@@ -3079,10 +3083,10 @@ function drawSea(){
   ctx.fillStyle = horizonMist;
   ctx.fillRect(0, horizon - H * 0.14, W, H * 0.36);
 
-  const nearPush = clamp(0.20 + tide * 0.34 + guidedPhase * 0.14);
+  const nearPush = clamp(0.16 + tide * 0.62 + guidedPhase * 0.12);   // 握力越大＝浪推越靠近岸（Pan 2026-07-14）
   const leftPush = clamp(__leftWave);
   const rightPush = clamp(__rightWave);
-  const nearLine = H * (0.82 - nearPush * 0.18);
+  const nearLine = H * (0.86 - nearPush * 0.30);                     // 範圍加大：放鬆時退遠、用力時湧到近岸
   function waveY(base, x, k = 0){
     const p = x / W;
     const side = p < 0.5 ? leftPush * (1 - p * 1.45) : rightPush * ((p - 0.5) * 1.45);
