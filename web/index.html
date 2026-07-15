@@ -38,6 +38,10 @@
     --phase-g: 176;
     --phase-b: 196;
     --phase-glow: 0;
+    /* 抵達期中央球水位顏色：預設海玻璃青（覺察呼吸）；表達緊張時換成溫柔暖色（不刺激） */
+    --fill-r: 110;
+    --fill-g: 224;
+    --fill-b: 226;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; width: 100%; min-height: 100%; overflow-x: hidden; }
@@ -233,9 +237,9 @@
     transition: transform .45s ease;
     background:
       linear-gradient(to top,
-        rgba(110, 224, 226, .55) 0 calc(var(--cue-fill) * 100%),
-        rgba(198, 248, 246, .90) calc(var(--cue-fill) * 100%) calc(var(--cue-fill) * 100% + 3px),
-        rgba(110, 224, 226, 0) calc(var(--cue-fill) * 100% + 3px)),
+        rgba(var(--fill-r), var(--fill-g), var(--fill-b), .55) 0 calc(var(--cue-fill) * 100%),
+        rgba(240, 250, 250, .88) calc(var(--cue-fill) * 100%) calc(var(--cue-fill) * 100% + 3px),
+        rgba(var(--fill-r), var(--fill-g), var(--fill-b), 0) calc(var(--cue-fill) * 100% + 3px)),
       radial-gradient(circle at 38% 30%, rgba(240, 244, 248, .74), rgba(198, 214, 228, .28) 28%, rgba(150, 178, 198, .12) 58%, transparent 76%),
       radial-gradient(circle at 58% 62%, rgba(216, 206, 190, .10), transparent 46%),
       radial-gradient(circle at 50% 50%, rgba(226, 232, 238, .15), rgba(143, 176, 200, .08) 38%, rgba(14, 20, 28, .03) 72%, transparent 76%);
@@ -986,6 +990,28 @@ class OceanEngine {
     this.subLP.connect(this.subGain);
     this.subGain.connect(this.clip);
 
+    // 水底氣泡湧動——**物件式音訊(OBA)**：聲源位置＝兩手握力的動態質量中心（this.gripPan＝(R−L)/(R+L)），
+    // 逐幀更新映到 HRTF panner＝空間感（Pan 2026-07-14）。帶通噪音＋慢 LFO 讓它像水下翻騰的氣泡，不是純音。
+    this.bubble = OceanEngine.noiseSource(ctx);
+    this.bubbleBP = ctx.createBiquadFilter();
+    this.bubbleBP.type = "bandpass";
+    this.bubbleBP.frequency.value = 320;
+    this.bubbleBP.Q.value = 0.9;
+    this.bubbleGain = ctx.createGain();
+    this.bubbleGain.gain.value = 0;
+    this.bubblePanner = ctx.createPanner();
+    this.bubblePanner.panningModel = "HRTF";
+    this.bubblePanner.distanceModel = "inverse";
+    this.bubblePanner.refDistance = 1;
+    this.bubblePanner.maxDistance = 22;
+    this.bubblePanner.rolloffFactor = 1.1;
+    this.bubble.connect(this.bubbleBP);
+    this.bubbleBP.connect(this.bubbleGain);
+    this.bubbleGain.connect(this.bubblePanner);
+    this.bubblePanner.connect(this.dry);
+    this.bubblePanner.connect(this.convolver);
+    this.gripTotal = 0;                              // 兩手總力道（質量中心的權重和）
+
     // （Pan 2026-07-14：移除純正弦低頻「湧」本體——那是「電平聲」的來源，每次握壓就冒出來。
     //  低頻湧動改回只靠上面的 sub 噪音床＝海底湧動、氣泡感，不是純音。subOsc 已刪除。）
 
@@ -1059,6 +1085,7 @@ class OceanEngine {
     this.noise2.start();
     this.pebble.start();
     this.sub.start();
+    this.bubble.start();
     this.wide.start();
     this.droneNoise.start();
     this.tide = 0;
@@ -1276,6 +1303,15 @@ class OceanEngine {
     this.sideR.lp.frequency.setTargetAtTime(420 + 520 * sideRTgt, now, 0.9);
     // 駐音層：guided.drone 由 4-7-8 停屏相位推起；平時維持極低（不為零）
     this.droneGain.gain.setTargetAtTime(0.16 * clamp(guided.drone || 0), now, 1.1);   // 無 floor：只有 4-7-8 停屏才有駐音，平時完全靜（Pan 2026-07-14：不要持續低音）
+    // 水底氣泡湧動（OBA）：音量隨握力湧起；**聲源位置＝兩手力道質量中心 this.gripPan**，逐幀移動＝空間感。
+    // 距離隨總力道（越用力越近）；慢 LFO 讓帶通中心游移，像水下翻騰的氣泡。
+    const bubbleLfo = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 3.7);
+    this.bubbleGain.gain.setTargetAtTime(0.05 + 0.30 * this.gripTotal * (0.6 + 0.4 * swell), now, 0.28);
+    this.bubbleBP.frequency.setTargetAtTime(240 + 180 * bubbleLfo + 120 * this.gripTotal, now, 0.5);
+    const bRad = clamp(this.gripPan, -1, 1) * Math.PI / 2;               // 質量中心方位
+    const bDist = 3.4 - 1.8 * this.gripTotal;                           // 越用力＝氣泡湧得越近
+    this.bubblePanner.positionX.setTargetAtTime(Math.sin(bRad) * bDist, now, 0.12);   // 逐幀平滑移動
+    this.bubblePanner.positionZ.setTargetAtTime(-Math.cos(bRad) * bDist, now, 0.12);
     this.metrics.pebble = stoneAmt * roll;
 
     if(now - this.lastSwing > 0.3) this.azTarget *= 0.985;
@@ -1302,6 +1338,7 @@ class OceanEngine {
     this.tide += (level - this.tide) * k;
   }
   setGripPan(pan){ this.gripPan = clamp(pan, -1, 1); }
+  setGripCenter(pan, total){ this.gripPan = clamp(pan, -1, 1); this.gripTotal = clamp(total || 0); }
   setBreathGuide(guide){
     this.breathGuide = Object.assign({}, this.breathGuide, guide);
   }
@@ -1766,6 +1803,19 @@ function updateArrival(){
   if(arrival.step === "handCue"){
     updateHandCue(now);
   }
+  // 覺察呼吸 & 表達緊張：中央球水位跟著握力，讓使用者看見自己的表達（Pan 2026-07-14）。
+  if(arrival.step === "breath" || arrival.step === "hold"){
+    const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
+    arrival.orbFill = (arrival.orbFill || 0) + (clamp(grip) - (arrival.orbFill || 0)) * 0.25;
+    const rs = document.documentElement.style;
+    rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
+    if(arrival.step === "hold"){
+      // 表達緊張＝溫柔暖色（對應緊張，但刻意不刺激，因為 app 不希望使用者緊張）
+      rs.setProperty("--fill-r", "240"); rs.setProperty("--fill-g", "178"); rs.setProperty("--fill-b", "138");
+    } else {
+      rs.setProperty("--fill-r", "110"); rs.setProperty("--fill-g", "224"); rs.setProperty("--fill-b", "226");
+    }
+  }
   if(arrival.step === "report" && arrival.reportSub === "agree"){
     const held = Math.max(state.grip[1], state.grip[2]);
     const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
@@ -1978,10 +2028,8 @@ function buildArrivalReport(){
     : peak < 0.32
       ? "身體算是放鬆、比較輕"
       : "身體的能量適中";
-  const settleClause = stability > 0.11
-    ? "，還有一點停不太住"
-    : (rise > 0.9 ? "，但收得下來" : "");
-  const impression = `此刻，感覺你${breathClause}，${tensionClause}${settleClause}。`;
+  // settleClause 已移除（Pan 2026-07-14：「還有一點停不太住」沒明確指向身心，只是握持施力在變）。
+  const impression = `此刻，感覺你${breathClause}，${tensionClause}。`;
   const recommendation = recommendBreathPreset({
     eventCount: events.length,
     pattern,
@@ -2152,8 +2200,8 @@ function setGrip(slot, level){
   const rightGrip = state.grip[rightSlot] || 0;
   const total = leftGrip + rightGrip;
   const gripPan = total > 0.04 ? (rightGrip - leftGrip) / (total + 0.12) : 0;
-  engine.setGripPan(gripPan);
-  engine.setSideGrip(leftGrip, rightGrip);   // 雙手各自的潮線也有聲音（對應視覺 __leftWave/__rightWave）
+  engine.setGripCenter(gripPan, clamp(total));   // 質量中心方位 + 總力道 → 驅動 OBA 氣泡聲源位置
+  engine.setSideGrip(leftGrip, rightGrip);       // 雙手各自的潮線也有聲音（對應視覺 __leftWave/__rightWave）
 }
 
 async function startAudio(options = {}){
