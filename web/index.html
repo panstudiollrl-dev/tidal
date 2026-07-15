@@ -675,10 +675,10 @@
           <div class="arrival-title">小小回顧</div>
           <div class="report-impression" id="reportImpression">&nbsp;</div>
           <div class="arrival-copy" id="reportAgreeCopy">
-            <p>這只是一個猜測。如果貼近現在的你，就把球握緊一會兒；沒那麼準，就輕輕握；完全不像，放著就好。</p>
+            <p>這只是一個猜測。請用穩定握住一下來回答：越用力表示越貼近，越小力表示越不像或越輕鬆。</p>
           </div>
           <div class="agree-meter" id="agreeMeter"><span id="agreeFill"></span></div>
-          <div class="hint" id="reportHint">用握力表示這段描述有多貼近你。</div>
+          <div class="hint" id="reportHint">輕輕握住也算答案；穩定一小段時間就會繼續。</div>
           <div class="report-suggest" id="reportSuggest" style="display:none"></div>
           <div class="confirm-choice" id="arrivalConfirmHint">&nbsp;</div>
         </div>
@@ -716,22 +716,26 @@
       <section class="panel phase guide-panel" id="phaseAfter">
         <h2>結束後</h2>
         <div class="core-orb" aria-hidden="true"></div>
-        <div class="hint">回看身體，而不是評分好壞。哪一刻有被推著走？哪一刻可以停留？</div>
-        <div style="margin:14px 0 8px">現在的緊張程度 <b id="postValue">5</b>/10</div>
-        <div class="rating">
+        <div class="session-stage">
+          <div class="arrival-title" id="afterTitle">回看身體</div>
+          <div class="breath-word" id="afterValue">握住一下</div>
+          <div class="arrival-copy">
+            <p id="afterPrompt">用握力回答。握得越用力，表示越強；握住一小段時間就會進到下一題。</p>
+          </div>
+          <div class="arrival-progress"><span id="afterProgress"></span></div>
+          <div class="hint" id="afterHint">第 1 / 4 題</div>
+        </div>
+        <div style="display:none">
+          <div style="margin:14px 0 8px">現在的緊張程度 <b id="postValue">5</b>/10</div>
+          <div class="rating">
           <button class="icon ghost" id="postMinus">−</button>
           <input id="postRange" type="range" min="0" max="10" value="5" />
           <button class="icon ghost" id="postPlus">＋</button>
-        </div>
-        <div style="margin:12px 0 8px">這段有多像「被節奏推著走」？ <b id="pushedValue">5</b>/10</div>
-        <input id="pushedRange" type="range" min="0" max="10" value="5" />
-        <div style="margin:12px 0 8px">有多能停留、呼吸、觀察？ <b id="stayValue">5</b>/10</div>
-        <input id="stayRange" type="range" min="0" max="10" value="5" />
-        <div style="margin:12px 0 8px">聲音有多像可被你塑形？ <b id="agencyValue">5</b>/10</div>
-        <input id="agencyRange" type="range" min="0" max="10" value="5" />
-        <div style="margin:12px 0 8px">一句筆記</div>
-        <textarea id="rhythmNote" rows="3" placeholder="例如：一開始被拍石嚇到，後來潮汐變慢時比較能停。"></textarea>
-        <div class="controls" style="margin-top:12px">
+          </div>
+          <input id="pushedRange" type="range" min="0" max="10" value="5" />
+          <input id="stayRange" type="range" min="0" max="10" value="5" />
+          <input id="agencyRange" type="range" min="0" max="10" value="5" />
+          <textarea id="rhythmNote" rows="3"></textarea>
           <button id="btnSaveAfter">儲存這次紀錄</button>
         </div>
       </section>
@@ -803,7 +807,13 @@ const MANUAL_478_ON = 0.14;
 const MANUAL_478_OFF = 0.06;
 const MANUAL_478_RISE_DELTA = 0.055;
 const MANUAL_478_RELEASE_DELTA = 0.09;
-const BREATH_MARK_MIN_GAP_MS = 900;
+const BREATH_MARK_MIN_GAP_MS = 500;
+const BREATH_RELEASE_DELTA = 0.10;
+const AGREEMENT_MIN_LEVEL = 0.08;
+const AGREEMENT_HOLD_MS = 900;
+const AFTER_MIN_LEVEL = 0.08;
+const AFTER_HOLD_MS = 900;
+const AFTER_RELEASE_DELTA = 0.10;
 const HAND_CUE_REPS = 3;
 const HAND_CUE_READY_MS = 1800;
 const HAND_CUE_ON_MS = 1800;
@@ -827,6 +837,8 @@ const state = {
   sessionEnd: null,
   samples: [],
   sessions: [],
+  afterSaved: false,
+  after: { index: 0, holdStart: 0, peak: 0, awaitRelease: false, releasePeak: 0 },
   impactCount: 0,
   lastImpactAt: 0,
   dominantMode: "unknown",
@@ -872,6 +884,7 @@ const state = {
     activePress: { 1: false, 2: false },
     lastEventAt: 0,
     breathHeld: false,
+    breathPeak: 0,
     confirmation: "",
     confirmationAt: null,
     confirmationAdvanceTimer: null,
@@ -1739,7 +1752,7 @@ function handleArrivalGrip(slot, level){
   if(arrival.step !== "breath") return;
   const maxGrip = Math.max(state.grip[1], state.grip[2]);
   const anyOn = maxGrip >= ARRIVAL_PRESS_ON;
-  const anyOff = maxGrip <= ARRIVAL_PRESS_OFF;
+  const anyOff = maxGrip <= ARRIVAL_PRESS_OFF || (arrival.breathHeld && (arrival.breathPeak - maxGrip) >= BREATH_RELEASE_DELTA);
   if(anyOn && !arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
     arrival.events.push({
       t: (now - arrival.breathStart) / 1000,
@@ -1749,6 +1762,7 @@ function handleArrivalGrip(slot, level){
     });
     arrival.lastEventAt = now;
     arrival.breathHeld = true;
+    arrival.breathPeak = maxGrip;
     if(engine){
       if(!state.audioFadedIn){
         state.audioFadedIn = true;
@@ -1759,6 +1773,7 @@ function handleArrivalGrip(slot, level){
       engine.cueWave(pan, 0.62);
     }
   }
+  if(arrival.breathHeld) arrival.breathPeak = Math.max(arrival.breathPeak || 0, maxGrip);
   if(anyOff && arrival.breathHeld && now - arrival.lastEventAt > BREATH_MARK_MIN_GAP_MS){
     arrival.events.push({
       t: (now - arrival.breathStart) / 1000,
@@ -1768,6 +1783,7 @@ function handleArrivalGrip(slot, level){
     });
     arrival.lastEventAt = now;
     arrival.breathHeld = false;
+    arrival.breathPeak = maxGrip;
     if(engine) engine.cueWave(0, 0.34);
   }
   if(level <= ARRIVAL_PRESS_OFF) arrival.activePress[slot] = false;
@@ -1779,10 +1795,11 @@ function handleArrivalConfirmation(slot, level, now){
   const arrival = state.arrival;
   const held = Math.max(state.grip[1], state.grip[2]);
   if(arrival.reportSub === "agree"){
-    if(held >= ARRIVAL_PRESS_ON){
+    if(held >= AGREEMENT_MIN_LEVEL){
       if(!arrival.agreePressedAt) arrival.agreePressedAt = now;
       arrival.agreePeak = Math.max(arrival.agreePeak, held);
-    } else if(arrival.agreePressedAt && now - arrival.agreePressedAt > 400){
+      if(now - arrival.agreePressedAt >= AGREEMENT_HOLD_MS) finalizeAgreement(now);
+    } else if(arrival.agreePressedAt && now - arrival.agreePressedAt > 250){
       finalizeAgreement(now);           // 握過一下再放開 → 定案符合度、給建議
     } else {
       arrival.agreePressedAt = 0;        // 太短的誤觸，重來
@@ -1853,7 +1870,7 @@ function updateArrival(){
     const held = Math.max(state.grip[1], state.grip[2]);
     const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
     $("agreeFill").style.width = Math.round(clamp(shown) * 100) + "%";
-    if(held >= ARRIVAL_PRESS_ON){
+    if(held >= AGREEMENT_MIN_LEVEL){
       $("reportHint").textContent = held > 0.66 ? "很貼近。" : held > 0.33 ? "有點像。" : "不太像。";
     }
   }
@@ -2014,7 +2031,7 @@ function finishArrival(){
   $("reportAgreeCopy").style.display = "";
   $("agreeMeter").style.opacity = "1";
   $("agreeFill").style.width = "0%";
-  $("reportHint").textContent = "用握力表示這段描述有多貼近你。";
+  $("reportHint").textContent = "輕輕握住也算答案；穩定一小段時間就會繼續。";
   $("reportSuggest").style.display = "none";
   $("reportSuggest").innerHTML = "";
   $("arrivalConfirmHint").innerHTML = "&nbsp;";
@@ -2809,6 +2826,8 @@ async function enterGuidedPractice(presetId = ""){
 function endSession(){
   state.phase = "after";
   state.sessionEnd = performance.now();
+  state.afterSaved = false;
+  state.after = { index: 0, holdStart: 0, peak: 0, awaitRelease: false, releasePeak: 0 };
   clearGuidedHaptics();
   if(engine){
     engine.setBreathGuide({ influence: 0, drone: 0, activate: 0, pan: 0 });  // 回到自走海，駐音/引導層退場
@@ -2818,10 +2837,88 @@ function endSession(){
   if(engine) engine.setBreathGuide({ influence: 0, activate: 0, pan: 0 });
   $("btnEndSession").disabled = true;
   setPhase();
-  log("Session 結束，請填寫結束後感受。");
+  updateAfterReflection(true);
+  log("Session 結束。用握力一題一題回看身體。");
 }
 
-function saveAfter(){
+const AFTER_STEPS = [
+  { key: "post", title: "現在的緊張程度", prompt: "越用力表示現在越緊張、越滿；越小力表示越平靜。", valueId: "postValue", rangeId: "postRange" },
+  { key: "pushed", title: "被節奏推著走", prompt: "越用力表示越像被節奏推著走；越小力表示比較能自己停留。", valueId: "pushedValue", rangeId: "pushedRange" },
+  { key: "stay", title: "能不能停留", prompt: "越用力表示越能停留、呼吸、觀察；越小力表示比較困難。", valueId: "stayValue", rangeId: "stayRange" },
+  { key: "agency", title: "聲音是否能被你塑形", prompt: "越用力表示聲音越像能被你塑形；越小力表示比較像被系統帶著走。", valueId: "agencyValue", rangeId: "agencyRange" },
+];
+
+function afterValueFromGrip(level){
+  return Math.round(clamp(level) * 10);
+}
+
+function updateAfterReflection(force = false){
+  if(state.phase !== "after") return;
+  const after = state.after || (state.after = { index: 0, holdStart: 0, peak: 0, awaitRelease: false, releasePeak: 0 });
+  if(after.saved){
+    $("afterTitle").textContent = "已儲存";
+    $("afterValue").textContent = "謝謝";
+    $("afterPrompt").textContent = "這次紀錄已經留在本機。";
+    $("afterProgress").style.width = "100%";
+    $("afterHint").textContent = "可以下載 CSV。";
+    return;
+  }
+  const step = AFTER_STEPS[after.index];
+  if(!step){
+    saveAfter(true);
+    return;
+  }
+  const now = performance.now();
+  const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
+  const value = afterValueFromGrip(Math.max(grip, after.peak || 0));
+  $("afterTitle").textContent = step.title;
+  $("afterPrompt").textContent = step.prompt;
+  $("afterValue").textContent = `${value} / 10`;
+  $("afterHint").textContent = after.awaitRelease ? "請先放開一下，準備下一題。" : `第 ${after.index + 1} / ${AFTER_STEPS.length} 題`;
+  document.documentElement.style.setProperty("--cue-fill", clamp(grip).toFixed(3));
+
+  if(after.awaitRelease){
+    const released = grip <= ARRIVAL_PRESS_OFF || (after.releasePeak - grip) >= AFTER_RELEASE_DELTA;
+    $("afterProgress").style.width = "0%";
+    if(released){
+      after.awaitRelease = false;
+      after.holdStart = 0;
+      after.peak = 0;
+      after.releasePeak = grip;
+      after.index += 1;
+      updateAfterReflection(true);
+    }
+    return;
+  }
+
+  if(grip >= AFTER_MIN_LEVEL){
+    if(!after.holdStart){
+      after.holdStart = now;
+      after.peak = grip;
+    }
+    after.peak = Math.max(after.peak, grip);
+    const elapsed = now - after.holdStart;
+    $("afterProgress").style.width = Math.round(clamp(elapsed / AFTER_HOLD_MS) * 100) + "%";
+    if(elapsed >= AFTER_HOLD_MS){
+      const answer = afterValueFromGrip(after.peak);
+      state[step.key] = answer;
+      if(step.valueId) $(step.valueId).textContent = answer;
+      if(step.rangeId) $(step.rangeId).value = answer;
+      after.awaitRelease = true;
+      after.releasePeak = after.peak;
+      after.holdStart = 0;
+      $("afterProgress").style.width = "100%";
+    }
+  } else {
+    after.holdStart = 0;
+    after.peak = 0;
+    $("afterProgress").style.width = "0%";
+  }
+}
+
+function saveAfter(stayOnAfter = false){
+  if(state.afterSaved) return;
+  state.afterSaved = true;
   state.note = $("rhythmNote").value.trim();
   const summary = {
     timestamp: new Date().toISOString(),
@@ -2866,8 +2963,14 @@ function saveAfter(){
   };
   state.sessions.push(summary);
   $("btnCsv").disabled = false;
-  state.phase = "summary";
-  setPhase();
+  if(stayOnAfter){
+    if(!state.after) state.after = {};
+    state.after.saved = true;
+    updateAfterReflection(true);
+  } else {
+    state.phase = "summary";
+    setPhase();
+  }
   log(`已儲存：緊張 ${state.pre} → ${state.post}。`);
 }
 
@@ -3367,6 +3470,7 @@ function render(){
   // 仍在背景算 dominant_mode 供 session CSV 研究欄位用，但不顯示給使用者。
   updateArrival();
   updateGuidedSession();
+  updateAfterReflection();
   updateCoreVisual();
   state.dominantMode = analyzeMode().mode;
   $("sessionClock").textContent = Math.round(sessionSeconds()) + "s";
