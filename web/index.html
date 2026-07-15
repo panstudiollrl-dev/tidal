@@ -902,8 +902,9 @@ class GripCalibrator {
     // 慢漂移併入 baseline：只在「幾乎已放開」時才重新歸零（this.level < 0.12）。
     // 這樣持續握到一半不會被當成漂移吃掉而消失（Pan 2026-07-14：用一半握力感測就消失）。
     if(this.level < 0.12 && delta < this.span * 0.12) this.baseline += (raw - this.baseline) * 0.05;
-    const effScale = this.span * GRIP_HEADROOM;                 // 到你握力範圍的 82% 就算滿
-    const rawLevel = clamp(posDelta / effScale);
+    const effScale = this.span * GRIP_HEADROOM;                 // 到你握力範圍就算滿
+    let rawLevel = clamp(posDelta / effScale);
+    if(rawLevel < 0.05) rawLevel = 0;                          // 底部死區：真正放開＝0，消掉壓縮曲線放大的殘壓（Pan 2026-07-14：4-7-8 卡住）
     const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA）
     this.level += (shaped - this.level) * 0.15;                 // 平滑
     return this.level;
@@ -2158,9 +2159,11 @@ function setGrip(slot, level){
   const pressEdge = previous < ARRIVAL_PRESS_ON && level >= ARRIVAL_PRESS_ON;
   if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
   if(state.phase === "session" && state.guided.preset === "hold478"){
-    const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數（低門檻好觸發）
-    if(maxLevel <= MANUAL_478_OFF) state.guided.manual478Pressed = false;
-    if(maxLevel >= MANUAL_478_ON && !state.guided.manual478Pressed){
+    const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數
+    // 簡單遲滯：握過 ON 數一拍、掉到 OFF 以下才重新武裝。底部死區保證放開＝0，能確實掉到 OFF 以下（不卡）。
+    if(state.guided.manual478Pressed){
+      if(maxLevel <= MANUAL_478_OFF) state.guided.manual478Pressed = false;
+    } else if(maxLevel >= MANUAL_478_ON){
       state.guided.manual478Pressed = true;
       requestAudioFadeIn();
       advanceManual478();
@@ -2428,8 +2431,10 @@ const MANUAL_478_PHASES = [
 const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成這麼多輪才算「完全結束」→ 淡出（Pan 2026-07-14）。
 
 function resetManual478(){
-  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false };
-  state.guided.manual478Pressed = false;
+  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true };
+  // 進場先當成「已握住」＋高 peak：必須先真正放開才會開始數，避免「進入用的那一握」直接扣一拍（Pan 2026-07-14）。
+  state.guided.manual478Pressed = true;
+  state.guided.manual478Peak = 1;
   state.guided.manual478LastPressAt = 0;
 }
 
@@ -2459,6 +2464,7 @@ function advanceManual478(){
   if(now - state.guided.manual478LastPressAt < 220) return;
   const { m, phase } = manual478State();
   if(m.done) return;
+  m.intro = false;   // 第一次真正握下＝正式開始，離開「準備開始」引導
   const gap = state.guided.manual478LastPressAt ? now - state.guided.manual478LastPressAt : 0;
   state.guided.manual478LastPressAt = now;
   if(gap > 150 && gap < 12000) m.pressGaps.push(gap);   // 按壓間距 → 之後判「呼吸平均程度」
@@ -2711,14 +2717,25 @@ function updateManual478Session(preset){
   document.documentElement.style.setProperty("--phase-glow", (0.72 + 0.22 * gripWater).toFixed(3));
 
   $("sessionTitle").textContent = "4-7-8 呼吸";
-  $("sessionCopy").textContent = "每數一下就握一下球。握一下，感覺一下，再進下一拍。";
-  $("breathWord").textContent = `現在${phase.label}`;
-  $("breathMetric").textContent = `第 ${Math.min(m.completedCycles + 1, MANUAL_478_TARGET_CYCLES)} / ${MANUAL_478_TARGET_CYCLES} 輪`;
-  $("heartMetric").textContent = `${phase.label} ${m.remaining}`;
-  $("gripMetric").textContent = "每數一下就握一下球";
-  $("orbPhaseLabel").textContent = `現在${phase.label}`;
-  $("orbCount").textContent = m.remaining;
   document.querySelector("#phaseSession .core-orb")?.classList.add("show-count");
+  if(m.intro){
+    // 開始前的引導＋換幕：明確告訴使用者「現在要開始了」，先放開球、準備好握第一下才開始數。
+    $("sessionCopy").textContent = "先把球放開。準備好，就握第一下開始——之後每數一下就握一下。";
+    $("breathWord").textContent = "現在要開始了";
+    $("breathMetric").textContent = "準備開始";
+    $("heartMetric").textContent = "4-7-8 呼吸";
+    $("gripMetric").textContent = "放開球，準備好就握一下";
+    $("orbPhaseLabel").textContent = "準備好就握一下";
+    $("orbCount").textContent = "";
+  } else {
+    $("sessionCopy").textContent = "每數一下就握一下球。握一下，感覺一下，再進下一拍。";
+    $("breathWord").textContent = `現在${phase.label}`;
+    $("breathMetric").textContent = `第 ${Math.min(m.completedCycles + 1, MANUAL_478_TARGET_CYCLES)} / ${MANUAL_478_TARGET_CYCLES} 輪`;
+    $("heartMetric").textContent = `${phase.label} ${m.remaining}`;
+    $("gripMetric").textContent = "每數一下就握一下球";
+    $("orbPhaseLabel").textContent = `現在${phase.label}`;
+    $("orbCount").textContent = m.remaining;
+  }
 
   if(engine){
     engine.setBreathGuide({
@@ -2759,6 +2776,12 @@ function startSession(presetId = ""){
   $("btnStartSession").disabled = true;
   $("btnEndSession").disabled = false;
   setPhase();
+  // 換幕感：進 session 時做一次淡入模糊轉場（尤其 4-7-8 開始前要明確「現在要開始了」）。
+  const sp = $("phaseSession");
+  if(sp){
+    sp.classList.add("scene-dim");
+    setTimeout(() => requestAnimationFrame(() => sp.classList.remove("scene-dim")), 460);
+  }
   updateGuidedSession(true);
   log("Session 開始。先讓海跟著你，再讓它慢慢邀請你。");
 }
