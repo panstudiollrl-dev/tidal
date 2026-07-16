@@ -1754,24 +1754,23 @@ function handleArrivalConfirmation(slot, level, now){
   const arrival = state.arrival;
   const held = Math.max(state.grip[1], state.grip[2]);
   if(arrival.reportSub === "agree"){
-    // 先放開才開始接收：避免上一步「表達緊張」那一握殘留進來、還沒壓就定案跳走（Pan 2026-07-15）。
+    // 先放開才開始接收：避免上一步「表達緊張」那一握殘留進來、還沒壓就定案（Pan 2026-07-15）。
     if(!arrival.agreeArmed){
-      if(held <= ARRIVAL_PRESS_OFF) arrival.agreeArmed = true;
+      if(held <= AFTER_OFF) arrival.agreeArmed = true;
       return;
     }
-    if(held >= ARRIVAL_PRESS_ON){
-      if(!arrival.agreePressedAt) arrival.agreePressedAt = now;
+    // 握過門檻（記峰值＝相符程度），放開就定案；不需要撐 400ms，輕握也算（Pan 2026-07-15：卡住）。
+    if(held >= AFTER_ON){
       arrival.agreePeak = Math.max(arrival.agreePeak, held);
-    } else if(arrival.agreePressedAt && now - arrival.agreePressedAt > 400){
-      finalizeAgreement(now);           // 握過一下再放開 → 定案符合度、給建議
-    } else {
-      arrival.agreePressedAt = 0;        // 太短的誤觸，重來
+      arrival.agreeReached = true;
+    } else if(arrival.agreeReached && held <= AFTER_OFF){
+      finalizeAgreement(now);
     }
     return;
   }
   if(arrival.reportSub === "suggest"){
-    if(now < arrival.suggestReadyAt) return;   // 緩衝：別讓上一段的握壓直接衝進 session
-    if(held >= ARRIVAL_PRESS_ON) reportAdvance();
+    if(now < arrival.suggestReadyAt) return;   // 緩衝：別讓定案那一握直接衝進 session
+    if(held >= AFTER_ON) reportAdvance();
   }
 }
 
@@ -1846,7 +1845,7 @@ function updateArrival(){
       const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
       arrival.orbFill = (arrival.orbFill || 0) + (shown - (arrival.orbFill || 0)) * 0.25;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
-      $("cueOrbPrompt").textContent = held >= ARRIVAL_PRESS_ON
+      $("cueOrbPrompt").textContent = held >= AFTER_ON
         ? (arrival.orbFill > 0.62 ? "很貼近" : arrival.orbFill > 0.32 ? "有點像" : "不太像")
         : "握出有多貼近";
     }
@@ -2008,6 +2007,7 @@ function finishArrival(){
   state.arrival.agreement = null;
   state.arrival.agreePressedAt = 0;
   state.arrival.agreeArmed = false;   // 必須先放開才開始收評估的握壓
+  state.arrival.agreeReached = false;
   state.arrival.orbFill = 0;
   $("reportImpression").textContent = report.impression;
   $("reportAgreeCopy").style.display = "";
@@ -2048,21 +2048,21 @@ function buildArrivalReport(){
   // 綜合成一句身心印象（Pan 2026-07-14）：不逐項闡述參數，而是「我猜你大概是這樣」，
   // 準確性交還給使用者用握力校正。文獻依據見 READING.md §四·五。
   const breathClause = events.length < 4
-    ? "呼吸還在慢慢沉下來"
+    ? "你的呼吸正在逐漸平緩中"
     : (pattern.closeRun >= 2 || pattern.closeRatio > 0.34)
-      ? "呼吸有點淺、有點急"
+      ? "你的呼吸有點淺、有點急"
       : pattern.driftRatio > 1.8
-        ? "呼吸的節奏前後在變"
+        ? "你的呼吸節奏前後在變"
         : intervalVar > 1.2
-          ? "呼吸有快有慢、還在流動"
-          : "呼吸相對平緩";
+          ? "你的呼吸有快有慢、還在流動"
+          : "你的呼吸相對平緩";
   const tensionClause = peak > 0.72
     ? "身體裡的壓力和張力也比較大"
     : peak < 0.32
       ? "身體算是放鬆、比較輕"
       : "身體的能量適中";
   // settleClause 已移除（Pan 2026-07-14：「還有一點停不太住」沒明確指向身心，只是握持施力在變）。
-  const impression = `此刻，感覺你${breathClause}，${tensionClause}。`;
+  const impression = `此刻，${breathClause}，${tensionClause}。`;
   const recommendation = recommendBreathPreset({
     eventCount: events.length,
     pattern,
