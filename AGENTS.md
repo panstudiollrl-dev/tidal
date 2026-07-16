@@ -69,6 +69,13 @@
 
 ## 交接紀錄
 
+### 2026-07-16 — Claude｜波光 shimmer/粼光電子音（Luc Ferrari 風）＋覺察呼吸海潮隨握力漲退
+- 做了什麼（依 Pan 回饋）：
+  1. **波光聲層**（Pan 上傳 4 個 .aif、指名 0004＝Luc Ferrari「Sea Hole」風：人聲/鳥/電子＋水，像陽光在水面波光嶙峋）。分析 0004（40s）：主體 500–2000Hz 71%、centroid ~3kHz（亮）、spectral flatness 在 0.24（電子/人聲音高）↔0.77（水/噪音）間擺盪、高頻粼光事件 ~1.2/s、電子音峰約 527/624/785/882/1055/1184/1335…Hz。據此新增：`shimmer`（明亮帶通噪音 ~1.5–2.7kHz＋慢 twinkle LFO＝波光明滅）＋ `glint(freq,pan,amp)`（明亮電子鐘聲：三個輕微非諧正弦、快起音短衰減、走 HRTF＋殘響）。loop 內稀疏排 glint（~1/s、能量越高越密），音高取中頻五聲音階，與 caustics 視覺對位。有界、過 tanh。engine mock 測試通過。
+  2. **覺察呼吸：海潮隨握力漲退**（Pan：呼吸時球有縮放很好，但背景海要跟著——吸氣海潮漲近岸、吐氣退，現在畫面讓人緊張）。`drawSea` 水面線 `waterTop` 改隨 tide 升降（握＝水漲上升靠近、放＝退），caustics 亮度/密度對 tide 的反應**調小**（握力主要表現在水面上升，不是把光紋弄得更busy＝不緊張）。
+  3. **覺察呼吸指示上球**：「吸氣時握著，吐氣時放下」→ 球上「吸氣握　吐氣鬆」；下方文字隱藏。
+- 驗證：語法 OK；engine mock（shimmer/glint 建構、glint=3 osc）；jsdom 0 錯誤；render 對照確認握力→水面上升、caustics 仍柔和。真機請 Pan 聽 shimmer/glint 音量密度是否對、看呼吸海潮漲退手感。上傳音檔在 uploads（暫存），durable 的是上面的分析數字。
+
 ### 2026-07-15 — Claude｜沉浸式結束：字幕問句在球上、工作人員名單式結果分析、鼓勵、整幕淡出
 - 依 Pan：結束流程要像電影。重寫 phaseAfter：
   1. **問句＝球上字幕**（`#afterOrbPrompt.after-caption`），淡入淡出；**握越緊水位越高（＝越符合）**，**連續握住 `AFTER_HOLD_MS=1500ms` 自動紀錄**（不用放開/按鈕），字幕淡出換下一題。四題短句：還緊繃嗎／節奏受催促嗎／靜得下來嗎／與海同調嗎。下方不再放小字。frame-driven（`updateAfter`→`afterSurveyStep`），移除 `handleAfterGrip`/滑桿。

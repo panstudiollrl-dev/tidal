@@ -698,11 +698,8 @@
         <div id="arrivalBreath" style="display:none">
           <div class="arrival-title">聽見呼吸</div>
           <div class="countdown"><span id="breathClock">30</span></div>
-          <div class="arrival-copy">
-            <p>吸氣時握著，吐氣時放下。</p>
-          </div>
           <div class="arrival-progress"><span id="breathProgress"></span></div>
-          <div class="hint">已收到 <span id="breathCount">0</span> 次呼吸變化</div>
+          <div class="hint" style="visibility:hidden">已收到 <span id="breathCount">0</span> 次呼吸變化</div>
         </div>
         <div id="arrivalHold" style="display:none">
           <div class="arrival-title">用握力表達緊張的程度</div>
@@ -1038,6 +1035,21 @@ class OceanEngine {
     this.bubblePanner.connect(this.convolver);
     this.gripTotal = 0;                              // 兩手總力道（質量中心的權重和）
 
+    // 波光（Pan 2026-07-16，參考 Luc Ferrari「Sea Hole」/ 上傳 0004）：陽光在水面波光嶙峋＝
+    // 明亮中頻 shimmer（帶通噪音＋慢 LFO 明滅）＋稀疏的電子「粼光」鐘聲（中頻旋律音）。與 caustics 視覺對位。
+    this.shimmer = OceanEngine.noiseSource(ctx);
+    this.shimmerBP = ctx.createBiquadFilter();
+    this.shimmerBP.type = "bandpass";
+    this.shimmerBP.frequency.value = 1900;           // 分析：主體 500–2000Hz、centroid ~3kHz、亮
+    this.shimmerBP.Q.value = 0.7;
+    this.shimmerGain = ctx.createGain();
+    this.shimmerGain.gain.value = 0;
+    this.shimmer.connect(this.shimmerBP);
+    this.shimmerBP.connect(this.shimmerGain);
+    this.shimmerGain.connect(this.dry);
+    this.shimmerGain.connect(this.convolver);        // 帶空間
+    this.lastGlint = 0;
+
     // （Pan 2026-07-14：移除純正弦低頻「湧」本體——那是「電平聲」的來源，每次握壓就冒出來。
     //  低頻湧動改回只靠上面的 sub 噪音床＝海底湧動、氣泡感，不是純音。subOsc 已刪除。）
 
@@ -1112,6 +1124,7 @@ class OceanEngine {
     this.pebble.start();
     this.sub.start();
     this.bubble.start();
+    this.shimmer.start();
     this.wide.start();
     this.droneNoise.start();
     this.tide = 0;
@@ -1342,6 +1355,19 @@ class OceanEngine {
     this.bubblePanner.positionZ.setTargetAtTime(-Math.cos(bRad) * bDist, now, 0.12);
     this.metrics.pebble = stoneAmt * roll;
 
+    // 波光 shimmer：明亮中頻噪音，慢 LFO 明滅＝陽光在水面閃動。握力/湧浪讓它更亮更多。
+    const twinkle = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 2.3) * Math.sin(t * 2 * Math.PI / 5.7);
+    this.shimmerGain.gain.setTargetAtTime((0.010 + 0.030 * energy) * (0.5 + 0.5 * twinkle), now, 0.4);
+    this.shimmerBP.frequency.setTargetAtTime(1500 + 900 * energy + 300 * swell, now, 0.6);
+    // 粼光鐘聲：稀疏（分析 0004 ~1.2/s）；能量越高越密越亮。中頻五聲音階（對到分析的電子音頻）。
+    if(now - this.lastGlint > (1.5 - 0.9 * energy) * (0.7 + 0.6 * Math.random())){
+      this.lastGlint = now;
+      const scale = [523, 587, 659, 784, 880, 1047, 1175, 1319, 1568];   // 五聲＋八度，落在 500–1600Hz
+      const f = scale[(Math.random() * scale.length) | 0];
+      const pan = clamp(this.gripPan * 0.6 + (Math.random() * 2 - 1) * 0.6, -1, 1);
+      this.glint(f, pan, 0.05 + 0.06 * energy);
+    }
+
     if(now - this.lastSwing > 0.3) this.azTarget *= 0.985;
     this.azimuth += (this.azTarget - this.azimuth) * this.azEase;
     const panAz = clamp(this.azimuth * 0.38 + this.gripPan * 0.44 + guided.pan * guided.influence * 0.30, -1, 1);
@@ -1525,6 +1551,36 @@ class OceanEngine {
     ng.gain.setTargetAtTime(0, now, 0.05);
     nz.start(now);
     nz.stop(now + 0.4);
+  }
+
+  // 粼光（Pan 2026-07-16）：一顆明亮、短的電子鐘聲＝陽光打在水面的一個閃點。
+  // 中頻旋律音（分析 0004 的電子音約 500–1900Hz）＋輕微非諧＋快起音短衰減，走 HRTF＋殘響。
+  glint(freq, pan = 0, amp = 0.09){
+    const now = this.ctx.currentTime;
+    const p = this.ctx.createPanner();
+    p.panningModel = "HRTF";
+    p.distanceModel = "inverse"; p.refDistance = 1; p.maxDistance = 22; p.rolloffFactor = 1.0;
+    const rad = clamp(pan, -1, 1) * Math.PI / 2;
+    p.positionX.setValueAtTime(Math.sin(rad) * 2.4, now);
+    p.positionZ.setValueAtTime(-Math.cos(rad) * 2.4, now);
+    const out = this.ctx.createGain(); out.gain.value = 1;
+    out.connect(p); p.connect(this.dry); p.connect(this.convolver); p.connect(this.impactPre);   // 帶空間尾巴
+    const ratios = [1, 2.02, 3.01];        // 輕微非諧＝鐘/水滴光澤
+    const amps = [1, 0.34, 0.14];
+    const decays = [1.6, 0.9, 0.5];
+    ratios.forEach((r, i) => {
+      const o = this.ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.value = freq * r;
+      const g = this.ctx.createGain(); g.gain.value = 0;
+      o.connect(g); g.connect(out);
+      const a = clamp(amp, 0, 0.16) * amps[i];
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(a, now + 0.006);   // 快起音
+      g.gain.setTargetAtTime(0, now + 0.006, decays[i]); // 短衰減
+      o.start(now);
+      o.stop(now + decays[i] * 4 + 0.3);
+    });
   }
 }
 
@@ -1838,7 +1894,12 @@ function updateArrival(){
   }
   // 覺察呼吸 & 表達緊張：中央球水位跟著握力，讓使用者看見自己的表達（Pan 2026-07-14）。
   if(arrival.step === "breath" || arrival.step === "hold"){
-    $("guideOrb").classList.remove("show-cue-text");   // 這兩步球上不放校正提示（避免「請放鬆」殘留）
+    if(arrival.step === "breath"){
+      $("guideOrb").classList.add("show-cue-text");    // 覺察呼吸：指示放在球上
+      $("cueOrbPrompt").textContent = "吸氣握　吐氣鬆";
+    } else {
+      $("guideOrb").classList.remove("show-cue-text"); // 表達緊張：球上不放字（避免殘留）
+    }
     const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
     arrival.orbFill = (arrival.orbFill || 0) + (clamp(grip) - (arrival.orbFill || 0)) * 0.25;
     const rs = document.documentElement.style;
@@ -3333,7 +3394,8 @@ function drawSea(){
   const mix = (base, idx, amt = phaseMix) => phaseRGB ? Math.round(base * (1 - amt) + phaseRGB[idx] * amt) : base;
 
   // 清澈淺海 × 水下 caustics × 粉紫天空（Pan 2026-07-15 參考圖 IMG_9778）。不畫浪，畫光穿過水。
-  const waterTop = H * (0.44 - 0.02 * guidedPhase);   // 水面線；呼吸相位讓水面微升降
+  // 水面線隨握力升降：吸氣（握）＝海潮漲、水面往上升靠近你；吐氣（放）＝退潮下退（Pan 2026-07-16）。
+  const waterTop = H * (0.46 - 0.14 * tide - 0.02 * guidedPhase);
 
   // 粉紫黃昏天空（上淡紫→中粉→近水面霧白），低對比、柔和。
   const sky = ctx.createLinearGradient(0, 0, 0, waterTop + H * 0.04);
@@ -3367,8 +3429,8 @@ function drawSea(){
   if(cs){
     __causticFrame++;
     if(__causticFrame % 2 === 0 || state.phase !== "session"){   // 每兩幀更新一次省效能
-      const bright = 0.55 + 0.45 * tide + 0.10 * guidedPhase;
-      const density = 6.5 + 3.0 * tide;
+      const bright = 0.55 + 0.22 * tide + 0.08 * guidedPhase;   // 握力主要表現在水面上升，caustics 只微亮＝不緊張（Pan 2026-07-16）
+      const density = 6.2 + 1.4 * tide;
       renderCaustic(cs, t, bright, density);
     }
     ctx.save();
