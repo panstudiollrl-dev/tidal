@@ -318,6 +318,31 @@
     white-space: nowrap;
   }
   .core-orb.show-cue-text .orb-cue-text { display: grid; }
+  /* 電影字幕式提問：淡入淡出（Pan 2026-07-15 沉浸式結束） */
+  .after-caption { transition: opacity .6s ease; white-space: normal; padding: 0 14%; font-size: clamp(20px, 3.4vw, 32px); line-height: 1.35; }
+  .after-caption.fade { opacity: 0; }
+  .after-credits {
+    position: absolute;
+    inset: 0;
+    display: none;
+    place-content: center;
+    justify-items: center;
+    text-align: center;
+    gap: 10px;
+    padding: clamp(24px, 8vw, 80px);
+    color: rgba(245, 248, 244, .95);
+    line-height: 2;
+    opacity: 0;
+    transition: opacity 1s ease;
+    z-index: 4;
+    text-shadow: 0 1px 2px rgba(6,12,18,.8), 0 0 22px rgba(20,40,50,.5);
+    pointer-events: none;
+  }
+  .after-credits.show { display: grid; opacity: 1; }
+  .after-credits .credit-title { font-size: clamp(22px, 3.4vw, 32px); font-weight: 660; margin-bottom: 8px; }
+  .after-credits .credit-row { font-size: clamp(17px, 2.4vw, 22px); opacity: .92; }
+  .after-credits .credit-analysis { font-size: clamp(18px, 2.6vw, 24px); margin-top: 18px; max-width: 620px; line-height: 1.9; }
+  .after-credits .credit-note { font-size: clamp(15px, 2vw, 18px); opacity: .8; margin-top: 14px; max-width: 600px; line-height: 1.8; }
   #phaseSession .core-orb.show-count .orb-count {
     display: grid;
   }
@@ -732,13 +757,8 @@
 
       <section class="panel phase guide-panel" id="phaseAfter">
         <h2>結束後</h2>
-        <div id="afterOrb" class="core-orb" aria-hidden="true"><div class="orb-cue-text" id="afterOrbPrompt"></div></div>
-        <div class="session-stage">
-          <div class="arrival-title" id="afterTitle">結束後</div>
-          <div class="arrival-copy"><p id="afterQuestion">回看身體，而不是評分好壞。</p></div>
-          <div class="hint">用握力回答：越用力代表越多。握一下、放開，就到下一題。</div>
-          <div class="session-metrics"><span id="afterProgress">第 1 題</span></div>
-        </div>
+        <div id="afterOrb" class="core-orb" aria-hidden="true"><div class="orb-cue-text after-caption" id="afterOrbPrompt"></div></div>
+        <div class="after-credits" id="afterCredits"></div>
       </section>
     </div>
 
@@ -2218,7 +2238,7 @@ function setGrip(slot, level){
     requestAudioFadeIn();
   }
   handleArrivalGrip(slot, level);
-  if(state.phase === "after") handleAfterGrip();   // 結束後問卷用握力作答
+  // 結束後問卷改由 updateAfter 逐幀讀握力（電影字幕式），不在這裡處理。
   $("m" + slot).style.width = Math.round(level * 100) + "%";
   $("v" + slot).textContent = Math.round(level * 100) + "%";
   if(!engine) return;
@@ -2502,6 +2522,7 @@ function advanceManual478(){
   const gap = state.guided.manual478LastPressAt ? now - state.guided.manual478LastPressAt : 0;
   state.guided.manual478LastPressAt = now;
   if(gap > 150 && gap < 12000) m.pressGaps.push(gap);   // 按壓間距 → 之後判「呼吸平均程度」
+  state.grip478Count = (state.grip478Count || 0) + 1;   // 累計握放次數（結束後鼓勵用）
   beatPulse(phase.rgb);
   sendHapticAll(95, 42, true);
   // 頌缽在「數字出現的那一下」響，不晚一個數字（Pan 2026-07-15）：
@@ -2802,6 +2823,7 @@ function startSession(presetId = ""){
   state.phase = "session";
   state.sessionStart = performance.now();
   state.sessionEnd = null;
+  state.grip478Count = 0;   // 這次 session 的握放計數（結束後鼓勵用）
   state.guided.startedAt = performance.now();
   if(presetId) setBreathPreset(presetId);
   else if(state.arrival.report && state.arrival.report.recommended_preset) setBreathPreset(state.arrival.report.recommended_preset);
@@ -2853,69 +2875,116 @@ function endSession(){
 }
 
 // 結束後問卷：比照前面「相符程度／緊張程度」，用握力一題一幕作答（Pan 2026-07-15）。
+// 結束後：電影字幕式問句都在球上、淡入淡出，握越緊越符合、握住一段時間自動紀錄；
+// 之後工作人員名單式呈現數值＋整體分析，再換幕鼓勵、說明握力好處，最後整幕淡出（Pan 2026-07-15 沉浸式）。
 const AFTER_QUESTIONS = [
-  { key: "post",   title: "現在的緊張程度", q: "現在，身體有多緊？越用力握＝越緊，放鬆＝越鬆。" },
-  { key: "pushed", title: "節奏稍受催促", q: "剛才你的節奏有多受到催促？越用力＝越受催促。" },
-  { key: "stay",   title: "靜下來",       q: "你能否靜下來、感受當下？越用力＝越能靜下來。" },
-  { key: "agency", title: "同調",         q: "你覺得海潮聲與你的呼吸、手的握放同調嗎？越用力＝越同調。" },
+  { key: "post",   sub: "現在，身體還緊繃嗎？" },
+  { key: "pushed", sub: "剛才，節奏受催促嗎？" },
+  { key: "stay",   sub: "你，靜得下來嗎？" },
+  { key: "agency", sub: "海潮，與你同調嗎？" },
 ];
+const AFTER_ON = 0.14, AFTER_OFF = 0.07;
+const AFTER_HOLD_MS = 1500;   // 握著這麼久＝自動紀錄
 function beginAfter(){
-  state.after = { i: 0, armed: false, peak: 0, pressedAt: 0, orbFill: 0, answers: {}, done: false };
+  state.after = {
+    stage: "survey", i: 0, armed: false, peak: 0, heldMs: 0, orbFill: 0, answers: {},
+    fading: false, dismissed: false, lastT: performance.now(), stageAt: performance.now(),
+    rounds: (state.guided.manual478 && state.guided.manual478.completedCycles) || 0,
+    grips: state.grip478Count || 0,
+  };
   $("afterOrb").classList.add("show-cue-text");
+  $("afterOrbPrompt").classList.remove("fade");
+  $("afterCredits").classList.remove("show");
+  $("afterCredits").innerHTML = "";
   const rs = document.documentElement.style;
   rs.setProperty("--cue-fill", "0");
   rs.setProperty("--fill-r", "110"); rs.setProperty("--fill-g", "224"); rs.setProperty("--fill-b", "226");
 }
-// 問卷門檻較低，讓「低分」也能用輕握表達（答案＝握力強度 0–10）。
-const AFTER_ON = 0.14, AFTER_OFF = 0.07;
-function handleAfterGrip(){
-  const a = state.after; if(!a || a.done) return;
-  const now = performance.now();
-  const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
-  if(!a.armed){ if(held <= AFTER_OFF) a.armed = true; return; }   // 先放開才收（避免上一題殘留）
-  if(held >= AFTER_ON){
-    if(!a.pressedAt) a.pressedAt = now;
-    a.peak = Math.max(a.peak, held);
-  } else if(a.pressedAt && now - a.pressedAt > 400){
-    answerAfter();
-  } else {
-    a.pressedAt = 0;
-  }
-}
-function answerAfter(){
-  const a = state.after;
-  const q = AFTER_QUESTIONS[a.i];
-  a.answers[q.key] = Math.round(clamp(a.peak) * 10);   // 0–10
-  a.i += 1;
-  if(a.i >= AFTER_QUESTIONS.length){
-    a.done = true;
-    state.post = a.answers.post; state.pushed = a.answers.pushed;
-    state.stay = a.answers.stay; state.agency = a.answers.agency; state.note = "";
-    saveAfter();
-    return;
-  }
-  a.armed = false; a.peak = 0; a.pressedAt = 0; a.orbFill = 0;   // 下一題：先放開再作答
-  const panel = $("phaseAfter");
-  if(panel){ panel.classList.add("scene-dim"); setTimeout(() => requestAnimationFrame(() => panel.classList.remove("scene-dim")), 420); }   // 換幕
-}
 function updateAfter(){
   if(state.phase !== "after") return;
-  const a = state.after; if(!a || a.done) return;
+  const a = state.after; if(!a) return;
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - a.lastT) / 1000); a.lastT = now;
+  if(a.stage === "survey") afterSurveyStep(a, dt);
+  else if(a.stage === "results" && now - a.stageAt >= 8000) afterShowEncourage(a);
+  else if(a.stage === "encourage" && now - a.stageAt >= 11000 && !a.dismissed) afterDismiss(a);
+}
+function afterSurveyStep(a, dt){
   const q = AFTER_QUESTIONS[a.i];
-  $("afterTitle").textContent = q.title;
-  $("afterQuestion").textContent = q.q;
-  $("afterProgress").textContent = `第 ${a.i + 1} / ${AFTER_QUESTIONS.length} 題`;
   $("afterOrb").classList.add("show-cue-text");
+  if(!a.fading) $("afterOrbPrompt").textContent = q.sub;   // 字幕在球上
   const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
-  if(!a.armed){
-    a.orbFill = (a.orbFill || 0) * 0.8;
-    $("afterOrbPrompt").textContent = "先放開球";
-  } else {
-    const shown = Math.max(held, a.peak * 0.6);
-    a.orbFill = (a.orbFill || 0) + (shown - (a.orbFill || 0)) * 0.25;
-    $("afterOrbPrompt").textContent = held >= AFTER_ON ? String(Math.round(a.orbFill * 10)) : "握出你的答案";
+  const rs = document.documentElement.style;
+  if(!a.armed){ if(held <= AFTER_OFF) a.armed = true; a.orbFill *= 0.85; rs.setProperty("--cue-fill", a.orbFill.toFixed(3)); return; }
+  if(a.fading) return;
+  if(held >= AFTER_ON){ a.peak = Math.max(a.peak, held); a.heldMs += dt * 1000; }
+  else a.heldMs = 0;                                        // 要連續握住才算
+  a.orbFill += (Math.max(held, a.peak * 0.7) - a.orbFill) * 0.25;   // 握越緊水越高
+  rs.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
+  if(a.heldMs >= AFTER_HOLD_MS){                            // 握住一段時間→自動紀錄
+    a.answers[q.key] = Math.round(clamp(a.peak) * 10);
+    a.fading = true;
+    $("afterOrbPrompt").classList.add("fade");             // 字幕淡出
+    setTimeout(() => afterNextQuestion(a), 650);
   }
-  document.documentElement.style.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
+}
+function afterNextQuestion(a){
+  a.i += 1;
+  if(a.i >= AFTER_QUESTIONS.length){
+    state.post = a.answers.post; state.pushed = a.answers.pushed;
+    state.stay = a.answers.stay; state.agency = a.answers.agency; state.note = "";
+    saveAfter();                                           // 寫入 CSV（不換 phase）
+    afterShowResults(a);
+    return;
+  }
+  a.armed = false; a.peak = 0; a.heldMs = 0; a.orbFill = 0; a.fading = false;
+  $("afterOrbPrompt").classList.remove("fade");            // 下一題字幕淡入
+}
+function afterAnalysis(v){
+  const changed = (state.pre != null) ? (state.pre - v.post) : 0;   // 緊張下降＝正
+  let s = changed >= 2 ? "比開始時明顯放鬆了。"
+        : changed >= 1 ? "比開始時鬆了一些。"
+        : changed <= -1 ? "比開始時緊了一點——沒關係，身體有它的節奏。"
+        : "緊張程度大致維持。";
+  if(v.stay >= 7) s += "你相當能停留在當下。";
+  else if(v.stay <= 3) s += "還不太容易靜下來，多練幾次會更好。";
+  if(v.agency >= 7) s += "海潮也很跟得上你。";
+  return s;
+}
+function afterShowResults(a){
+  a.stage = "results"; a.stageAt = performance.now();
+  $("afterOrb").classList.remove("show-cue-text");
+  document.documentElement.style.setProperty("--cue-fill", "0");
+  const v = a.answers;
+  $("afterCredits").innerHTML =
+    '<div class="credit-title">這一次</div>' +
+    '<div class="credit-row">緊張程度　' + v.post + ' / 10</div>' +
+    '<div class="credit-row">節奏受催促　' + v.pushed + ' / 10</div>' +
+    '<div class="credit-row">靜下來　' + v.stay + ' / 10</div>' +
+    '<div class="credit-row">與海同調　' + v.agency + ' / 10</div>' +
+    '<div class="credit-analysis">' + afterAnalysis(v) + '</div>';
+  $("afterCredits").classList.add("show");
+}
+function afterShowEncourage(a){
+  a.stage = "encourage"; a.stageAt = performance.now();
+  $("afterCredits").classList.remove("show");
+  setTimeout(() => {
+    $("afterCredits").innerHTML =
+      '<div class="credit-title">謝謝你陪自己這一段</div>' +
+      '<div class="credit-row">你已經做了 ' + a.rounds + ' 回 4-7-8 呼吸</div>' +
+      '<div class="credit-row">以及 ' + a.grips + ' 次握放</div>' +
+      '<div class="credit-note">握力是身體整體活力的一個窗口——規律地握緊、放鬆，' +
+      '不只是在數拍，也在陪伴你的肌肉、神經與情緒的調節。每一次握放，都是給身體的一份溫柔練習。</div>';
+    $("afterCredits").classList.add("show");
+    a.stageAt = performance.now();   // 從字幕真正出現才開始計時
+  }, 1100);
+}
+function afterDismiss(a){
+  a.dismissed = true;
+  $("afterCredits").classList.remove("show");
+  const panel = $("phaseAfter");
+  if(panel) panel.classList.add("scene-dim");
+  setTimeout(() => { state.phase = "summary"; setPhase(); if(panel) panel.classList.remove("scene-dim"); }, 1400);
 }
 
 function saveAfter(){
@@ -2962,8 +3031,7 @@ function saveAfter(){
   };
   state.sessions.push(summary);
   $("btnCsv").disabled = false;
-  state.phase = "summary";
-  setPhase();
+  // phase 轉場交給沉浸式結束流程（結果→鼓勵→淡出）。
   log(`已儲存：緊張 ${state.pre} → ${state.post}。`);
 }
 

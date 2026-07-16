@@ -69,6 +69,14 @@
 
 ## 交接紀錄
 
+### 2026-07-15 — Claude｜沉浸式結束：字幕問句在球上、工作人員名單式結果分析、鼓勵、整幕淡出
+- 依 Pan：結束流程要像電影。重寫 phaseAfter：
+  1. **問句＝球上字幕**（`#afterOrbPrompt.after-caption`），淡入淡出；**握越緊水位越高（＝越符合）**，**連續握住 `AFTER_HOLD_MS=1500ms` 自動紀錄**（不用放開/按鈕），字幕淡出換下一題。四題短句：還緊繃嗎／節奏受催促嗎／靜得下來嗎／與海同調嗎。下方不再放小字。frame-driven（`updateAfter`→`afterSurveyStep`），移除 `handleAfterGrip`/滑桿。
+  2. **工作人員名單式結果**（`#afterCredits`）：呈現四個數值＋整體分析（比開始緊張升降＋停留＋同調），置中淡入，停 8 秒。
+  3. **換幕鼓勵**：顯示「你已做 N 回 4-7-8、M 次握放」＋握力對身體好處（非醫療、wellness）。`state.grip478Count`（advanceManual478 累加、startSession 歸零）、`completedCycles`。停 ~11 秒。
+  4. **整幕淡出**→ summary phase。`saveAfter` 仍寫 CSV，但**不再自己換 phase**（交給淡出流程）。
+- 驗證：語法 OK；jsdom 0 錯誤；after 狀態機模擬（4 題自動紀錄→results，含輕握低分）。真機請 Pan 確認節奏（1.5s 自動紀錄、8s/11s 停留是否合適）。
+
 ### 2026-07-15 — Claude｜修評估頁誤跳/緊張球殘留「請放鬆」、頌缽不晚一拍、結束問卷改握力一題一幕
 - 做了什麼（依 Pan 回饋）：
   1. **評估頁還沒壓就跳走**：上一步「表達緊張」那一握殘留進評估頁被當成作答→自動定案跳走。修：`agree` 子步驟加 `agreeArmed`＝**必須先放開才開始收握壓**（同 4-7-8 進場防殘握）；未 armed 時球上顯示「先放開球」、水位不動。
