@@ -317,7 +317,7 @@
     pointer-events: none;
     white-space: nowrap;
   }
-  #guideOrb.show-cue-text .orb-cue-text { display: grid; }
+  .core-orb.show-cue-text .orb-cue-text { display: grid; }
   #phaseSession .core-orb.show-count .orb-count {
     display: grid;
   }
@@ -732,24 +732,12 @@
 
       <section class="panel phase guide-panel" id="phaseAfter">
         <h2>結束後</h2>
-        <div class="core-orb" aria-hidden="true"></div>
-        <div class="hint">回看身體，而不是評分好壞。哪一刻有被推著走？哪一刻可以停留？</div>
-        <div style="margin:14px 0 8px">現在的緊張程度 <b id="postValue">5</b>/10</div>
-        <div class="rating">
-          <button class="icon ghost" id="postMinus">−</button>
-          <input id="postRange" type="range" min="0" max="10" value="5" />
-          <button class="icon ghost" id="postPlus">＋</button>
-        </div>
-        <div style="margin:12px 0 8px">這段有多像「被節奏推著走」？ <b id="pushedValue">5</b>/10</div>
-        <input id="pushedRange" type="range" min="0" max="10" value="5" />
-        <div style="margin:12px 0 8px">有多能停留、呼吸、觀察？ <b id="stayValue">5</b>/10</div>
-        <input id="stayRange" type="range" min="0" max="10" value="5" />
-        <div style="margin:12px 0 8px">聲音有多像可被你塑形？ <b id="agencyValue">5</b>/10</div>
-        <input id="agencyRange" type="range" min="0" max="10" value="5" />
-        <div style="margin:12px 0 8px">一句筆記</div>
-        <textarea id="rhythmNote" rows="3" placeholder="例如：一開始被拍石嚇到，後來潮汐變慢時比較能停。"></textarea>
-        <div class="controls" style="margin-top:12px">
-          <button id="btnSaveAfter">儲存這次紀錄</button>
+        <div id="afterOrb" class="core-orb" aria-hidden="true"><div class="orb-cue-text" id="afterOrbPrompt"></div></div>
+        <div class="session-stage">
+          <div class="arrival-title" id="afterTitle">結束後</div>
+          <div class="arrival-copy"><p id="afterQuestion">回看身體，而不是評分好壞。</p></div>
+          <div class="hint">用握力回答：越用力代表越多。握一下、放開，就到下一題。</div>
+          <div class="session-metrics"><span id="afterProgress">第 1 題</span></div>
         </div>
       </section>
     </div>
@@ -1766,6 +1754,11 @@ function handleArrivalConfirmation(slot, level, now){
   const arrival = state.arrival;
   const held = Math.max(state.grip[1], state.grip[2]);
   if(arrival.reportSub === "agree"){
+    // 先放開才開始接收：避免上一步「表達緊張」那一握殘留進來、還沒壓就定案跳走（Pan 2026-07-15）。
+    if(!arrival.agreeArmed){
+      if(held <= ARRIVAL_PRESS_OFF) arrival.agreeArmed = true;
+      return;
+    }
     if(held >= ARRIVAL_PRESS_ON){
       if(!arrival.agreePressedAt) arrival.agreePressedAt = now;
       arrival.agreePeak = Math.max(arrival.agreePeak, held);
@@ -1826,6 +1819,7 @@ function updateArrival(){
   }
   // 覺察呼吸 & 表達緊張：中央球水位跟著握力，讓使用者看見自己的表達（Pan 2026-07-14）。
   if(arrival.step === "breath" || arrival.step === "hold"){
+    $("guideOrb").classList.remove("show-cue-text");   // 這兩步球上不放校正提示（避免「請放鬆」殘留）
     const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
     arrival.orbFill = (arrival.orbFill || 0) + (clamp(grip) - (arrival.orbFill || 0)) * 0.25;
     const rs = document.documentElement.style;
@@ -1839,16 +1833,23 @@ function updateArrival(){
   }
   if(arrival.step === "report" && arrival.reportSub === "agree"){
     // 相符程度＝中央球水位：握越用力＝這段描述越貼近你。文字也在球上，對應著水位（Pan 2026-07-15）。
-    const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
-    const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
-    arrival.orbFill = (arrival.orbFill || 0) + (shown - (arrival.orbFill || 0)) * 0.25;
     const rs = document.documentElement.style;
-    rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
     rs.setProperty("--fill-r", "110"); rs.setProperty("--fill-g", "224"); rs.setProperty("--fill-b", "226");
     $("guideOrb").classList.add("show-cue-text");
-    $("cueOrbPrompt").textContent = held >= ARRIVAL_PRESS_ON
-      ? (arrival.orbFill > 0.62 ? "很貼近" : arrival.orbFill > 0.32 ? "有點像" : "不太像")
-      : "握出有多貼近";
+    if(!arrival.agreeArmed){
+      // 還沒放開上一握，先請使用者放開；水位歸零，不顯示假的相符度
+      arrival.orbFill = (arrival.orbFill || 0) * 0.8;
+      rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
+      $("cueOrbPrompt").textContent = "先放開球";
+    } else {
+      const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
+      const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
+      arrival.orbFill = (arrival.orbFill || 0) + (shown - (arrival.orbFill || 0)) * 0.25;
+      rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
+      $("cueOrbPrompt").textContent = held >= ARRIVAL_PRESS_ON
+        ? (arrival.orbFill > 0.62 ? "很貼近" : arrival.orbFill > 0.32 ? "有點像" : "不太像")
+        : "握出有多貼近";
+    }
   }
   if(arrival.step === "prelude" && arrival.preludeStart){
     const elapsed = (now - arrival.preludeStart) / 1000;
@@ -1983,7 +1984,8 @@ function finishHandCue(){
   if(cue.completed) return;
   cue.completed = true;
   document.documentElement.style.setProperty("--cue-fill", "0");
-  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success");
+  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success", "show-cue-text");   // 清掉校正提示，別讓「請放鬆」殘留到後面（Pan 2026-07-15）
+  $("cueOrbPrompt").textContent = "";
   const picked = cue.scores[2] > cue.scores[1] ? 2 : 1;
   if(cue.hand === "left"){
     state.handMap.left = picked;
@@ -2005,6 +2007,7 @@ function finishArrival(){
   state.arrival.agreePeak = 0;
   state.arrival.agreement = null;
   state.arrival.agreePressedAt = 0;
+  state.arrival.agreeArmed = false;   // 必須先放開才開始收評估的握壓
   state.arrival.orbFill = 0;
   $("reportImpression").textContent = report.impression;
   $("reportAgreeCopy").style.display = "";
@@ -2215,6 +2218,7 @@ function setGrip(slot, level){
     requestAudioFadeIn();
   }
   handleArrivalGrip(slot, level);
+  if(state.phase === "after") handleAfterGrip();   // 結束後問卷用握力作答
   $("m" + slot).style.width = Math.round(level * 100) + "%";
   $("v" + slot).textContent = Math.round(level * 100) + "%";
   if(!engine) return;
@@ -2493,14 +2497,16 @@ function advanceManual478(){
   if(now - state.guided.manual478LastPressAt < 220) return;
   const { m, phase } = manual478State();
   if(m.done) return;
+  const wasIntro = m.intro;
   m.intro = false;   // 第一次真正握下＝正式開始，離開「準備開始」引導
   const gap = state.guided.manual478LastPressAt ? now - state.guided.manual478LastPressAt : 0;
   state.guided.manual478LastPressAt = now;
   if(gap > 150 && gap < 12000) m.pressGaps.push(gap);   // 按壓間距 → 之後判「呼吸平均程度」
   beatPulse(phase.rgb);
   sendHapticAll(95, 42, true);
-  // 每一段的「第一次握」＝一聲頌缽（不重複觸發）；每回 4-7-8＝三聲。方位＝兩手力道向量中心。
-  if(m.remaining === phase.count) playBowlForHands();
+  // 頌缽在「數字出現的那一下」響，不晚一個數字（Pan 2026-07-15）：
+  //  吸氣＝第一次握（看到 4）響；進入停/吐＝把數字換成 7/8 的那一下同時響。每回 4-7-8＝三聲。
+  if(wasIntro) playBowlForHands();
   m.remaining -= 1;
   if(m.remaining <= 0){
     m.phaseIndex = (m.phaseIndex + 1) % MANUAL_478_PHASES.length;
@@ -2509,6 +2515,7 @@ function advanceManual478(){
       if(m.completedCycles >= MANUAL_478_TARGET_CYCLES){ complete478(); return; }   // 完全結束才淡出
     }
     m.remaining = MANUAL_478_PHASES[m.phaseIndex].count;
+    playBowlForHands();                                  // 數字剛變成新一段（7/8 或下一輪的 4）＝立刻響
     play478Voice(MANUAL_478_PHASES[m.phaseIndex]);
   }
   updateGuidedSession(true);
@@ -2840,12 +2847,78 @@ function endSession(){
   state.guided.hapticKey = "";
   if(engine) engine.setBreathGuide({ influence: 0, activate: 0, pan: 0 });
   $("btnEndSession").disabled = true;
+  beginAfter();       // 結束後問卷：用握力一題一幕
   setPhase();
-  log("Session 結束，請填寫結束後感受。");
+  log("Session 結束，請用握力回答幾個問題。");
+}
+
+// 結束後問卷：比照前面「相符程度／緊張程度」，用握力一題一幕作答（Pan 2026-07-15）。
+const AFTER_QUESTIONS = [
+  { key: "post",   title: "現在的緊張程度", q: "現在，身體有多緊？越用力握＝越緊，放鬆＝越鬆。" },
+  { key: "pushed", title: "被節奏推著走", q: "剛才這段，有多像被節奏推著走？越用力＝越被推著。" },
+  { key: "stay",   title: "能不能停留",   q: "有多能停留、呼吸、觀察？越用力＝越能停留。" },
+  { key: "agency", title: "可被你塑形",   q: "聲音有多像可以被你塑形？越用力＝越像你在塑形。" },
+];
+function beginAfter(){
+  state.after = { i: 0, armed: false, peak: 0, pressedAt: 0, orbFill: 0, answers: {}, done: false };
+  $("afterOrb").classList.add("show-cue-text");
+  const rs = document.documentElement.style;
+  rs.setProperty("--cue-fill", "0");
+  rs.setProperty("--fill-r", "110"); rs.setProperty("--fill-g", "224"); rs.setProperty("--fill-b", "226");
+}
+// 問卷門檻較低，讓「低分」也能用輕握表達（答案＝握力強度 0–10）。
+const AFTER_ON = 0.14, AFTER_OFF = 0.07;
+function handleAfterGrip(){
+  const a = state.after; if(!a || a.done) return;
+  const now = performance.now();
+  const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
+  if(!a.armed){ if(held <= AFTER_OFF) a.armed = true; return; }   // 先放開才收（避免上一題殘留）
+  if(held >= AFTER_ON){
+    if(!a.pressedAt) a.pressedAt = now;
+    a.peak = Math.max(a.peak, held);
+  } else if(a.pressedAt && now - a.pressedAt > 400){
+    answerAfter();
+  } else {
+    a.pressedAt = 0;
+  }
+}
+function answerAfter(){
+  const a = state.after;
+  const q = AFTER_QUESTIONS[a.i];
+  a.answers[q.key] = Math.round(clamp(a.peak) * 10);   // 0–10
+  a.i += 1;
+  if(a.i >= AFTER_QUESTIONS.length){
+    a.done = true;
+    state.post = a.answers.post; state.pushed = a.answers.pushed;
+    state.stay = a.answers.stay; state.agency = a.answers.agency; state.note = "";
+    saveAfter();
+    return;
+  }
+  a.armed = false; a.peak = 0; a.pressedAt = 0; a.orbFill = 0;   // 下一題：先放開再作答
+  const panel = $("phaseAfter");
+  if(panel){ panel.classList.add("scene-dim"); setTimeout(() => requestAnimationFrame(() => panel.classList.remove("scene-dim")), 420); }   // 換幕
+}
+function updateAfter(){
+  if(state.phase !== "after") return;
+  const a = state.after; if(!a || a.done) return;
+  const q = AFTER_QUESTIONS[a.i];
+  $("afterTitle").textContent = q.title;
+  $("afterQuestion").textContent = q.q;
+  $("afterProgress").textContent = `第 ${a.i + 1} / ${AFTER_QUESTIONS.length} 題`;
+  $("afterOrb").classList.add("show-cue-text");
+  const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
+  if(!a.armed){
+    a.orbFill = (a.orbFill || 0) * 0.8;
+    $("afterOrbPrompt").textContent = "先放開球";
+  } else {
+    const shown = Math.max(held, a.peak * 0.6);
+    a.orbFill = (a.orbFill || 0) + (shown - (a.orbFill || 0)) * 0.25;
+    $("afterOrbPrompt").textContent = held >= AFTER_ON ? String(Math.round(a.orbFill * 10)) : "握出你的答案";
+  }
+  document.documentElement.style.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
 }
 
 function saveAfter(){
-  state.note = $("rhythmNote").value.trim();
   const summary = {
     timestamp: new Date().toISOString(),
     duration_seconds: sessionSeconds().toFixed(1),
@@ -3028,7 +3101,7 @@ if("hid" in navigator){
 }
 $("btnStartSession").addEventListener("click", startArrival);
 $("btnEndSession").addEventListener("click", endSession);
-$("btnSaveAfter").addEventListener("click", saveAfter);
+// btnSaveAfter 已移除：結束後問卷用握力作答，最後一題完成時自動 saveAfter()。
 $("btnCsv").addEventListener("click", downloadCsv);
 $("btnPracticeIntro").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
 $("btnPracticeInline").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
@@ -3036,12 +3109,7 @@ $("btnPracticeShortcut").addEventListener("click", () => enterGuidedPractice().c
 document.querySelectorAll(".preset-btn").forEach(btn => {
   btn.addEventListener("click", () => setBreathPreset(btn.dataset.preset));
 });
-$("postMinus").addEventListener("click", () => { state.post = Math.max(0, state.post - 1); $("postRange").value = state.post; $("postValue").textContent = state.post; });
-$("postPlus").addEventListener("click", () => { state.post = Math.min(10, state.post + 1); $("postRange").value = state.post; $("postValue").textContent = state.post; });
-bindRange("postRange", "postValue", "post");
-bindRange("pushedRange", "pushedValue", "pushed");
-bindRange("stayRange", "stayValue", "stay");
-bindRange("agencyRange", "agencyValue", "agency");
+// 結束後問卷改成握力一題一幕（見 updateAfter/handleAfterGrip），不再用滑桿。
 
 if(!("hid" in navigator)){
   $("browserWarn").style.display = "block";
@@ -3318,6 +3386,7 @@ function render(){
   // 即時節奏顯示已移除（Pan 2026-07-09：聽覺上感覺不到、無實質意義）。
   // 仍在背景算 dominant_mode 供 session CSV 研究欄位用，但不顯示給使用者。
   updateArrival();
+  updateAfter();
   updateGuidedSession();
   updateCoreVisual();
   state.dominantMode = analyzeMode().mode;
