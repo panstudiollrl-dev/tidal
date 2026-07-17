@@ -3912,6 +3912,18 @@ function render(){
   requestAnimationFrame(render);
 }
 render();
+
+// 任何一次使用者互動（點按/觸控/按鍵）都確保聲音已啟動並 resume——不必特地按「啟動聲音」，
+// 又符合瀏覽器 autoplay 需要手勢的政策。解 Pan 2026-07-17：球已授權自動接回、直接點「開始抵達」時
+// startArrival 不會 resume ctx，握球又不是 DOM 手勢 → ctx 一直 suspended → 沒聲音。
+function ensureAudioOnGesture(){
+  if(audioCtx && audioCtx.state === "running") return;
+  startAudio({ resume: true }).catch(() => {});
+}
+addEventListener("pointerdown", ensureAudioOnGesture, true);
+addEventListener("keydown", ensureAudioOnGesture, true);
+addEventListener("touchstart", ensureAudioOnGesture, { capture: true, passive: true });
+
 bootExperience();
 </script>
 </body>
