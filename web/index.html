@@ -318,6 +318,7 @@
     white-space: nowrap;
   }
   .core-orb.show-cue-text .orb-cue-text { display: grid; }
+  .core-orb.show-phase-label .orb-phase-label { display: block; }
   /* 電影字幕式提問：淡入淡出（Pan 2026-07-15 沉浸式結束） */
   .after-caption { transition: opacity .6s ease; white-space: normal; padding: 0 14%; font-size: clamp(20px, 3.4vw, 32px); line-height: 1.35; }
   .after-caption.fade { opacity: 0; }
@@ -368,12 +369,7 @@
     min-width: 248px;
     transform: translateX(calc(var(--core-drift) + var(--breath-pan-x))) scale(var(--session-scale));
     background:
-      /* 能量水位：握力越大水灌越高，明亮 aqua ＋ waterline 亮線，明顯看得到升降（Pan 2026-07-14） */
-      linear-gradient(to top,
-        rgba(110, 224, 226, .60) 0 calc(var(--session-water) * 100%),
-        rgba(198, 248, 246, .92) calc(var(--session-water) * 100%) calc(var(--session-water) * 100% + 4px),
-        rgba(110, 224, 226, 0) calc(var(--session-water) * 100% + 4px)),
-      radial-gradient(circle at 40% calc(44% - 28% * var(--breath-phase)), rgba(240, 244, 248, calc(.54 + .20 * var(--breath-phase))), rgba(198, 214, 228, calc(.18 + .16 * var(--breath-phase))) 30%, transparent 60%),
+      radial-gradient(circle at calc(44% + var(--breath-pan-shift)) calc(40% - 18% * var(--breath-phase)), rgba(240, 250, 248, calc(.50 + .18 * var(--session-water))), rgba(176, 230, 224, calc(.18 + .18 * var(--session-water))) 28%, transparent 60%),
       radial-gradient(circle at calc(50% + var(--breath-pan-shift)) 54%, rgba(200, 200, 214, calc(.10 + .14 * var(--heart-weather))), transparent 46%),
       radial-gradient(circle at 50% 50%, rgba(226, 232, 238, .13), rgba(143, 176, 200, calc(.08 + .09 * var(--heart-weather))) 38%, rgba(14, 20, 28, .04) 74%, transparent 78%);
     /* 4-7-8：整顆核心染上該相位的顏色（吸青綠／停暖金／吐靛藍），一眼可辨現在該做什麼 */
@@ -690,7 +686,7 @@
         <div id="arrivalHandCue" style="display:none">
           <div class="arrival-title" id="handCueTitle">校正 · 左手</div>
           <div class="arrival-copy">
-            <p>先幫我認識你的握力。跟著提示：看到<b>請握起</b>就用你覺得舒適的力量握起，看到<b>請放鬆</b>就完全鬆開，這樣三次。</p>
+            <p>先幫我認識你的握力。看著中央的球，讓手跟著它的提示走三次。</p>
           </div>
           <div class="breath-word" id="handCuePrompt" style="display:none">準備…</div>
           <div class="hint" id="handCueHint">水位會跟著你的握力升降。</div>
@@ -705,16 +701,16 @@
           <div class="arrival-title">用握力表達緊張的程度</div>
           <div class="arrival-copy">
             <p>現在，請用手表示你此刻的緊張、情緒或能量有多大。</p>
-            <p>越用力，代表越滿、越緊、越澎湃；越輕，代表越平靜。握住一下，讓它被看見。</p>
+            <p>越用力，代表越滿、越緊、越澎湃；越輕，代表越平靜。</p>
           </div>
           <div class="arrival-progress"><span id="holdProgress"></span></div>
-          <div class="hint" id="holdHint">準備好時，握住一下。</div>
+          <div class="hint" id="holdHint" style="display:none">準備好時，握住一下。</div>
         </div>
         <div id="arrivalReport" style="display:none">
           <div class="arrival-title">小小回顧</div>
           <div class="report-impression" id="reportImpression">&nbsp;</div>
           <div class="arrival-copy" id="reportAgreeCopy">
-            <p>這只是一個猜測。如果貼近現在的你，就把球握緊一會兒；沒那麼準，就輕輕握；完全不像，放著就好。</p>
+            <p>這只是一個猜測。看著中央的球，用水位告訴我它有多貼近現在的你。</p>
           </div>
           <div class="agree-meter" id="agreeMeter" style="display:none"><span id="agreeFill"></span></div>
           <div class="hint" id="reportHint" style="display:none">用握力表示這段描述有多貼近你。</div>
@@ -794,20 +790,26 @@
 <script>
 "use strict";
 
-const VENDOR_ID = 0x08E2;
-const PRODUCT_ID = 0x0101;
+// SimoTech MB01 grip balls currently in use:
+// - 10013181
+// - 10013802
+// WebHID does not expose serial numbers, so we match by vendor/product and assign slots by connection order.
+const SUPPORTED_GRIP_BALLS = [
+  { vendorId: 0x08E2, productId: 0x0101, name: "SimoTech MB01" },
+];
 const MODE_9DOF_GRIP = 3;
 const AUTO_ONSET_DELTA = 450;
 // 浮動握力校正（Pan 2026-07-09：固定滿刻度太高，很用力才到 30%）。滿刻度會自動追蹤你的握力範圍。
-const GRIP_MIN_SPAN = 300;         // 滿刻度最小跨距（避免雜訊時過度靈敏）
+const GRIP_MIN_SPAN = 520;         // 滿刻度最小跨距（避免拿起球、手指貼著就過度靈敏）
 const GRIP_MAX_SPAN = 1400;        // 滿刻度上限（避免異常大值）
-const GRIP_HEADROOM = 1.0;         // 滿刻度＝觀察到的最大握力（前面各握三下的 cue 會把 span 拉到你的舒適最大）。
+const GRIP_HEADROOM = 1.35;        // 留一點餘裕：舒適最大握力不會立刻被映射成滿水位。
                                    // =1 讓最用力＝100%、輕握有比例，不必死命握（Pan 2026-07-14：之前 1.15 要很用力才有反應）。
 const GRIP_SPAN_DECAY = 0.99975;   // 觀察到的最大握力慢慢遺忘、重新適應（每筆 report 乘一次）
 // 握力→水位的「自然對應曲線」：不是線性。依 Stevens 冪定律（S=k·Iⁿ；握力是 Stevens 1960 的經典連續量），
 // 用 pow(level, GRIP_GAMMA) 做知覺補償。GRIP_GAMMA<1＝壓縮曲線，低-中握就有明顯反應、末段趨緩，握起來最自然
 // （等同 Max/MSP `scale` 物件第 5 參數 exponent 的作用——把線性輸入彎成知覺線性）。0.55 比 0.75 更靈敏。
-const GRIP_GAMMA = 0.55;
+const GRIP_GAMMA = 0.78;
+const GRIP_DEADZONE = 0.10;        // 低端死區：把「拿起來／輕碰」留給 0 附近，不直接灌滿水位。
 const HARD_GRIP = 0.7;
 const SWING_MIN = 0.5;
 const STRONG_SWING = 1.4;
@@ -815,6 +817,7 @@ const ARRIVAL_BREATH_SECONDS = 30;
 const ARRIVAL_HOLD_SECONDS = 1.8;
 const ARRIVAL_HOLD_INTRO_MS = 1800;
 const ARRIVAL_HOLD_RELEASE_DELAY_MS = 650;
+const ARRIVAL_HOLD_RESPONSE_MS = 5200;
 const ARRIVAL_PRELUDE_SECONDS = 5;
 // 壓縮曲線（GRIP_GAMMA 0.55）會把微小殘壓也放大成 ~0.1，故放開門檻要高一點才偵測得到「放開」，
 // 否則抵達的握持題會卡住（Pan 2026-07-14：卡在用握力表達緊張程度）。ON/OFF 之間留 hysteresis。
@@ -824,12 +827,17 @@ const ARRIVAL_PRESS_OFF = 0.16;
 const MANUAL_478_ON = 0.20;
 const MANUAL_478_OFF = 0.09;
 const BREATH_MARK_MIN_GAP_MS = 900;
+const AGREEMENT_FIX_MS = 900;
+const AGREEMENT_RESPONSE_MS = 5200;
+const AGREEMENT_AUTO_ADVANCE_MS = 900;
 const HAND_CUE_REPS = 3;
 const HAND_CUE_READY_MS = 1800;
 const HAND_CUE_ON_MS = 1800;
 const HAND_CUE_OFF_MS = 2500;
+const HAND_CUE_RELEASE_MS = 650;
 const HID_STALE_MS = 2500;
 const HID_MODE_RESEND_MS = 1400;
+const HID_FORGET_STALE_MS = 6500;
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
@@ -860,6 +868,7 @@ const state = {
   connected: { 1: false, 2: false },
   ready: { 1: false, 2: false },
   lastGripReportAt: { 1: 0, 2: 0 },
+  connectedAt: { 1: 0, 2: 0 },
   lastModeSentAt: { 1: 0, 2: 0 },
   handMap: { left: null, right: null },
   guided: {
@@ -879,6 +888,7 @@ const state = {
   },
   arrival: {
     step: "intro",
+    transitionTo: null,
     preludeStart: null,
     breathStart: null,
     holdIntroAt: null,
@@ -907,6 +917,8 @@ const state = {
       armed: false,
       fill: 0,
       successSoundAt: 0,
+      waitingRelease: false,
+      releaseSince: 0,
     },
     report: null,
   },
@@ -921,14 +933,15 @@ class GripCalibrator {
     // 浮動滿刻度：追蹤觀察到的最大握力，慢慢適應；有界
     this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
     this.span = clamp(this.span, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
-    // 慢漂移併入 baseline：只在「幾乎已放開」時才重新歸零（this.level < 0.12）。
+    // 慢漂移併入 baseline：只在「幾乎已放開」時才重新歸零（this.level < 0.16）。
     // 這樣持續握到一半不會被當成漂移吃掉而消失（Pan 2026-07-14：用一半握力感測就消失）。
-    if(this.level < 0.12 && delta < this.span * 0.12) this.baseline += (raw - this.baseline) * 0.05;
+    // 也讓拿起球造成的微小偏移慢慢併回 baseline，不把「握著球」誤認成「正在表達力道」。
+    if(this.level < 0.16 && delta < this.span * 0.18) this.baseline += (raw - this.baseline) * 0.07;
     const effScale = this.span * GRIP_HEADROOM;                 // 到你握力範圍就算滿
     let rawLevel = clamp(posDelta / effScale);
-    if(rawLevel < 0.05) rawLevel = 0;                          // 底部死區：真正放開＝0，消掉壓縮曲線放大的殘壓（Pan 2026-07-14：4-7-8 卡住）
+    rawLevel = rawLevel <= GRIP_DEADZONE ? 0 : clamp((rawLevel - GRIP_DEADZONE) / (1 - GRIP_DEADZONE));
     const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA）
-    this.level += (shaped - this.level) * 0.15;                 // 平滑
+    this.level += (shaped - this.level) * 0.12;                 // 平滑
     return this.level;
   }
 }
@@ -1035,16 +1048,27 @@ class OceanEngine {
     this.bubblePanner.connect(this.convolver);
     this.gripTotal = 0;                              // 兩手總力道（質量中心的權重和）
 
-    // 波光（Pan 2026-07-16，參考 Luc Ferrari「Sea Hole」/ 上傳 0004）：陽光在水面波光嶙峋＝
-    // 明亮中頻 shimmer（帶通噪音＋慢 LFO 明滅）＋稀疏的電子「粼光」鐘聲（中頻旋律音）。與 caustics 視覺對位。
-    this.shimmer = OceanEngine.noiseSource(ctx);
+    // 波光（Pan 2026-07-16，參考 3-Audio 0005）：不是高頻亮片，而是 350–1600Hz 的中頻水光。
+    // 以幾個柔和模態音構成連續的玻璃水面，再用小群閃點補出波光嶙峋。
+    this.shimmerBus = ctx.createGain();
+    this.shimmerBus.gain.value = 1;
     this.shimmerBP = ctx.createBiquadFilter();
-    this.shimmerBP.type = "bandpass";
-    this.shimmerBP.frequency.value = 1900;           // 分析：主體 500–2000Hz、centroid ~3kHz、亮
-    this.shimmerBP.Q.value = 0.7;
+    this.shimmerBP.type = "lowpass";
+    this.shimmerBP.frequency.value = 1450;
+    this.shimmerBP.Q.value = 0.55;
     this.shimmerGain = ctx.createGain();
     this.shimmerGain.gain.value = 0;
-    this.shimmer.connect(this.shimmerBP);
+    this.causticVoices = [421.9, 562.5, 726.6, 937.5, 1277.3].map((base, i) => {
+      const osc = ctx.createOscillator();
+      osc.type = i < 2 ? "triangle" : "sine";
+      osc.frequency.value = base;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      osc.connect(gain);
+      gain.connect(this.shimmerBus);
+      return { osc, gain, base, phase: Math.random() * Math.PI * 2, rate: 0.08 + i * 0.045, weight: [0.30, 0.26, 0.20, 0.15, 0.09][i] };
+    });
+    this.shimmerBus.connect(this.shimmerBP);
     this.shimmerBP.connect(this.shimmerGain);
     this.shimmerGain.connect(this.dry);
     this.shimmerGain.connect(this.convolver);        // 帶空間
@@ -1124,7 +1148,7 @@ class OceanEngine {
     this.pebble.start();
     this.sub.start();
     this.bubble.start();
-    this.shimmer.start();
+    this.causticVoices.forEach(v => v.osc.start());
     this.wide.start();
     this.droneNoise.start();
     this.tide = 0;
@@ -1342,8 +1366,14 @@ class OceanEngine {
     this.sideR.g.gain.setTargetAtTime(0.018 + 0.30 * sideRTgt * (0.85 + 0.15 * this.rw2), now, 0.5);
     this.sideL.lp.frequency.setTargetAtTime(420 + 520 * sideLTgt, now, 0.9);
     this.sideR.lp.frequency.setTargetAtTime(420 + 520 * sideRTgt, now, 0.9);
-    // 駐音層：guided.drone 由 4-7-8 停屏相位推起；平時維持極低（不為零）
-    this.droneGain.gain.setTargetAtTime(0.16 * clamp(guided.drone || 0), now, 1.1);   // 無 floor：只有 4-7-8 停屏才有駐音，平時完全靜（Pan 2026-07-14：不要持續低音）
+    // 駐音層：4-7-8 已取消持續噪音；drone 為 0 時快速歸零，避免鍵盤測試時殘留白噪音。
+    const droneLevel = clamp(guided.drone || 0);
+    if(droneLevel <= 0.001){
+      this.droneGain.gain.cancelScheduledValues(now);
+      this.droneGain.gain.setTargetAtTime(0, now, 0.035);
+    } else {
+      this.droneGain.gain.setTargetAtTime(0.16 * droneLevel, now, 1.1);
+    }
     // 水底氣泡湧動（OBA）：音量隨握力湧起；**聲源位置＝兩手力道質量中心 this.gripPan**，逐幀移動＝空間感。
     // 距離隨總力道（越用力越近）；慢 LFO 讓帶通中心游移，像水下翻騰的氣泡。
     const bubbleLfo = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 3.7);
@@ -1355,17 +1385,24 @@ class OceanEngine {
     this.bubblePanner.positionZ.setTargetAtTime(-Math.cos(bRad) * bDist, now, 0.12);
     this.metrics.pebble = stoneAmt * roll;
 
-    // 波光 shimmer：明亮中頻噪音，慢 LFO 明滅＝陽光在水面閃動。握力/湧浪讓它更亮更多。
-    const twinkle = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 2.3) * Math.sin(t * 2 * Math.PI / 5.7);
-    this.shimmerGain.gain.setTargetAtTime((0.010 + 0.030 * energy) * (0.5 + 0.5 * twinkle), now, 0.4);
-    this.shimmerBP.frequency.setTargetAtTime(1500 + 900 * energy + 300 * swell, now, 0.6);
-    // 粼光鐘聲：稀疏（分析 0004 ~1.2/s）；能量越高越密越亮。中頻五聲音階（對到分析的電子音頻）。
-    if(now - this.lastGlint > (1.5 - 0.9 * energy) * (0.7 + 0.6 * Math.random())){
+    // 波光：參考 0005 的中頻水光，能量集中在 350–1600Hz、centroid 約 750Hz。
+    // 不是高頻叮聲，而是幾個柔和模態音以慢速包絡互相明滅。
+    const caustic = 0.45 + 0.30 * Math.sin(t * 2 * Math.PI * 0.10) + 0.18 * Math.sin(t * 2 * Math.PI * 0.20 + 1.4) + 0.10 * Math.sin(t * 2 * Math.PI * 5.18);
+    const causticAmt = clamp(0.012 + 0.044 * energy + 0.012 * swell);
+    this.shimmerGain.gain.setTargetAtTime(causticAmt * clamp(caustic, 0.16, 1), now, 0.35);
+    this.shimmerBP.frequency.setTargetAtTime(1120 + 260 * energy + 140 * swell, now, 0.7);
+    if(this.causticVoices){
+      this.causticVoices.forEach((v, i) => {
+        const m = 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.sin(t * 2 * Math.PI * v.rate + v.phase), 2.2);
+        v.gain.gain.setTargetAtTime(v.weight * m, now, 0.35 + i * 0.06);
+        v.osc.frequency.setTargetAtTime(v.base * (1 + 0.004 * Math.sin(t * 2 * Math.PI * (0.06 + i * 0.017) + v.phase)), now, 0.8);
+      });
+    }
+    // 粼光：以 0005 的事件密度（約 1.6/s）做成中頻小群閃點，不再用高頻旋律鐘。
+    if(now - this.lastGlint > (0.72 - 0.30 * energy) * (0.62 + 0.65 * Math.random())){
       this.lastGlint = now;
-      const scale = [523, 587, 659, 784, 880, 1047, 1175, 1319, 1568];   // 五聲＋八度，落在 500–1600Hz
-      const f = scale[(Math.random() * scale.length) | 0];
       const pan = clamp(this.gripPan * 0.6 + (Math.random() * 2 - 1) * 0.6, -1, 1);
-      this.glint(f, pan, 0.05 + 0.06 * energy);
+      this.glint(pan, 0.044 + 0.052 * energy);
     }
 
     if(now - this.lastSwing > 0.3) this.azTarget *= 0.985;
@@ -1395,6 +1432,11 @@ class OceanEngine {
   setGripCenter(pan, total){ this.gripPan = clamp(pan, -1, 1); this.gripTotal = clamp(total || 0); }
   setBreathGuide(guide){
     this.breathGuide = Object.assign({}, this.breathGuide, guide);
+    if(Object.prototype.hasOwnProperty.call(guide, "drone") && (guide.drone || 0) <= 0 && this.droneGain){
+      const now = this.ctx.currentTime;
+      this.droneGain.gain.cancelScheduledValues(now);
+      this.droneGain.gain.setTargetAtTime(0, now, 0.025);
+    }
   }
 
   cueWave(pan = 0, amount = 1){
@@ -1553,34 +1595,45 @@ class OceanEngine {
     nz.stop(now + 0.4);
   }
 
-  // 粼光（Pan 2026-07-16）：一顆明亮、短的電子鐘聲＝陽光打在水面的一個閃點。
-  // 中頻旋律音（分析 0004 的電子音約 500–1900Hz）＋輕微非諧＋快起音短衰減，走 HRTF＋殘響。
-  glint(freq, pan = 0, amp = 0.09){
+  // 粼光（Pan 2026-07-16，0005）：中頻小群閃點，像水面折射在耳邊一簇一簇亮起。
+  // 頻率固定在分析峰值附近，短促但不尖銳；避免變成 UI 提示音。
+  glint(pan = 0, amp = 0.09){
     const now = this.ctx.currentTime;
     const p = this.ctx.createPanner();
     p.panningModel = "HRTF";
-    p.distanceModel = "inverse"; p.refDistance = 1; p.maxDistance = 22; p.rolloffFactor = 1.0;
+    p.distanceModel = "inverse"; p.refDistance = 1; p.maxDistance = 24; p.rolloffFactor = 0.85;
     const rad = clamp(pan, -1, 1) * Math.PI / 2;
-    p.positionX.setValueAtTime(Math.sin(rad) * 2.4, now);
-    p.positionZ.setValueAtTime(-Math.cos(rad) * 2.4, now);
+    p.positionX.setValueAtTime(Math.sin(rad) * 3.2, now);
+    p.positionZ.setValueAtTime(-Math.cos(rad) * 3.2, now);
     const out = this.ctx.createGain(); out.gain.value = 1;
-    out.connect(p); p.connect(this.dry); p.connect(this.convolver); p.connect(this.impactPre);   // 帶空間尾巴
-    const ratios = [1, 2.02, 3.01];        // 輕微非諧＝鐘/水滴光澤
-    const amps = [1, 0.34, 0.14];
-    const decays = [1.6, 0.9, 0.5];
-    ratios.forEach((r, i) => {
-      const o = this.ctx.createOscillator();
-      o.type = "sine";
-      o.frequency.value = freq * r;
-      const g = this.ctx.createGain(); g.gain.value = 0;
-      o.connect(g); g.connect(out);
-      const a = clamp(amp, 0, 0.16) * amps[i];
-      g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(a, now + 0.006);   // 快起音
-      g.gain.setTargetAtTime(0, now + 0.006, decays[i]); // 短衰減
-      o.start(now);
-      o.stop(now + decays[i] * 4 + 0.3);
-    });
+    const dryG = this.ctx.createGain(); dryG.gain.value = 0.54;
+    const wetG = this.ctx.createGain(); wetG.gain.value = 0.70;
+    const tailG = this.ctx.createGain(); tailG.gain.value = 0.46;
+    out.connect(p);
+    p.connect(dryG); dryG.connect(this.dry);
+    p.connect(wetG); wetG.connect(this.convolver);
+    p.connect(tailG); tailG.connect(this.impactPre);   // 帶空間尾巴，減少乾硬的近距離叮聲
+    const freqs = [421.9, 562.5, 726.6, 937.5, 1277.3, 1568];
+    const cluster = 2 + ((Math.random() * 3) | 0);
+    for(let j = 0; j < cluster; j++){
+      const at = now + j * (0.070 + 0.045 * Math.random());
+      const base = freqs[(Math.random() * freqs.length) | 0] * (0.985 + Math.random() * 0.03);
+      [1, 1.003 + Math.random() * 0.006].forEach((ratio, i) => {
+        const o = this.ctx.createOscillator();
+        o.type = j === 0 ? "triangle" : "sine";
+        o.frequency.value = base * ratio;
+        const g = this.ctx.createGain(); g.gain.value = 0;
+        o.connect(g); g.connect(out);
+        const highSoften = base > 1450 ? 0.44 : base > 1100 ? 0.72 : base > 900 ? 0.88 : 1;
+        const a = clamp(amp, 0, 0.13) * highSoften * (i ? 0.30 : 0.74) * (1 - j * 0.18);
+        const decay = 0.70 + 0.52 * Math.random();
+        g.gain.setValueAtTime(0, at);
+        g.gain.linearRampToValueAtTime(a, at + 0.032);
+        g.gain.setTargetAtTime(0, at + 0.055, decay);
+        o.start(at);
+        o.stop(at + decay * 4 + 0.25);
+      });
+    }
   }
 }
 
@@ -1641,6 +1694,7 @@ function resetArrival(){
   state.guided.hapticKey = "";
   state.arrival = {
     step: "intro",
+    transitionTo: null,
     preludeStart: null,
     breathStart: null,
     holdIntroAt: null,
@@ -1662,6 +1716,10 @@ function resetArrival(){
     agreePeak: 0,             // 這段描述有多貼近你（握力峰值 0–1）
     agreement: null,          // 最終符合度
     agreePressedAt: 0,        // 這輪握壓開始時間
+    agreeBand: null,          // 目前停留在哪個相符程度區間
+    agreeFixed: false,        // 相符程度已經固定；等使用者放鬆後才換下一幕
+    agreeFixedAt: 0,
+    agreeStartedAt: 0,        // 問題出現後的回應窗；沒有握也是回答
     suggestReadyAt: 0,        // 進 suggest 後的緩衝，避免同一次握壓誤觸繼續
     handCue: {
       hand: "left",
@@ -1674,6 +1732,8 @@ function resetArrival(){
       successThisRep: false,
       fill: 0,
       successSoundAt: 0,
+      waitingRelease: false,
+      releaseSince: 0,
     },
     report: null,
   };
@@ -1682,8 +1742,9 @@ function resetArrival(){
 
 function showArrivalStep(step, animate = true){
   const panel = $("phaseBefore");
-  state.arrival.step = step;
-  if(animate && panel.classList.contains("active")){
+  if(animate && panel.classList.contains("active") && state.arrival.step !== step){
+    if(state.arrival.transitionTo === step) return;
+    state.arrival.transitionTo = step;
     panel.classList.add("scene-dim");
     setTimeout(() => {
       showArrivalStep(step, false);
@@ -1691,6 +1752,8 @@ function showArrivalStep(step, animate = true){
     }, 720);
     return;
   }
+  state.arrival.step = step;
+  state.arrival.transitionTo = null;
   $("arrivalIntro").style.display = step === "intro" ? "block" : "none";
   $("arrivalConnect").style.display = step === "connect" ? "block" : "none";
   $("arrivalHandCue").style.display = step === "handCue" ? "block" : "none";
@@ -1724,7 +1787,8 @@ function readyCount(){
 
 function showConnectOrStart(){
   const n = connectedCount();
-  if(n >= 2) beginHandCue("left");
+  const r = readyCount();
+  if(n >= 2 && r >= 2) beginHandCue("left");
   else {
     showArrivalStep("connect");
     updateConnectScene();
@@ -1735,8 +1799,16 @@ function updateConnectScene(){
   const connected = connectedCount();
   const ready = readyCount();
   const hidAvailable = "hid" in navigator;
-  $("btnConnectInline").textContent = !hidAvailable ? "用空白鍵進行自我檢測" : (connected === 0 ? "連接握力球" : "再連接另一顆握力球");
-  $("btnConnectInline").disabled = !hidAvailable;
+  $("btnConnectInline").textContent = !hidAvailable
+    ? "用空白鍵進行自我檢測"
+    : connected === 0
+      ? "連接握力球"
+      : connected === 1
+        ? "再連接另一顆握力球"
+        : ready < 2
+          ? "等待握力球回應"
+          : "準備進入校正";
+  $("btnConnectInline").disabled = !hidAvailable || connected >= 2;
   $("connectCopy").textContent = !hidAvailable
     ? "這個瀏覽器不能連握力球。你仍然可以直接進入呼吸練習，或用空白鍵先跑一段自我檢測。"
     : connected === 0
@@ -1750,7 +1822,7 @@ function updateConnectScene(){
 
 function maybeAdvanceFromConnect(){
   if(state.arrival.step !== "connect") return;
-  if(connectedCount() >= 2) beginHandCue("left");
+  if(connectedCount() >= 2 && readyCount() >= 2) beginHandCue("left");
   else updateConnectScene();
 }
 
@@ -1759,7 +1831,7 @@ function beginHandCue(hand){
   cue.hand = hand;
   cue.cueOn = false;
   cue.rep = 0;
-  cue.startedAt = performance.now();
+  cue.startedAt = null;
   cue.scores = { 1: 0, 2: 0 };
   cue.completed = false;
   cue.lastRep = -1;
@@ -1767,6 +1839,8 @@ function beginHandCue(hand){
   cue.armed = false;
   cue.fill = 0;
   cue.successSoundAt = 0;
+  cue.waitingRelease = true;
+  cue.releaseSince = 0;
   $("handCueTitle").textContent = hand === "left" ? "校正 · 左手" : "校正 · 右手";
   $("handCueHint").textContent = "";
   document.documentElement.style.setProperty("--cue-fill", "0");
@@ -1830,17 +1904,32 @@ function handleArrivalConfirmation(slot, level, now){
   const arrival = state.arrival;
   const held = Math.max(state.grip[1], state.grip[2]);
   if(arrival.reportSub === "agree"){
+    if(arrival.agreeFixed){
+      if(held <= AFTER_OFF && now - arrival.agreeFixedAt > 350) finalizeAgreement(now);
+      return;
+    }
     // 先放開才開始接收：避免上一步「表達緊張」那一握殘留進來、還沒壓就定案（Pan 2026-07-15）。
     if(!arrival.agreeArmed){
       if(held <= AFTER_OFF) arrival.agreeArmed = true;
       return;
     }
-    // 握過門檻（記峰值＝相符程度），放開就定案；不需要撐 400ms，輕握也算（Pan 2026-07-15：卡住）。
+    // 先在一個力道區間裡停留一下才定案；定案後停在選擇畫面，請使用者放鬆，再換下一幕。
     if(held >= AFTER_ON){
-      arrival.agreePeak = Math.max(arrival.agreePeak, held);
+      const band = agreementBand(held);
+      if(arrival.agreeBand !== band){
+        arrival.agreeBand = band;
+        arrival.agreePressedAt = now;
+        arrival.agreePeak = held;
+      } else {
+        arrival.agreePeak = Math.max(arrival.agreePeak, held);
+      }
       arrival.agreeReached = true;
-    } else if(arrival.agreeReached && held <= AFTER_OFF){
-      finalizeAgreement(now);
+      if(now - arrival.agreePressedAt >= AGREEMENT_FIX_MS) fixAgreementChoice(now);
+    } else if(held <= AFTER_OFF){
+      arrival.agreePressedAt = 0;
+      arrival.agreeBand = null;
+      arrival.agreeReached = false;
+      arrival.agreePeak = 0;
     }
     return;
   }
@@ -1850,9 +1939,29 @@ function handleArrivalConfirmation(slot, level, now){
   }
 }
 
+function agreementLabel(a){
+  return a >= 0.66 ? "很貼近" : a >= 0.33 ? "有點像" : "不太像";
+}
+
+function agreementBand(a){
+  return a >= 0.66 ? 2 : a >= 0.33 ? 1 : 0;
+}
+
+function fixAgreementChoice(now = performance.now()){
+  const arrival = state.arrival;
+  const a = clamp(arrival.agreePeak);
+  arrival.agreement = a;
+  arrival.agreeFixed = true;
+  arrival.agreeFixedAt = now;
+  if(arrival.report) arrival.report.agreement = a;
+  document.documentElement.style.setProperty("--cue-fill", a.toFixed(3));
+  $("cueOrbPrompt").textContent = `${agreementLabel(a)} · 可以放鬆`;
+  log(`相符程度已固定：${Math.round(a * 100)}%。`);
+}
+
 function finalizeAgreement(now = performance.now()){
   const arrival = state.arrival;
-  arrival.agreement = clamp(arrival.agreePeak);
+  if(arrival.agreement === null) arrival.agreement = clamp(arrival.agreePeak);
   arrival.reportSub = "suggest";
   arrival.suggestReadyAt = now + 700;
   if(arrival.report) arrival.report.agreement = arrival.agreement;
@@ -1862,13 +1971,14 @@ function finalizeAgreement(now = performance.now()){
             : "謝謝你告訴我。那我們先放下這個猜測，直接聽身體。";
   // 定案：球水位停在你的相符程度、球上顯示對應標籤
   document.documentElement.style.setProperty("--cue-fill", clamp(a).toFixed(3));
-  $("cueOrbPrompt").textContent = a >= 0.66 ? "很貼近" : a >= 0.33 ? "有點像" : "不太像";
+  $("cueOrbPrompt").textContent = agreementLabel(a);
   $("reportAgreeCopy").style.display = "none";
   const rec = arrival.report || {};
   $("reportSuggest").style.display = "block";
   $("reportSuggest").innerHTML =
     `${ack}<br>接下來，我們一起試 <b>${rec.recommended_label || "海潮"}</b>。${rec.recommended_reason || ""}`;
-  $("arrivalConfirmHint").textContent = "握住球，或甩一下，就開始。無球測試時：空白鍵或方向鍵。";
+  $("cueOrbPrompt").textContent = "再握一下開始";
+  $("arrivalConfirmHint").textContent = "看中央球。無球測試時：空白鍵或方向鍵。";
   log(`使用者符合度 ${Math.round(a * 100)}%。建議：${rec.recommended_label || "海潮"}。`);
 }
 
@@ -1888,6 +1998,7 @@ function isArrivalReportCurrent(){
 function updateArrival(){
   const arrival = state.arrival;
   if(state.phase !== "before") return;
+  if(arrival.transitionTo) return;
   const now = performance.now();
   if(arrival.step === "handCue"){
     updateHandCue(now);
@@ -1916,19 +2027,30 @@ function updateArrival(){
     const rs = document.documentElement.style;
     rs.setProperty("--fill-r", "110"); rs.setProperty("--fill-g", "224"); rs.setProperty("--fill-b", "226");
     $("guideOrb").classList.add("show-cue-text");
-    if(!arrival.agreeArmed){
-      // 還沒放開上一握，先請使用者放開；水位歸零，不顯示假的相符度
+    if(arrival.agreeFixed){
+      const a = clamp(arrival.agreement ?? arrival.agreePeak);
+      arrival.orbFill = (arrival.orbFill || 0) + (a - (arrival.orbFill || 0)) * 0.25;
+      rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
+      $("cueOrbPrompt").textContent = `${agreementLabel(a)} · 可以放鬆`;
+      if((state.grip[1] || 0) <= AFTER_OFF && (state.grip[2] || 0) <= AFTER_OFF && a <= 0.01 && now - arrival.agreeFixedAt >= AGREEMENT_AUTO_ADVANCE_MS){
+        finalizeAgreement(now);
+      }
+    } else if(!arrival.agreeArmed){
+      const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
+      if(held <= AFTER_OFF) arrival.agreeArmed = true;
       arrival.orbFill = (arrival.orbFill || 0) * 0.8;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
-      $("cueOrbPrompt").textContent = "先放開球";
+      $("cueOrbPrompt").textContent = arrival.agreeArmed ? "握出有多貼近" : "先放開球";
     } else {
       const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
       const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
       arrival.orbFill = (arrival.orbFill || 0) + (shown - (arrival.orbFill || 0)) * 0.25;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
-      $("cueOrbPrompt").textContent = held >= AFTER_ON
-        ? (arrival.orbFill > 0.62 ? "很貼近" : arrival.orbFill > 0.32 ? "有點像" : "不太像")
-        : "握出有多貼近";
+      $("cueOrbPrompt").textContent = held >= AFTER_ON ? agreementLabel(arrival.orbFill) : "握出有多貼近";
+      if(held < AFTER_ON && now - (arrival.agreeStartedAt || now) >= AGREEMENT_RESPONSE_MS){
+        arrival.agreePeak = 0;
+        fixAgreementChoice(now);
+      }
     }
   }
   if(arrival.step === "prelude" && arrival.preludeStart){
@@ -1962,16 +2084,27 @@ function updateArrival(){
     if(introElapsed < ARRIVAL_HOLD_INTRO_MS){
       $("holdProgress").style.width = "0%";
       $("holdHint").textContent = "先看一下這一題，準備好了再握住。";
+      $("guideOrb").classList.add("show-cue-text");
+      $("cueOrbPrompt").textContent = "準備好了再握";
       return;
     }
     if(!arrival.holdStart){
-      $("holdProgress").style.width = "0%";
+      const responseElapsed = Math.max(0, introElapsed - ARRIVAL_HOLD_INTRO_MS);
+      $("holdProgress").style.width = Math.round(clamp(responseElapsed / ARRIVAL_HOLD_RESPONSE_MS) * 100) + "%";
       $("holdHint").textContent = "準備好時，握住一下。";
+      $("guideOrb").classList.add("show-cue-text");
+      $("cueOrbPrompt").textContent = "握住一下";
       if(level >= ARRIVAL_PRESS_ON){
         arrival.holdStart = now;
         arrival.holdReleaseAt = null;
         arrival.holdSamples = [];
         arrival.lastHoldSampleAt = 0;
+      } else if(responseElapsed >= ARRIVAL_HOLD_RESPONSE_MS){
+        arrival.holdSamples = [{ t: 0, level: 0, b1: 0, b2: 0, noGrip: true }];
+        arrival.holdComplete = true;
+        $("cueOrbPrompt").textContent = "收到了";
+        $("holdProgress").style.width = "100%";
+        finishArrival();
       }
       return;
     }
@@ -1980,6 +2113,8 @@ function updateArrival(){
       arrival.holdStart = null;
       arrival.holdSamples = [];
       $("holdHint").textContent = "沒關係，再握一次，讓它停留一下。";
+      $("guideOrb").classList.add("show-cue-text");
+      $("cueOrbPrompt").textContent = "再握一次";
       return;
     }
     if(now - arrival.lastHoldSampleAt > 35){
@@ -1990,14 +2125,18 @@ function updateArrival(){
     $("holdHint").textContent = elapsed >= ARRIVAL_HOLD_SECONDS
       ? "可以放開了。"
       : "留在這個力道裡，請保持片刻。";
+    $("guideOrb").classList.add("show-cue-text");
+    $("cueOrbPrompt").textContent = elapsed >= ARRIVAL_HOLD_SECONDS ? "可以放開" : "保持一下";
     if(elapsed >= ARRIVAL_HOLD_SECONDS){
       if(!arrival.holdDoneAt) arrival.holdDoneAt = now;
       if(level <= ARRIVAL_PRESS_OFF){
         if(!arrival.holdReleaseAt) arrival.holdReleaseAt = now;
         $("holdHint").textContent = "收到了。";
+        $("cueOrbPrompt").textContent = "收到了";
       } else {
         arrival.holdReleaseAt = null;
         $("holdHint").textContent = "可以放開了。";
+        $("cueOrbPrompt").textContent = "可以放開";
       }
       // 放開後短暫確認就完成；即使沒偵測到放開，停留 ~3.5 秒也自動繼續（保險，不卡住）
       const releasedOk = arrival.holdReleaseAt && now - arrival.holdReleaseAt >= ARRIVAL_HOLD_RELEASE_DELAY_MS;
@@ -2012,6 +2151,26 @@ function updateArrival(){
 
 function updateHandCue(now){
   const cue = state.arrival.handCue;
+  const bothReleased = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
+  if(cue.waitingRelease){
+    cue.cueOn = false;
+    cue.fill *= 0.82;
+    document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
+    $("cueOrbPrompt").textContent = cue.hand === "left" ? "先放鬆" : "換右手";
+    $("guideOrb").classList.add("show-cue-text", "cue-off");
+    $("guideOrb").classList.remove("cue-on", "cue-success");
+    if(bothReleased){
+      if(!cue.releaseSince) cue.releaseSince = now;
+      if(now - cue.releaseSince >= HAND_CUE_RELEASE_MS){
+        cue.waitingRelease = false;
+        cue.releaseSince = 0;
+        cue.startedAt = now;
+      }
+    } else {
+      cue.releaseSince = 0;
+    }
+    return;
+  }
   if(!cue.startedAt) cue.startedAt = now;
   const cycle = HAND_CUE_ON_MS + HAND_CUE_OFF_MS;
   const elapsed = now - cue.startedAt;
@@ -2087,8 +2246,12 @@ function finishArrival(){
   state.arrival.agreePeak = 0;
   state.arrival.agreement = null;
   state.arrival.agreePressedAt = 0;
+  state.arrival.agreeBand = null;
   state.arrival.agreeArmed = false;   // 必須先放開才開始收評估的握壓
   state.arrival.agreeReached = false;
+  state.arrival.agreeFixed = false;
+  state.arrival.agreeFixedAt = 0;
+  state.arrival.agreeStartedAt = performance.now();
   state.arrival.orbFill = 0;
   $("reportImpression").textContent = report.impression;
   $("reportAgreeCopy").style.display = "";
@@ -2341,6 +2504,30 @@ async function startAudio(options = {}){
 // —— 動態偵測 + 去重的握力球連線（修正「兩顆球 mapping 成同一顆」）——
 function deviceSlot(dev){ return devices[1] === dev ? 1 : (devices[2] === dev ? 2 : null); }
 function freeSlot(){ return !devices[1] ? 1 : (!devices[2] ? 2 : null); }
+function isSupportedGripBall(dev){
+  return SUPPORTED_GRIP_BALLS.some(spec => dev.vendorId === spec.vendorId && dev.productId === spec.productId);
+}
+function gripBallName(dev){
+  const spec = SUPPORTED_GRIP_BALLS.find(s => dev.vendorId === s.vendorId && dev.productId === s.productId);
+  return dev.productName || spec?.name || "Grip Ball";
+}
+function forgetBallSlot(slot, reason = "stale"){
+  const dev = devices[slot];
+  const name = dev ? gripBallName(dev) : ("Ball " + slot);
+  devices[slot] = null;
+  state.connected[slot] = false;
+  state.ready[slot] = false;
+  state.lastGripReportAt[slot] = 0;
+  state.connectedAt[slot] = 0;
+  state.lastModeSentAt[slot] = 0;
+  calib[slot] = new GripCalibrator();
+  accBaseline[slot] = null;
+  setGrip(slot, 0);
+  $("s" + slot).textContent = "未連接";
+  updateHidStatus();
+  if(state.arrival.step === "connect") updateConnectScene();
+  log(`${name} 已從 Ball ${slot} 移除（${reason}）。`);
+}
 
 function updateHidStatus(){
   const n = Object.values(state.connected).filter(Boolean).length;
@@ -2353,7 +2540,7 @@ function updateHidStatus(){
       return;
     }
     const age = state.lastGripReportAt[slot] ? performance.now() - state.lastGripReportAt[slot] : Infinity;
-    const name = devices[slot].productName || ("Ball " + slot);
+    const name = gripBallName(devices[slot]) || ("Ball " + slot);
     $("s" + slot).textContent = state.ready[slot] && age < HID_STALE_MS
       ? `${name} 回應中`
       : `${name} 等待回應`;
@@ -2385,7 +2572,8 @@ async function registerDevice(dev, slot){
   devices[slot] = dev;
   state.connected[slot] = true;
   state.ready[slot] = false;
-  state.lastGripReportAt[slot] = 0;
+  state.lastGripReportAt[slot] = performance.now(); // grace window: newly registered balls get time to report before being forgotten
+  state.connectedAt[slot] = performance.now();
   state.lastModeSentAt[slot] = 0;
   calib[slot] = new GripCalibrator();          // 每顆球獨立、重新自適應（各自校正施力範圍）
   accBaseline[slot] = null;
@@ -2397,17 +2585,17 @@ async function registerDevice(dev, slot){
       if(s) onReport(e, s);
     });
   }
-  $("s" + slot).textContent = dev.productName || ("Ball " + slot);
+  $("s" + slot).textContent = gripBallName(dev) || ("Ball " + slot);
   updateHidStatus();
   maybeAdvanceFromConnect();
-  log(`Ball ${slot} 已連接（${dev.productName || "Grip Ball"}）。`);
+  log(`Ball ${slot} 已連接（${gripBallName(dev)} · ${dev.vendorId.toString(16).padStart(4, "0")}:${dev.productId.toString(16).padStart(4, "0")}）。`);
 }
 
 // 掃描目前已授權的球，去重（同一顆 device 不會佔兩個 slot），逐一分配到空的 slot
 async function syncBalls(){
   let granted = [];
   try{ granted = await navigator.hid.getDevices(); }catch(err){ return; }
-  granted = granted.filter(d => d.vendorId === VENDOR_ID && d.productId === PRODUCT_ID);
+  granted = granted.filter(isSupportedGripBall);
   for(const dev of granted){
     if(deviceSlot(dev) != null) continue;        // 已指派→跳過，避免兩顆映射成同一顆
     const slot = freeSlot();
@@ -2429,6 +2617,9 @@ function watchHidLiveness(){
         setGrip(slot, 0);
       }
       sendModeCommand(slot, "stale").catch(() => {});
+      if(age > HID_FORGET_STALE_MS){
+        forgetBallSlot(slot, "沒有回應");
+      }
     }
   });
   updateHidStatus();
@@ -2438,8 +2629,11 @@ function watchHidLiveness(){
 async function connectBall(){
   // 讓使用者授權（chooser 可挑一顆或兩顆；兩顆長得一樣時記得挑不同的那一顆）
   await startAudio({ resume: true });
-  await navigator.hid.requestDevice({ filters: [{ vendorId: VENDOR_ID, productId: PRODUCT_ID }] });
+  await navigator.hid.requestDevice({
+    filters: SUPPORTED_GRIP_BALLS.map(({ vendorId, productId }) => ({ vendorId, productId })),
+  });
   await syncBalls();
+  if(audioCtx && audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
   maybeAdvanceFromConnect();
 }
 
@@ -2449,9 +2643,15 @@ function onReport(e, slot){
     state.ready[slot] = true;
     state.lastGripReportAt[slot] = performance.now();
     updateHidStatus();
-    if(state.arrival.step === "connect") updateConnectScene();
+    if(state.arrival.step === "connect") maybeAdvanceFromConnect();
     const raw = dv.getUint16(2, true);
-    setGrip(slot, calib[slot].update(raw));
+    const c = calib[slot];
+    const rawDelta = c.baseline == null ? 0 : Math.max(0, raw - c.baseline);
+    const level = c.update(raw);
+    if(engine && !state.audioFadedIn && (level > 0.035 || rawDelta > 70)){
+      requestAudioFadeIn();
+    }
+    setGrip(slot, level);
   } else if(e.reportId === 3 && dv.byteLength >= 16){
     const ax = dv.getFloat32(4, true);
     const ay = dv.getFloat32(8, true);
@@ -2489,7 +2689,7 @@ function handleSwing(slot, ax, ay, az){
 const BREATH_PRESETS = {
   resonance: {
     title: "海潮呼吸",
-    copy: "海面會隨呼吸靠近與退去。握住時水灌入內核，放開時它慢慢退潮。",
+    copy: "海面會隨呼吸靠近與退去。讓手、眼睛與海潮停在同一個中心。",
     phases: [
       { name: "inhale", label: "聽它靠近", dur: 5 },
       { name: "exhale", label: "讓它退去", dur: 5 },
@@ -2538,14 +2738,14 @@ const BREATH_PRESETS = {
 
 const MANUAL_478_PHASES = [
   { name: "inhale", label: "吸氣", count: 4, rgb: [78, 206, 178], curve: 1, drone: 0, voice: "audio/478-inhale.wav" },
-  { name: "hold", label: "屏住呼吸", count: 7, rgb: [236, 190, 120], curve: 0.76, drone: 1, voice: "audio/478-hold.wav" },
-  { name: "exhale", label: "吐氣", count: 8, rgb: [116, 138, 224], curve: 0, drone: 0.15, voice: "audio/478-exhale.wav" },
+  { name: "hold", label: "屏住呼吸", count: 7, rgb: [236, 190, 120], curve: 0.76, drone: 0, voice: "audio/478-hold.wav" },
+  { name: "exhale", label: "吐氣", count: 8, rgb: [116, 138, 224], curve: 0, drone: 0, voice: "audio/478-exhale.wav" },
 ];
 
 const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成這麼多輪才算「完全結束」→ 淡出（Pan 2026-07-14）。
 
 function resetManual478(){
-  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true };
+  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true, firstBeatPending: false };
   // 進場先當成「已握住」＋高 peak：必須先真正放開才會開始數，避免「進入用的那一握」直接扣一拍（Pan 2026-07-14）。
   state.guided.manual478Pressed = true;
   state.guided.manual478Peak = 1;
@@ -2579,16 +2779,28 @@ function advanceManual478(){
   const { m, phase } = manual478State();
   if(m.done) return;
   const wasIntro = m.intro;
-  m.intro = false;   // 第一次真正握下＝正式開始，離開「準備開始」引導
+  if(wasIntro){
+    m.intro = false;   // 第一次真正握下只讓「4」出現。
+    m.firstBeatPending = true;
+    state.guided.manual478LastPressAt = now;
+    beatPulse(phase.rgb);
+    updateGuidedSession(true);
+    return;
+  }
   const gap = state.guided.manual478LastPressAt ? now - state.guided.manual478LastPressAt : 0;
   state.guided.manual478LastPressAt = now;
   if(gap > 150 && gap < 12000) m.pressGaps.push(gap);   // 按壓間距 → 之後判「呼吸平均程度」
   state.grip478Count = (state.grip478Count || 0) + 1;   // 累計握放次數（結束後鼓勵用）
   beatPulse(phase.rgb);
   sendHapticAll(95, 42, true);
+  if(m.firstBeatPending){
+    m.firstBeatPending = false;                          // 第二次握：為「4」發聲，但畫面仍停在 4。
+    playBowlForHands();
+    updateGuidedSession(true);
+    return;
+  }
   // 頌缽在「數字出現的那一下」響，不晚一個數字（Pan 2026-07-15）：
   //  吸氣＝第一次握（看到 4）響；進入停/吐＝把數字換成 7/8 的那一下同時響。每回 4-7-8＝三聲。
-  if(wasIntro) playBowlForHands();
   m.remaining -= 1;
   if(m.remaining <= 0){
     m.phaseIndex = (m.phaseIndex + 1) % MANUAL_478_PHASES.length;
@@ -2759,10 +2971,14 @@ function updateGuidedSession(force = false){
   document.documentElement.style.setProperty("--session-scale", (1.04 + 0.08 * breathCurve - 0.18 * gripWater).toFixed(3));
   document.documentElement.style.setProperty("--heart-weather", clamp(state.guided.heartWeather).toFixed(3));
   document.documentElement.style.setProperty("--session-water", gripWater.toFixed(3));
-  document.querySelector("#phaseSession .core-orb")?.classList.remove("show-count");
+  const sessionOrb = document.querySelector("#phaseSession .core-orb");
+  sessionOrb?.classList.remove("show-count");
+  sessionOrb?.classList.add("show-phase-label");
   $("sessionTitle").textContent = preset.title;
-  $("sessionCopy").textContent = preset.copy;
+  $("sessionCopy").textContent = preset.copy.replace("握住是漲潮，放開是退潮。", "讓海跟著球心的提示流動。");
   $("breathWord").textContent = ph.phase.label;
+  $("orbPhaseLabel").textContent = "握住漲潮 · 放開退潮";
+  $("orbCount").textContent = "";
   $("breathMetric").textContent = `呼吸週期 ${ph.total.toFixed(1)}s`;
   $("heartMetric").textContent = `海色 ${state.guided.heartLabel}`;
   $("gripMetric").textContent = `握力水位 ${Math.round(gripWater * 100)}%`;
@@ -2835,23 +3051,23 @@ function updateManual478Session(preset){
   document.documentElement.style.setProperty("--phase-glow", (0.72 + 0.22 * gripWater).toFixed(3));
 
   $("sessionTitle").textContent = "4-7-8 呼吸";
-  document.querySelector("#phaseSession .core-orb")?.classList.add("show-count");
+  document.querySelector("#phaseSession .core-orb")?.classList.add("show-count", "show-phase-label");
   if(m.intro){
     // 開始前：數字「4」先出現、告訴使用者現在要開始了；等使用者握下第一下才發頌缽並開始數（Pan 2026-07-14）。
-    $("sessionCopy").textContent = "準備好就握一下開始——之後每數一下就握一下。";
-    $("breathWord").textContent = "現在要開始了，握一下開始";
+    $("sessionCopy").textContent = "讓手、眼睛和數字停在同一個焦點。";
+    $("breathWord").textContent = "看著球心";
     $("breathMetric").textContent = "準備開始";
-    $("heartMetric").textContent = "握一下開始";
-    $("gripMetric").textContent = "準備好就握一下";
-    $("orbPhaseLabel").textContent = `現在${phase.label}`;   // 現在吸氣
-    $("orbCount").textContent = phase.count;                 // 開頭的 4 先出現
+    $("heartMetric").textContent = "看球心";
+    $("gripMetric").textContent = "球心提示";
+    $("orbPhaseLabel").textContent = "握一下開始";
+    $("orbCount").textContent = "";
   } else {
-    $("sessionCopy").textContent = "每數一下就握一下球。握一下，感覺一下，再進下一拍。";
+    $("sessionCopy").textContent = "每一次握放，都讓聲音和數字一起往前。";
     $("breathWord").textContent = `現在${phase.label}`;
     $("breathMetric").textContent = `第 ${Math.min(m.completedCycles + 1, MANUAL_478_TARGET_CYCLES)} / ${MANUAL_478_TARGET_CYCLES} 輪`;
     $("heartMetric").textContent = `${phase.label} ${m.remaining}`;
-    $("gripMetric").textContent = "每數一下就握一下球";
-    $("orbPhaseLabel").textContent = `現在${phase.label}`;
+    $("gripMetric").textContent = "跟著球心";
+    $("orbPhaseLabel").textContent = `${phase.label} · 握一下`;
     $("orbCount").textContent = m.remaining;
   }
 
@@ -2863,7 +3079,7 @@ function updateManual478Session(preset){
       pan: 0,
       heart: state.guided.heartWeather,
       activate: preset.activate,
-      drone: phase.drone,
+      drone: 0,
     });
     engine.setSideGuide(0, 0);
   }
@@ -2928,7 +3144,7 @@ function endSession(){
     engine.setSideGuide(0, 0);
   }
   state.guided.hapticKey = "";
-  if(engine) engine.setBreathGuide({ influence: 0, activate: 0, pan: 0 });
+  if(engine) engine.setBreathGuide({ influence: 0, drone: 0, activate: 0, pan: 0 });
   $("btnEndSession").disabled = true;
   beginAfter();       // 結束後問卷：用握力一題一幕
   setPhase();
@@ -2941,15 +3157,19 @@ function endSession(){
 const AFTER_QUESTIONS = [
   { key: "post",   sub: "現在，身體還緊繃嗎？" },
   { key: "pushed", sub: "剛才，節奏受催促嗎？" },
-  { key: "stay",   sub: "你，靜得下來嗎？" },
+  { key: "stay",   sub: "你，覺察得到當下嗎？" },
   { key: "agency", sub: "海潮，與你同調嗎？" },
 ];
 const AFTER_ON = 0.14, AFTER_OFF = 0.07;
-const AFTER_HOLD_MS = 1500;   // 握著這麼久＝自動紀錄
+const AFTER_HOLD_MS = 900;   // 握著這麼久＝自動紀錄
+const AFTER_READ_MS = 900;
+const AFTER_RESPONSE_MS = 5200;
+const AFTER_FIXED_RELEASE_MS = 450;
 function beginAfter(){
   state.after = {
     stage: "survey", i: 0, armed: false, peak: 0, heldMs: 0, orbFill: 0, answers: {},
     fading: false, dismissed: false, lastT: performance.now(), stageAt: performance.now(),
+    questionAt: performance.now(), fixed: false, fixedAt: 0, fixedValue: 0, band: null,
     rounds: (state.guided.manual478 && state.guided.manual478.completedCycles) || 0,
     grips: state.grip478Count || 0,
   };
@@ -2973,21 +3193,71 @@ function updateAfter(){
 function afterSurveyStep(a, dt){
   const q = AFTER_QUESTIONS[a.i];
   $("afterOrb").classList.add("show-cue-text");
-  if(!a.fading) $("afterOrbPrompt").textContent = q.sub;   // 字幕在球上
+  if(!a.fading && !a.fixed) $("afterOrbPrompt").textContent = q.sub;   // 字幕在球上
   const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
+  const now = performance.now();
   const rs = document.documentElement.style;
   if(!a.armed){ if(held <= AFTER_OFF) a.armed = true; a.orbFill *= 0.85; rs.setProperty("--cue-fill", a.orbFill.toFixed(3)); return; }
   if(a.fading) return;
-  if(held >= AFTER_ON){ a.peak = Math.max(a.peak, held); a.heldMs += dt * 1000; }
-  else a.heldMs = 0;                                        // 要連續握住才算
+
+  if(a.fixed){
+    a.orbFill += (a.fixedValue - a.orbFill) * 0.25;
+    rs.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
+    $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · 可以放鬆`;
+    if(held <= AFTER_OFF && now - a.fixedAt >= AFTER_FIXED_RELEASE_MS){
+      afterRecordAnswer(a, q, a.fixedValue);
+    }
+    return;
+  }
+
+  if(now - a.questionAt < AFTER_READ_MS){
+    a.orbFill += (held - a.orbFill) * 0.18;
+    rs.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
+    return;
+  }
+
+  if(held >= AFTER_ON){
+    const band = afterAnswerBand(held);
+    if(a.band !== band){
+      a.band = band;
+      a.heldMs = 0;
+      a.peak = held;
+    } else {
+      a.peak = Math.max(a.peak, held);
+      a.heldMs += dt * 1000;
+    }
+  } else {
+    a.band = null;
+    a.heldMs = 0;
+    a.peak = 0;
+  }
   a.orbFill += (Math.max(held, a.peak * 0.7) - a.orbFill) * 0.25;   // 握越緊水越高
   rs.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
-  if(a.heldMs >= AFTER_HOLD_MS){                            // 握住一段時間→自動紀錄
-    a.answers[q.key] = Math.round(clamp(a.peak) * 10);
-    a.fading = true;
-    $("afterOrbPrompt").classList.add("fade");             // 字幕淡出
-    setTimeout(() => afterNextQuestion(a), 650);
+  if(a.heldMs >= AFTER_HOLD_MS){
+    afterFixAnswer(a, clamp(a.peak));
+  } else if(held < AFTER_ON && now - a.questionAt >= AFTER_RESPONSE_MS){
+    afterFixAnswer(a, 0);
   }
+}
+function afterAnswerBand(v){
+  return v >= 0.66 ? 3 : v >= 0.33 ? 2 : v >= AFTER_ON ? 1 : 0;
+}
+function afterAnswerLabel(v){
+  return v >= 0.66 ? "很明顯" : v >= 0.33 ? "有一點" : "沒有";
+}
+function afterFixAnswer(a, value){
+  a.fixed = true;
+  a.fixedAt = performance.now();
+  a.fixedValue = clamp(value);
+  a.orbFill = clamp(value);
+  document.documentElement.style.setProperty("--cue-fill", a.orbFill.toFixed(3));
+  $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · 可以放鬆`;
+}
+function afterRecordAnswer(a, q, value){
+  a.answers[q.key] = Math.round(clamp(value) * 10);
+  a.fading = true;
+  $("afterOrbPrompt").classList.add("fade");             // 字幕淡出
+  setTimeout(() => afterNextQuestion(a), 650);
 }
 function afterNextQuestion(a){
   a.i += 1;
@@ -2999,6 +3269,7 @@ function afterNextQuestion(a){
     return;
   }
   a.armed = false; a.peak = 0; a.heldMs = 0; a.orbFill = 0; a.fading = false;
+  a.questionAt = performance.now(); a.fixed = false; a.fixedAt = 0; a.fixedValue = 0; a.band = null;
   $("afterOrbPrompt").classList.remove("fade");            // 下一題字幕淡入
 }
 function afterAnalysis(v){
@@ -3007,8 +3278,8 @@ function afterAnalysis(v){
         : changed >= 1 ? "比開始時鬆了一些。"
         : changed <= -1 ? "比開始時緊了一點——沒關係，身體有它的節奏。"
         : "緊張程度大致維持。";
-  if(v.stay >= 7) s += "你相當能停留在當下。";
-  else if(v.stay <= 3) s += "還不太容易靜下來，多練幾次會更好。";
+  if(v.stay >= 7) s += "你覺察當下做得非常好。";
+  else if(v.stay <= 3) s += "覺察當下還不太容易，多練幾次會更好。";
   if(v.agency >= 7) s += "海潮也很跟得上你。";
   return s;
 }
@@ -3021,7 +3292,7 @@ function afterShowResults(a){
     '<div class="credit-title">這一次</div>' +
     '<div class="credit-row">緊張程度　' + v.post + ' / 10</div>' +
     '<div class="credit-row">節奏受催促　' + v.pushed + ' / 10</div>' +
-    '<div class="credit-row">靜下來　' + v.stay + ' / 10</div>' +
+    '<div class="credit-row">覺察當下　' + v.stay + ' / 10</div>' +
     '<div class="credit-row">與海同調　' + v.agency + ' / 10</div>' +
     '<div class="credit-analysis">' + afterAnalysis(v) + '</div>';
   $("afterCredits").classList.add("show");
@@ -3214,16 +3485,7 @@ if("hid" in navigator){
   navigator.hid.addEventListener("disconnect", (e) => {
     const s = deviceSlot(e.device);
     if(s){
-      devices[s] = null;
-      state.connected[s] = false;
-      state.ready[s] = false;
-      state.lastGripReportAt[s] = 0;
-      state.lastModeSentAt[s] = 0;
-      $("s" + s).textContent = "未連接";
-      setGrip(s, 0);
-      updateHidStatus();
-      if(state.arrival.step === "connect") updateConnectScene();
-      log(`Ball ${s} 已斷線。`);
+      forgetBallSlot(s, "已斷線");
     }
   });
   syncBalls().catch(() => {});   // 頁面載入即接回先前已授權的球
@@ -3251,6 +3513,14 @@ addEventListener("keydown", (e) => {
     sim.space = 1;                 // 無球測試：空白鍵＝握力（回顧段用來表示符合度、建議段用來繼續）
     e.preventDefault();
     startAudio({ resume: true }).then(() => {
+      if(!state.connected[1]) setGrip(1, 0.68);
+      if(engine && !state.audioFadedIn){
+        state.audioFadedIn = true;
+        engine.fadeIn();
+        log("聲音開始進來。");
+      } else {
+        requestAudioFadeIn();
+      }
       if(state.arrival.step === "connect") beginPrelude();
     }).catch(() => {});
   }
@@ -3273,15 +3543,23 @@ addEventListener("keydown", (e) => {
   }
 });
 addEventListener("keyup", (e) => {
-  if(e.code === "Space") sim.space = 0;
-  if(e.key === "Shift") sim.shift = 0;
+  if(e.code === "Space"){
+    sim.space = 0;
+    if(!state.connected[1]) setGrip(1, 0);
+    if(state.guided.preset === "hold478") state.guided.manual478Pressed = false;
+    if(engine) engine.setBreathGuide({ drone: 0 });
+  }
+  if(e.key === "Shift"){
+    sim.shift = 0;
+    if(!state.connected[2]) setGrip(2, 0);
+  }
   if(e.code === "ArrowLeft" || e.code === "ArrowRight") sim.dir = 0;
 });
 
 setInterval(() => {
   if(!engine) return;
-  if(!state.connected[1]) setGrip(1, calib[1].update(34000 + sim.space * 1400));
-  if(!state.connected[2]) setGrip(2, calib[2].update(34000 + sim.shift * 1400));
+  if(!state.connected[1]) setGrip(1, sim.space ? 0.68 : 0);
+  if(!state.connected[2]) setGrip(2, sim.shift ? 0.68 : 0);
   if(sim.dir !== 0){
     engine.setSwing(sim.dir, 0.75);
     state.motion = 0.85;
@@ -3296,6 +3574,8 @@ setInterval(watchHidLiveness, 1000);
 
 // 海仍是主視覺：避免人工正弦線，改用厚霧、暗流、寬幅浪帶與中央潮汐曼荼羅。
 let __seaScroll = 0, __seaLast = performance.now() / 1000, __leftWave = 0, __rightWave = 0;
+let __leftGripPrev = 0, __rightGripPrev = 0, __lastShoreWaveAt = 0;
+const __shoreWaves = [];
 function seaHash(n){ const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 
 // 水下 caustics 折射光紋（Pan 2026-07-15 參考圖 IMG_9778：清澈淺海、光穿過水在沙底織成的白色光網）。
@@ -3358,6 +3638,15 @@ function emitRipple(cx, cy, opts){
 // 4-7-8 每一拍的畫面明滅：中央亮一下＋一圈快速外擴，用相位色，明顯可數（Pan 2026-07-14）
 let __beat = { at: -9, rgb: [255, 255, 255] };
 function beatPulse(rgb){ __beat = { at: performance.now() / 1000, rgb: rgb || [255, 255, 255] }; }
+function emitShoreWave(side, strength){
+  __shoreWaves.push({
+    born: performance.now() / 1000,
+    side: clamp(side, -1, 1),
+    strength: clamp(strength),
+    seed: Math.random() * 1000,
+  });
+  if(__shoreWaves.length > 18) __shoreWaves.shift();
+}
 function drawSea(){
   const canvas = $("sea");
   const ctx = canvas.getContext("2d");
@@ -3376,6 +3665,21 @@ function drawSea(){
   const rightGrip = clamp(state.grip[rightSlot] || 0);
   __leftWave += (leftGrip - __leftWave) * 0.045;
   __rightWave += (rightGrip - __rightWave) * 0.045;
+  const risingL = Math.max(0, leftGrip - __leftGripPrev);
+  const risingR = Math.max(0, rightGrip - __rightGripPrev);
+  if(t - __lastShoreWaveAt > 0.34 && (risingL > 0.035 || risingR > 0.035)){
+    const totalRise = risingL + risingR;
+    const side = totalRise > 0 ? (risingR - risingL) / totalRise : 0;
+    emitShoreWave(side, Math.max(leftGrip, rightGrip, totalRise * 4));
+    __lastShoreWaveAt = t;
+  }
+  if(t - __lastShoreWaveAt > 1.1 && Math.max(leftGrip, rightGrip) > 0.28){
+    const totalGrip = leftGrip + rightGrip;
+    emitShoreWave(totalGrip > 0 ? (rightGrip - leftGrip) / totalGrip : 0, Math.max(leftGrip, rightGrip) * 0.72);
+    __lastShoreWaveAt = t;
+  }
+  __leftGripPrev = leftGrip;
+  __rightGripPrev = rightGrip;
   const az = engine ? engine.azimuth : state.azimuth;
   const m = engine ? engine.metrics : { swell: 0.5, foam: 0, rw: 0 };
   const swell = (m.swell !== undefined) ? m.swell : 0.5;
@@ -3393,9 +3697,9 @@ function drawSea(){
   const phaseMix = phaseRGB ? 0.18 : 0;
   const mix = (base, idx, amt = phaseMix) => phaseRGB ? Math.round(base * (1 - amt) + phaseRGB[idx] * amt) : base;
 
-  // 清澈淺海 × 水下 caustics × 粉紫天空（Pan 2026-07-15 參考圖 IMG_9778）。不畫浪，畫光穿過水。
-  // 水面線隨握力升降：吸氣（握）＝海潮漲、水面往上升靠近你；吐氣（放）＝退潮下退（Pan 2026-07-16）。
-  const waterTop = H * (0.46 - 0.14 * tide - 0.02 * guidedPhase);
+  // 清澈淺海 × 水下 caustics × 粉紫天空（Pan 2026-07-15 參考圖 IMG_9778）。
+  // 海平面不再被握力上下擠壓；握力改為推動前景浪花朝岸邊湧來，放鬆時退回海裡。
+  const waterTop = H * (0.455 - 0.012 * guidedPhase + 0.006 * Math.sin(t * 0.16));
 
   // 粉紫黃昏天空（上淡紫→中粉→近水面霧白），低對比、柔和。
   const sky = ctx.createLinearGradient(0, 0, 0, waterTop + H * 0.04);
@@ -3424,13 +3728,13 @@ function drawSea(){
   ctx.fillStyle = water;
   ctx.fillRect(0, waterTop, W, H - waterTop);
 
-  // 水下 caustics 光網：離屏算好放大到水域，screen 疊加。亮度/密度隨握力（tide）增強、隨呼吸微動。
+  // 水下 caustics 光網：離屏算好放大到水域，screen 疊加。握力讓光紋微亮，但不抬高海平面。
   const cs = ensureCaustic();
   if(cs){
     __causticFrame++;
     if(__causticFrame % 2 === 0 || state.phase !== "session"){   // 每兩幀更新一次省效能
-      const bright = 0.55 + 0.22 * tide + 0.08 * guidedPhase;   // 握力主要表現在水面上升，caustics 只微亮＝不緊張（Pan 2026-07-16）
-      const density = 6.2 + 1.4 * tide;
+      const bright = 0.55 + 0.14 * tide + 0.08 * guidedPhase;
+      const density = 6.2 + 0.8 * tide;
       renderCaustic(cs, t, bright, density);
     }
     ctx.save();
@@ -3452,7 +3756,51 @@ function drawSea(){
 
   const horizon = waterTop;   // 供下方 beat flash 等沿用
 
-  // caustics 場景不畫海浪/白浪/漣漪；清空事件佇列避免堆積（改成光穿過水，Pan 2026-07-15）。
+  // 近岸浪花：握力產生一波一波浪包，經過延遲朝螢幕下方岸邊推進；放鬆後不再生新浪，舊浪自然退散。
+  const shoreBase = H * 0.84;
+  const waveRush = clamp(0.08 + 0.26 * tide + 0.14 * Math.max(__leftWave, __rightWave));
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for(let band = 0; band < 2; band++){
+    const idleY = shoreBase + band * H * 0.040 + Math.sin(t * (0.40 + band * 0.08) + band) * H * 0.004;
+    ctx.beginPath();
+    for(let x = -W * 0.04; x <= W * 1.04; x += W / 90){
+      const nx = clamp(x / W);
+      let y = idleY + Math.sin(nx * 12 + t * 0.72 + band) * H * 0.004;
+      for(const wv of __shoreWaves){
+        const age = t - wv.born - band * 0.20;
+        if(age < 0 || age > 2.8) continue;
+        const p = age / 2.8;
+        const travelY = waterTop + (shoreBase - waterTop) * smooth01(p);
+        const sideCenter = 0.5 + wv.side * 0.30;
+        const sideFalloff = Math.exp(-Math.pow((nx - sideCenter) / 0.42, 2));
+        const crest = Math.exp(-Math.pow((idleY - travelY) / (H * 0.030), 2));
+        const fade = Math.sin(Math.PI * p);
+        const wobble = Math.sin(nx * 18 + t * 1.6 + wv.seed) * H * 0.006;
+        y -= H * 0.060 * wv.strength * sideFalloff * crest * fade;
+        y += wobble * sideFalloff * crest * fade;
+      }
+      if(x <= -W * 0.039) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(248,255,250,${(0.18 + 0.22 * waveRush - band * 0.04).toFixed(3)})`;
+    ctx.lineWidth = H * (0.005 + 0.002 * waveRush + band * 0.0015);
+    ctx.stroke();
+  }
+  for(let i = __shoreWaves.length - 1; i >= 0; i--){
+    if(t - __shoreWaves[i].born > 3.2) __shoreWaves.splice(i, 1);
+  }
+  const washY = shoreBase - H * (0.045 + 0.055 * waveRush);
+  const wash = ctx.createLinearGradient(0, washY - H * 0.10, 0, H);
+  wash.addColorStop(0, "rgba(255,255,255,0)");
+  wash.addColorStop(0.45, `rgba(238,255,250,${(0.05 + 0.12 * waveRush).toFixed(3)})`);
+  wash.addColorStop(1, `rgba(252,248,230,${(0.08 + 0.12 * waveRush).toFixed(3)})`);
+  ctx.fillStyle = wash;
+  ctx.fillRect(0, washY - H * 0.10, W, H - washY + H * 0.10);
+  ctx.restore();
+
+  // caustics 場景不使用舊的事件漣漪；清空佇列避免堆積。
   const nowS = t;
   __rippleQueue.length = 0;
   __ripples.length = 0;

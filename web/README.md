@@ -15,6 +15,16 @@ python3 -m http.server 8000
 
 > ⚠️ **root 要在 `Tidal/`**：`index.html` 抓 `../assets/ir/room.wav`；若從 `web/` 開 server，`../` 逃出根目錄會 404（MeshRIR 空間著色靜默載不到，海仍會響）。`loadIR` 已會依序試多個候選路徑，但 `assets/` 實體在 `Tidal/` 底下，所以 server 根至少要到 `Tidal/`。
 
+## 握力球型號
+
+目前支援的握力球是 SimoTech `MB01`：
+
+- Vendor ID: `0x08E2`
+- Product ID: `0x0101`
+- 目前使用中的 serial：`10013181`、`10013802`
+
+WebHID 不會把 serial number 暴露給頁面，所以程式用 vendor/product 來篩選，並依連線順序分配 Ball 1 / Ball 2。若換同型 `MB01`，通常不需要改程式；若換成不同 vendor/product，請更新 `web/index.html` 裡的 `SUPPORTED_GRIP_BALLS`。
+
 ## 操作
 
 1. 打開頁面後會自動準備 Web Audio；海浪保持靜音，等第一次真的按下握力球/空白鍵時才慢慢 fade in。
@@ -30,7 +40,7 @@ python3 -m http.server 8000
 
 ## 現況與待補（TODO(agent)）
 
-已可跑但仍需重修手感：程序式三層海浪（surge / foam / impact）、多 LFO 疊加的湧浪動態、PannerNode(HRTF) + **MeshRIR ConvolverNode（dry/wet）空間鏈**、揮動跟隨方向、**用力握+揮動才觸發的拍石**（蓄積 swell + 長殘響尾巴）、WebHID 讀 GRIP RAW／IMU、自動校正、鍵盤模擬、**Arrival 抵達流程**（左右手對應 + 30 秒吸握吐放呼吸覺察 + 1.2 秒緊張程度握持 + 小 report + 使用者確認 + 依自我檢測建議呼吸場景 + CSV 欄位）、**引導 session preset**（海潮 / 左右潮 / 4-7-8 / 風箱：呼吸相位×握力水位×心跳海色）、**4-7-8 手動握拍**（球心數字 + 階段文字 + 每握一下扣一拍 + 可接語音）、**海作為主視覺**（最新為站在岸邊看出去的青綠海面、近岸白浪/水膜）、**中央圓球**（握力越大越被擠小，光與水位增強）、**鵝卵石大圓石低頻滾動**（阿朗壹風，Ball2 grip 主控捲動量、退浪相位給節奏）＋**低頻包覆床**、session 自評與 CSV 匯出。**目前 blocker 是校正與呼吸偵測過度敏感，詳見下方緊急項。**
+已可跑但仍需重修手感：程序式三層海浪（surge / foam / impact）、多 LFO 疊加的湧浪動態、PannerNode(HRTF) + **MeshRIR ConvolverNode（dry/wet）空間鏈**、揮動跟隨方向、**用力握+揮動才觸發的拍石**（蓄積 swell + 長殘響尾巴）、WebHID 讀 GRIP RAW／IMU、自動校正、鍵盤模擬、**Arrival 抵達流程**（左右手對應 + 30 秒吸握吐放呼吸覺察 + 1.2 秒緊張程度握持 + 小 report + 使用者確認 + 依自我檢測建議呼吸場景 + CSV 欄位）、**引導 session preset**（海潮 / 左右潮 / 4-7-8 / 風箱：呼吸相位×握力水位×心跳海色）、**4-7-8 手動握拍**（球心數字 + 階段文字 + 每握一下扣一拍 + 可接語音）、**海作為主視覺**（最新為站在岸邊看出去的青綠海面、近岸白浪/水膜）、**中央圓球**（握力越大越被擠小，光與水位增強）、**鵝卵石大圓石低頻滾動**（阿朗壹風，Ball2 grip 主控捲動量、退浪相位給節奏）＋**低頻包覆床**、session 自評與 CSV 匯出。**最新 blocker 是握力低端手感仍需真球微調：2026-07-17 已降低「拿起來就滿水」的敏感度，詳見下方握力映射項。**
 
 > 註：頁面上的「即時節奏」顯示已移除（Pan 2026-07-09：聽覺感覺不到、無實質意義）。`dominant_mode` 仍在背景計算、只寫進 CSV 供研究，不顯示給使用者。
 
@@ -42,6 +52,13 @@ python3 -m http.server 8000
   - 左右手流程：左手三次完整成功後才進右手；右手三次完整成功後才進 5 秒前導。若只連到一顆或只收到一顆有效輸入，不得自動跳過另一隻手。
   - 30 秒呼吸覺察：仍是「吸氣握著、吐氣放下」，但應使用校正後的 per-ball threshold 與 hysteresis。不要把兩手同時握造成的密集事件當成多次呼吸；需要 time window / state hold。
   - Demo 鍵盤：空白鍵仍需可直接 demo，不應被真球校正流程卡死。
+- **握力水位映射最新調整（Codex 2026-07-17）**：Pan 實測「一拿起來水位幾乎全滿」，因此 `GripCalibrator` 已改成較不放大低端：
+  - `GRIP_MIN_SPAN = 520`（原 300）：避免低 span 時輕碰就變大反應。
+  - `GRIP_HEADROOM = 1.35`（原 1.0）：舒適最大握力不會立刻等於 100% 滿水位。
+  - `GRIP_GAMMA = 0.78`（原 0.55）：低-中握不再被過度放大。
+  - `GRIP_DEADZONE = 0.10`：把「拿起球／手指貼著」留在 0 附近。
+  - baseline 慢漂移條件改為 `level < 0.16 && delta < span * 0.18`，漂移係數 `0.07`，讓小偏移可被併回 baseline。
+  - smoothing 改為 `0.12`，讓水位反應稍微更穩。下一位接手者請用真球測：拿起球但不刻意握時應接近 0；舒適握應有明顯水位；很用力才接近滿水位。
 - ~~**放 IR**~~：**已完成（2026-07-08）**。`../assets/ir/room.wav` 已由 MeshRIR S1-M3969（.mat 版）匯出（中心左右一對接收點、48kHz stereo、0.55s、RT60≈0.38s）。程式啟動自動載入、convolver 濕聲啟用。要換不同接收點/房間可重跑 `../assets/ir/export_room_ir.py`。
 - **閾值校準**：`HARD_GRIP` / `SWING_MIN` / `STRONG_SWING` 與揮動強度單位需在真實球上校準（`handleSwing`）。IMU 加速度單位（g 或 m/s²）未知，目前用「偏離慢基線」估揮動強度。
 - **觸覺參數**：目前全域 `HAPTICS_ENABLED=false`，不要恢復自動震動。唯一例外是 4-7-8 使用者主動握一下時以 `sendHapticAll(..., true)` 給一次短確認回饋；需真球確認強度與時長。

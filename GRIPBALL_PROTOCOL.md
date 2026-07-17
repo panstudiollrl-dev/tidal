@@ -47,7 +47,16 @@ Python：`struct.pack("<BB25s", report_id=1, cmd_id, padded_data)` → `device.w
 - 待機 relaxed 值約 `34000`（因球而異，**務必自動校正 baseline**，不要寫死）。
 - 用力握相對 baseline 約 `+1250`（`auto_full_scale`）即可視為滿刻度，讓整個聲音映射不必用蠻力就達得到。
 - 舊原型的固定觸發值為 `37000`（`grip_sound_demo.py` 仍用），但 Tidal 沿用 nature_loop 的**自動校正 + 慢漂移歸零**：緩慢變化視為感測器漂移、併入 baseline；快速上升才算一次握壓 onset。
-- **浮動滿刻度（Tidal web，2026-07-09）**：不同球／使用者的握力範圍差很多（有些球很用力也只 +380）。`web/index.html` 的 `GripCalibrator` 不用固定 `+1250`，改成**追蹤你觀察到的最大握力**（`this.span`，有界 300–1400、慢衰減自動適應），滿刻度＝`span×0.82`，再過 `pow(level, 0.75)` 響應曲線。可調常數：`GRIP_MIN_SPAN/MAX_SPAN/HEADROOM/SPAN_DECAY/GAMMA`。
+- **浮動滿刻度（Tidal web，更新 2026-07-17）**：不同球／使用者的握力範圍差很多（有些球很用力也只 +380）。`web/index.html` 的 `GripCalibrator` 不用固定 `+1250`，改成**追蹤你觀察到的最大握力**（`this.span`，有界 `520–1400`、慢衰減自動適應），並以 `span × GRIP_HEADROOM` 作為有效滿刻度。最新參數是：
+  - `GRIP_MIN_SPAN = 520`：避免拿起球、手指貼著就過度靈敏。
+  - `GRIP_MAX_SPAN = 1400`
+  - `GRIP_HEADROOM = 1.35`：舒適最大握力不會立刻被映射成滿水位。
+  - `GRIP_GAMMA = 0.78`：比舊版 `0.55` 少放大低端小壓力。
+  - `GRIP_DEADZONE = 0.10`：低端死區，把「拿起來／輕碰」留給 0 附近。
+  - baseline 漂移：`level < 0.16 && delta < span * 0.18` 時，以 `0.07` 併回 baseline。
+  - smoothing：`level += (shaped - level) * 0.12`。
+
+  這次調整的理由：Pan 實測一拿起球水位幾乎全滿，代表低端被曲線過度放大。接手者測試時請確認：只是拿起球不刻意握時水位應接近 0；舒適握應有明顯但不滿格的反應；非常用力才接近滿水位。
 
 ## 觸覺回饋（haptic，可選）
 
