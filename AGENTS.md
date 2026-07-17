@@ -69,6 +69,13 @@
 
 ## 交接紀錄
 
+### 2026-07-17 (e) — Claude｜修「換球後水位倒反」＝握壓方向 polarity 自動偵測
+- **症狀（Pan）**：換球後水位倒過來——沒握水位高、握了反而低。換球前很好。
+- **根因**：`GripCalibrator` 之前寫死「raw 高於 baseline＝握壓」（`posDelta=max(0,smRaw-baseline)`、baseline 三態用 `smRaw<baseline` 當放開）。但握力球有兩種極性：有的握下去 raw **上升**、有的 **下降**。換上的那顆是下降型 → 握＝raw 降→被當成「放開」快速歸零→放開時 raw 回升→被當成「握」→水位在放開時衝高＝倒反。視覺沒錯（`--session-water=gripWater` 正映射），是 calibrator 輸出被倒。
+- **修法**：calibrator 加**握壓方向 sign**。校正（未鎖定）期間記錄 rawDev 的最大正/負偏移 `upMax/downMax`；`lock()` 時 `sign = upMax>=downMax?1:-1`（未鎖定時即時猜）。之後一律用 `dev = (smRaw-baseline)*sign`（握＝正），span/shaped/baseline 三態全部以 dev 判斷 → **兩種極性都正確**。audio fade 的 rawDelta 與 D 面板也改用 sign（面板新增顯示 `sign` 與方向 delta）。
+- **驗證（node 模擬 `/tmp/calib_pol.js`）**：up-going 與 down-going 兩種球，校正後 REST≈0、GRIP≈0.74–0.77、RELEASE≈0，皆正確。中英 node --check + jsdom 0 錯誤。
+- 註：sign 在校正三握時學到最準；若跳過校正，未鎖定會即時猜，第一握後就會對。請 Pan 用 D 面板確認 `sign` 是否 = 該球方向（握下去 d 應變正、往上升）。
+
 ### 2026-07-17 (d) — Claude｜換球後卡在連線幕（stale grant 鬼影）
 - **症狀（Pan）**：換掉一顆握力球後卡在開頭。兩顆都是 MB01（同 08E2:0101，白名單沒問題）。
 - **根因**：被換掉的舊球「授權」還在（Chrome WebHID 權限持久），`getDevices()` 仍回傳它＝鬼影。`syncBalls` 逐顆 `await registerDevice`（內含 `dev.open()`）**沒有 try/catch**，鬼影 open() 失敗一拋錯就中斷整個迴圈，後面真的在的球都沒 register → connectedCount<2 → 卡在連線幕。

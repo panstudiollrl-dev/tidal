@@ -926,14 +926,19 @@ const state = {
 };
 
 class GripCalibrator {
-  constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; this.locked = false; }
-  // 校正結束後鎖定：滿刻度＝這顆球在三握校正時學到的舒適握壓（每顆球各自）。解決兩手不對稱：
-  // 敏感球輕碰不再滿、弱球用力也到得了滿（Pan 2026-07-17).
-  lock(){ this.locked = true; }
+  constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; this.locked = false;
+    this.sign = 0; this.upMax = 0; this.downMax = 0; }
+  // 校正結束後鎖定：滿刻度＝這顆球在三握校正時學到的舒適握壓（每顆球各自）＋鎖定握壓「方向」（polarity).
+  // 解兩手不對稱、也解「換球後水位倒過來」——有些球握下去 raw 上升、有些下降，之前寫死「上升＝握」就會倒反（Pan 2026-07-17).
+  lock(){ this.locked = true; if(this.sign === 0) this.sign = this.upMax >= this.downMax ? 1 : -1; }
   update(raw){
     if(this.baseline === null){ this.baseline = raw; this.smRaw = raw; this.level = 0; return 0; }
     this.smRaw += (raw - this.smRaw) * 0.3;                     // 輕度平滑，抗單筆雜訊
-    const posDelta = Math.max(0, this.smRaw - this.baseline);
+    const rawDev = this.smRaw - this.baseline;                  // 帶正負：離開靜止基線的方向與幅度
+    if(!this.locked){ if(rawDev > this.upMax) this.upMax = rawDev; if(-rawDev > this.downMax) this.downMax = -rawDev; }
+    const s = this.sign !== 0 ? this.sign : (this.upMax >= this.downMax ? 1 : -1);   // 握壓方向（校正學到；未鎖定時即時猜）
+    const dev = rawDev * s;                                     // 轉成「握＝正」：不論球是上升還下降都一致
+    const posDelta = Math.max(0, dev);
     // 滿刻度 span：校正中即時學這顆球的握壓範圍；鎖定後只慢慢擴張（別讓一次尖峰或漂移改掉尺標→之後同力變弱）。有界。
     if(!this.locked) this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
     else if(posDelta > this.span) this.span += (posDelta - this.span) * 0.02;
@@ -943,11 +948,11 @@ class GripCalibrator {
     let rawLevel = clamp(posDelta / effScale);
     rawLevel = rawLevel <= GRIP_DEADZONE ? 0 : clamp((rawLevel - GRIP_DEADZONE) / (1 - GRIP_DEADZONE));
     const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA)
-    // baseline 三態（Pan 2026-07-17：漂移害「準備卡住／沒答就跳關」、握持中水位一直降）：
-    //   放開（smRaw<baseline)→ 快速歸零，下一握乾淨起算；
+    // baseline 三態（以「握＝正」的 dev 判斷，與方向無關）：
+    //   非握壓方向（dev<0，多半是放開/回到靜止）→ 快速追回靜止基線，下一握乾淨起算；
     //   閒置（shaped<0.06)→ 吸收感測器漂移，讓漂移不累積成假握壓（arm/答題門檻不被誤觸）；
     //   握持中（shaped≥0.06)→ 近乎凍結，穩定用力時水位不會一直下沉。
-    if(this.smRaw < this.baseline) this.baseline += (this.smRaw - this.baseline) * 0.3;
+    if(dev < 0) this.baseline += (this.smRaw - this.baseline) * 0.3;
     else if(shaped < 0.06) this.baseline += (this.smRaw - this.baseline) * 0.05;
     else this.baseline += (this.smRaw - this.baseline) * 0.0005;
     this.level += (shaped - this.level) * 0.2;                  // 平滑
@@ -2672,7 +2677,7 @@ function onReport(e, slot){
     if(state.arrival.step === "connect") maybeAdvanceFromConnect();
     const raw = dv.getUint16(2, true);
     const c = calib[slot];
-    const rawDelta = c.baseline == null ? 0 : Math.max(0, raw - c.baseline);
+    const rawDelta = c.baseline == null ? 0 : Math.max(0, (raw - c.baseline) * (c.sign || 1));  // 依握壓方向
     const level = c.update(raw);
     if(engine && !state.audioFadedIn && (level > 0.035 || rawDelta > 70)){
       requestAudioFadeIn();
@@ -3633,8 +3638,9 @@ function updateDiag(){
     const c = calib[s];
     const base = `Ball${s} [${dev(s)}]`;
     if(!c || c.baseline == null) return `${base}  raw:--`;
-    const d = Math.round(Math.max(0, c.smRaw - c.baseline));
-    return `${base}\n   raw~${Math.round(c.smRaw)} base~${Math.round(c.baseline)} d${d} span${Math.round(c.span)}${c.locked ? "*" : ""} lvl${(state.grip[s] || 0).toFixed(2)}`;
+    const sgn = c.sign || (c.upMax >= c.downMax ? 1 : -1);
+    const gd = Math.round((c.smRaw - c.baseline) * sgn);       // 握壓方向的 delta（正＝往握的方向）
+    return `${base}\n   raw~${Math.round(c.smRaw)} base~${Math.round(c.baseline)} d${gd} sign${sgn} span${Math.round(c.span)}${c.locked ? "*" : ""} lvl${(state.grip[s] || 0).toFixed(2)}`;
   };
   el.textContent = [
     `phase:${state.phase}  step:${state.arrival.step}`,
