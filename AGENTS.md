@@ -69,6 +69,14 @@
 
 ## 交接紀錄
 
+### 2026-07-17 (c) — Claude｜校正鎖定（兩手對稱）＋握持不下沉＋診斷面板；no-sound 待查
+- **Pan 實測三症狀**：① 一手太敏感一碰就全滿、另一手很用力連一半都不到；② 答題/呼吸時「握下去水位頓升、之後穩定用力水位卻一直降」；③ 沒聲音。
+- **② 是我 (b) 版的回歸**：非對稱 baseline 的「向上吸收 0.008」太快，會把持續數秒的握持（尤其 4-7-8 憋氣 7 秒）當漂移吃掉→水位下沉。改成 **baseline 三態**：放開快速歸零(0.3)／閒置吸收漂移(0.05，shaped<0.06)／**握持中近乎凍結(0.0005)**。模擬 7 秒握持只從 ~0.78 微降到 ~0.68（弱球幾乎不降），漂移仍讀 0。
+- **① 兩手不對稱 = 尺標問題**：舊版 span 用即時最大值＋固定地板 520。敏感球第一握就把 span 追高／或地板讓輕碰就滿；弱球（max 只 +300）被 520 地板壓住最多到 ~0.43。**改成校正鎖定**：三握 cue 期間即時學 span，`finishHandCue`（右手完成）對兩球 `lock()`；鎖定後只慢擴張。滿刻度＝各球自己校正的舒適握壓。`GRIP_MIN_SPAN 520→250`、`SPAN_DECAY 0.99975→0.99985`、MAX→1500。模擬：敏感球輕碰 0.26／舒適 0.77，弱球用力 0.82（不再卡半），兩手一致。HEADROOM/GAMMA/DEADZONE 未動。
+- **診斷面板**：按 **D** 開關右上角 overlay，即時顯示每顆球 raw/base/Δ/span(鎖定顯示*)/lvl、audio engine/ctx/fadedIn、handMap。為了和 Pan 一起校準真球用（memory 早記過「閾值要與 Pan 一起校準」）。純顯示、中英文版都英文標籤。
+- **③ 沒聲音：尚未定位**。程式路徑正常（startAudio 建 ctx→按握力球 requestAudioFadeIn 內 resume+fadeIn；rawDelta>70 或 level>0.035 觸發）。需 Pan 回報：在 localhost 還是 Pages？是否這次才沒聲音？用 D 面板看 `audio engine/ctx/fadedIn` 狀態（ctx 若一直 suspended＝автoplay 手勢沒過；engine✗＝沒按「啟動聲音」）。等資訊再修。
+- 驗證：中英 node --check + jsdom 0 錯誤；calib 模擬 `/tmp/calib3.js`。未改 guardrail。**注意**：span 現在鎖定，若接手要改回即時追峰值需一併處理兩手不對稱。
+
 ### 2026-07-17 (b) — Claude｜修 GripCalibrator 漂移（解「準備卡住／還沒答就跳關」）
 - **症狀（Pan）**：準備等待太長；反饋（抵達小小回顧＋結束後問卷）還沒答題就被帶往下一階段。Pan 直覺與握力球數值飄移有關——正確。
 - **根因**：舊 `GripCalibrator` 的 baseline 漂移是閘控式（`level<0.16 && delta<span*0.18 → baseline+=0.07`）。感測器慢慢往上飄時，一旦 level 超過 0.16 就停止吸收 → 漂移殘留成「假握壓」。模擬證實：僅 +14/秒的漂移就讓閒置 level 衝到 **0.154**，同時超過 arm 門檻 `AFTER_OFF=0.07`（→ 放不開、卡「準備」）與答題門檻 `AFTER_ON=0.14`（→ 在門檻附近抖動使 heldMs 一直歸零，5.2s response window 逾時自動記 0 跳關）。span 又用「瞬時最大值＋極慢衰減」，一次尖峰讓之後同樣握力都變弱。

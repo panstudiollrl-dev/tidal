@@ -623,6 +623,7 @@
 <div class="scrim"></div>
 
 <main class="app">
+  <div id="diag" style="display:none;position:fixed;top:8px;right:8px;z-index:9999;font:11px/1.45 ui-monospace,monospace;background:rgba(0,0,0,.74);color:#8fe6d8;padding:8px 11px;border-radius:8px;white-space:pre;pointer-events:none;max-width:60vw"></div>
   <header>
     <div>
       <h1>Tidal <a href="en/" style="font-size:13px;font-weight:400;opacity:.6;text-decoration:none;vertical-align:middle;margin-left:8px">EN</a></h1>
@@ -800,11 +801,11 @@ const SUPPORTED_GRIP_BALLS = [
 const MODE_9DOF_GRIP = 3;
 const AUTO_ONSET_DELTA = 450;
 // 浮動握力校正（Pan 2026-07-09：固定滿刻度太高，很用力才到 30%）。滿刻度會自動追蹤你的握力範圍。
-const GRIP_MIN_SPAN = 520;         // 滿刻度最小跨距（避免拿起球、手指貼著就過度靈敏）
-const GRIP_MAX_SPAN = 1400;        // 滿刻度上限（避免異常大值）
-const GRIP_HEADROOM = 1.35;        // 留一點餘裕：舒適最大握力不會立刻被映射成滿水位。
-                                   // =1 讓最用力＝100%、輕握有比例，不必死命握（Pan 2026-07-14：之前 1.15 要很用力才有反應）。
-const GRIP_SPAN_DECAY = 0.99975;   // 觀察到的最大握力慢慢遺忘、重新適應（每筆 report 乘一次）
+const GRIP_MIN_SPAN = 250;         // 滿刻度最小跨距（防雜訊放大）。調低（原 520）讓「弱球」也能校到滿：
+                                   // 有些球很用力也只 +300，520 的地板會讓它最多到 ~0.43（Pan 2026-07-17：一手很用力連一半都不到）。
+const GRIP_MAX_SPAN = 1500;        // 滿刻度上限（避免異常大值）
+const GRIP_HEADROOM = 1.35;        // 留一點餘裕：校正時的舒適握壓 → ~0.74 水位；更用力才接近滿。
+const GRIP_SPAN_DECAY = 0.99985;   // 慢遺忘/重新適應（每筆 report 乘一次）；鎖定後只慢慢擴張，不被單一尖峰改掉尺標
 // 握力→水位的「自然對應曲線」：不是線性。依 Stevens 冪定律（S=k·Iⁿ；握力是 Stevens 1960 的經典連續量），
 // 用 pow(level, GRIP_GAMMA) 做知覺補償。GRIP_GAMMA<1＝壓縮曲線，低-中握就有明顯反應、末段趨緩，握起來最自然
 // （等同 Max/MSP `scale` 物件第 5 參數 exponent 的作用——把線性輸入彎成知覺線性）。0.55 比 0.75 更靈敏。
@@ -925,25 +926,30 @@ const state = {
 };
 
 class GripCalibrator {
-  constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; }
+  constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; this.locked = false; }
+  // 校正結束後鎖定：滿刻度＝這顆球在三握校正時學到的舒適握壓（每顆球各自）。解決兩手不對稱：
+  // 敏感球輕碰不再滿、弱球用力也到得了滿（Pan 2026-07-17）。
+  lock(){ this.locked = true; }
   update(raw){
     if(this.baseline === null){ this.baseline = raw; this.smRaw = raw; this.level = 0; return 0; }
     this.smRaw += (raw - this.smRaw) * 0.3;                     // 輕度平滑，抗單筆雜訊
     const posDelta = Math.max(0, this.smRaw - this.baseline);
-    // 浮動滿刻度：上升用 attack 限速跟隨（不追一次尖峰/雜訊，避免之後同樣握力都變弱），閒置慢衰減；有界
-    if(posDelta > this.span) this.span += (posDelta - this.span) * 0.04;
+    // 滿刻度 span：校正中即時學這顆球的握壓範圍；鎖定後只慢慢擴張（別讓一次尖峰或漂移改掉尺標→之後同力變弱）。有界。
+    if(!this.locked) this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
+    else if(posDelta > this.span) this.span += (posDelta - this.span) * 0.02;
     else this.span *= GRIP_SPAN_DECAY;
     this.span = clamp(this.span, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
-    // 非對稱 rest-floor baseline（Pan 2026-07-17：感測器數值飄移造成「準備卡住／還沒答就跳關」）：
-    //   訊號低於基線＝正在放開 → 快速歸零；高於基線＝可能是漂移或握持 → 慢慢吸收。
-    // 慢吸收讓緩慢的感測器漂移不會累積成「假握壓」（閒置 level 穩定回到 ~0，arm 門檻與答題門檻不會被漂移誤觸），
-    // 又因為只吸收 0.8%/筆，真實握壓的峰值仍保留（答題取 peak）。放開時快速歸零，下一次握壓乾淨起算。
-    if(this.smRaw < this.baseline) this.baseline += (this.smRaw - this.baseline) * 0.3;
-    else this.baseline += (this.smRaw - this.baseline) * 0.008;
-    const effScale = this.span * GRIP_HEADROOM;                 // 到你握力範圍就算滿
+    const effScale = this.span * GRIP_HEADROOM;                 // 到你的舒適握壓就算 ~滿
     let rawLevel = clamp(posDelta / effScale);
     rawLevel = rawLevel <= GRIP_DEADZONE ? 0 : clamp((rawLevel - GRIP_DEADZONE) / (1 - GRIP_DEADZONE));
     const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA）
+    // baseline 三態（Pan 2026-07-17：漂移害「準備卡住／沒答就跳關」、握持中水位一直降）：
+    //   放開（smRaw<baseline）→ 快速歸零，下一握乾淨起算；
+    //   閒置（shaped<0.06）→ 吸收感測器漂移，讓漂移不累積成假握壓（arm/答題門檻不被誤觸）；
+    //   握持中（shaped≥0.06）→ 近乎凍結，穩定用力時水位不會一直下沉。
+    if(this.smRaw < this.baseline) this.baseline += (this.smRaw - this.baseline) * 0.3;
+    else if(shaped < 0.06) this.baseline += (this.smRaw - this.baseline) * 0.05;
+    else this.baseline += (this.smRaw - this.baseline) * 0.0005;
     this.level += (shaped - this.level) * 0.2;                  // 平滑
     return this.level;
   }
@@ -2234,6 +2240,9 @@ function finishHandCue(){
     beginHandCue("right");
   } else {
     state.handMap.right = picked === state.handMap.left ? (picked === 1 ? 2 : 1) : picked;
+    // 校正完成 → 鎖定兩顆球各自的滿刻度（滿＝剛才三握的舒適握壓）。之後只慢慢擴張，不即時追峰值。
+    if(calib[1]) calib[1].lock();
+    if(calib[2]) calib[2].lock();
     beginPrelude();
   }
 }
@@ -3574,6 +3583,31 @@ setInterval(() => {
 
 setInterval(recordSample, 500);
 setInterval(watchHidLiveness, 1000);
+
+// —— 診斷面板（按 D 開關）：即時顯示每顆球的 raw/baseline/span/level 與聲音狀態，方便和 Pan 一起校準 ——
+addEventListener("keydown", (e) => {
+  if((e.key === "d" || e.key === "D") && !e.repeat && !e.metaKey && !e.ctrlKey){
+    const el = $("diag"); if(el) el.style.display = el.style.display === "none" ? "block" : "none";
+  }
+});
+function updateDiag(){
+  const el = $("diag"); if(!el || el.style.display === "none") return;
+  const fmt = (s) => {
+    const c = calib[s];
+    if(!c || c.baseline == null) return `Ball${s}: no data`;
+    const d = Math.round(Math.max(0, c.smRaw - c.baseline));
+    return `Ball${s}${devices[s] ? "" : "(no dev)"}: raw~${Math.round(c.smRaw)}  base~${Math.round(c.baseline)}  d${d}  span${Math.round(c.span)}${c.locked ? "*" : ""}  lvl${(state.grip[s] || 0).toFixed(2)}`;
+  };
+  el.textContent = [
+    `phase:${state.phase}  step:${state.arrival.step}`,
+    `audio engine:${engine ? "Y" : "N"}  ctx:${audioCtx ? audioCtx.state : "none"}  fadedIn:${state.audioFadedIn}`,
+    fmt(1),
+    fmt(2),
+    `handMap L:${state.handMap.left ?? "-"}  R:${state.handMap.right ?? "-"}`,
+    `[D] toggle`,
+  ].join("\n");
+}
+setInterval(updateDiag, 120);
 
 // 海仍是主視覺：避免人工正弦線，改用厚霧、暗流、寬幅浪帶與中央潮汐曼荼羅。
 let __seaScroll = 0, __seaLast = performance.now() / 1000, __leftWave = 0, __rightWave = 0;

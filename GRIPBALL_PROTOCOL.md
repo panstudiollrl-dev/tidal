@@ -48,8 +48,9 @@ Python：`struct.pack("<BB25s", report_id=1, cmd_id, padded_data)` → `device.w
 - 用力握相對 baseline 約 `+1250`（`auto_full_scale`）即可視為滿刻度，讓整個聲音映射不必用蠻力就達得到。
 - 舊原型的固定觸發值為 `37000`（`grip_sound_demo.py` 仍用），但 Tidal 沿用 nature_loop 的**自動校正 + 慢漂移歸零**：緩慢變化視為感測器漂移、併入 baseline；快速上升才算一次握壓 onset。
 - **浮動滿刻度（Tidal web，更新 2026-07-17）**：不同球／使用者的握力範圍差很多（有些球很用力也只 +380）。`web/index.html` 的 `GripCalibrator` 不用固定 `+1250`，改成**追蹤你觀察到的最大握力**（`this.span`，有界 `520–1400`、慢衰減自動適應），並以 `span × GRIP_HEADROOM` 作為有效滿刻度。最新參數是：
-  - `GRIP_MIN_SPAN = 520`：避免拿起球、手指貼著就過度靈敏。
-  - `GRIP_MAX_SPAN = 1400`
+  - **滿刻度改「校正鎖定」（更新 2026-07-17 b）**：`GripCalibrator` 新增 `locked`／`lock()`。校正三握（左右手 cue）期間 span＝即時學到的最大握壓；**校正完成時 `finishHandCue` 對兩顆球各自 `lock()`**，之後 span 只慢慢擴張（`+=(posDelta-span)*0.02`）不再即時追峰值。這樣**每顆球的滿刻度＝它自己校正時的舒適握壓**，解決 Pan 2026-07-17 實測的兩手不對稱：一手一碰就滿（span 被瞬時追高/地板太高）、一手很用力連一半都不到（弱球被 520 地板壓住）。
+  - `GRIP_MIN_SPAN = 250`（原 520）：地板調低讓**弱球**（很用力也只 +300 的球）也能校到接近滿；仍保留防雜訊放大的底線。
+  - `GRIP_MAX_SPAN = 1500`
   - `GRIP_HEADROOM = 1.35`：舒適最大握力不會立刻被映射成滿水位。
   - `GRIP_GAMMA = 0.78`：比舊版 `0.55` 少放大低端小壓力。
   - `GRIP_DEADZONE = 0.10`：低端死區，把「拿起來／輕碰」留給 0 附近。
