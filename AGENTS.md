@@ -69,6 +69,12 @@
 
 ## 交接紀錄
 
+### 2026-07-17 (d) — Claude｜換球後卡在連線幕（stale grant 鬼影）
+- **症狀（Pan）**：換掉一顆握力球後卡在開頭。兩顆都是 MB01（同 08E2:0101，白名單沒問題）。
+- **根因**：被換掉的舊球「授權」還在（Chrome WebHID 權限持久），`getDevices()` 仍回傳它＝鬼影。`syncBalls` 逐顆 `await registerDevice`（內含 `dev.open()`）**沒有 try/catch**，鬼影 open() 失敗一拋錯就中斷整個迴圈，後面真的在的球都沒 register → connectedCount<2 → 卡在連線幕。
+- **修法**：① `syncBalls` 每顆 registerDevice 包 try/catch，開不起來就 `dev.forget?.()` 撤銷該授權並跳過，讓真的球拿到 slot。② `watchHidLiveness` 對「一直不回應」的 slot 除了 forgetBallSlot 再 `ghost.forget()` 撤授權＋重新 `syncBalls()`（處理「鬼影 open 成功但永不回報」的迴圈）。③ 加 **R 鍵 `repairBalls()`**：撤銷所有握力球授權→清 slot→重新 `connectBall()`，換球卡住的逃生口。④ D 診斷面板加每顆球 `productName vid:pid rdy:Y/N` 與 `granted:N`，方便看鬼影。
+- 驗證：中英 node --check + jsdom 0 錯誤；EN 重新生成（新 log 字串已加進翻譯表；一句 mid-line 區塊註解仍中文＝非使用者可見）。未改 guardrail。
+
 ### 2026-07-17 (c) — Claude｜校正鎖定（兩手對稱）＋握持不下沉＋診斷面板；no-sound 待查
 - **Pan 實測三症狀**：① 一手太敏感一碰就全滿、另一手很用力連一半都不到；② 答題/呼吸時「握下去水位頓升、之後穩定用力水位卻一直降」；③ 沒聲音。
 - **② 是我 (b) 版的回歸**：非對稱 baseline 的「向上吸收 0.008」太快，會把持續數秒的握持（尤其 4-7-8 憋氣 7 秒）當漂移吃掉→水位下沉。改成 **baseline 三態**：放開快速歸零(0.3)／閒置吸收漂移(0.05，shaped<0.06)／**握持中近乎凍結(0.0005)**。模擬 7 秒握持只從 ~0.78 微降到 ~0.68（弱球幾乎不降），漂移仍讀 0。

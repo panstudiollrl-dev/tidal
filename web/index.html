@@ -2608,11 +2608,20 @@ async function syncBalls(){
   let granted = [];
   try{ granted = await navigator.hid.getDevices(); }catch(err){ return; }
   granted = granted.filter(isSupportedGripBall);
+  state.grantedCount = granted.length;           // 目前授權中的球數（含可能的鬼影），診斷面板用
   for(const dev of granted){
     if(deviceSlot(dev) != null) continue;        // 已指派→跳過，避免兩顆映射成同一顆
     const slot = freeSlot();
     if(slot == null) break;                       // 兩顆已滿
-    await registerDevice(dev, slot);
+    // 換球情境（Pan 2026-07-17）：被換掉的舊球授權還在，但實體不在→open() 會失敗。
+    // 以前沒 try/catch，第一顆「鬼影」拋錯就中斷整個迴圈，後面真的球都連不上＝卡在開頭。
+    // 現在逐顆容錯：開不起來就撤銷該授權（forget）並跳過，讓真的在的球拿到 slot。
+    try{
+      await registerDevice(dev, slot);
+    }catch(err){
+      log(`略過一顆無法開啟的握力球（可能是被換掉的舊球）：${err.message}`);
+      try{ await dev.forget?.(); }catch(_){ /* 舊瀏覽器沒有 forget，忽略 */ }
+    }
   }
 }
 
@@ -2630,7 +2639,12 @@ function watchHidLiveness(){
       }
       sendModeCommand(slot, "stale").catch(() => {});
       if(age > HID_FORGET_STALE_MS){
+        const ghost = devices[slot];
         forgetBallSlot(slot, "沒有回應");
+        // 一直不回應（多半是被換掉的舊球授權殘留）→ 撤銷授權，避免每 6.5s 又被自動接回、卡住 slot；
+        // 再重新掃描，讓實際在線的球遞補（Pan 2026-07-17 換球）。
+        try{ ghost && ghost.forget && ghost.forget(); }catch(_){ /* ignore */ }
+        syncBalls().catch(() => {});
       }
     }
   });
@@ -3589,22 +3603,46 @@ addEventListener("keydown", (e) => {
   if((e.key === "d" || e.key === "D") && !e.repeat && !e.metaKey && !e.ctrlKey){
     const el = $("diag"); if(el) el.style.display = el.style.display === "none" ? "block" : "none";
   }
+  if((e.key === "r" || e.key === "R") && !e.repeat && !e.metaKey && !e.ctrlKey){
+    repairBalls();
+  }
 });
+// 換球後若還卡住：撤銷所有握力球授權（含被換掉的舊球鬼影）→ 清空 slot → 重新請使用者授權目前在線的球。
+async function repairBalls(){
+  if(!("hid" in navigator)) return;
+  log("重新配對握力球：撤銷舊授權中…");
+  try{
+    const all = await navigator.hid.getDevices();
+    for(const d of all){ try{ await d.forget?.(); }catch(_){ /* ignore */ } }
+  }catch(_){ /* ignore */ }
+  [1, 2].forEach(s => { try{ forgetBallSlot(s, "重新配對"); }catch(_){} });
+  state.grantedCount = 0;
+  if(state.arrival.step !== "connect") showConnectOrStart();
+  updateConnectScene();
+  try{ await connectBall(); }catch(err){ log("重新配對失敗：" + err.message); }
+}
 function updateDiag(){
   const el = $("diag"); if(!el || el.style.display === "none") return;
+  const dev = (s) => {
+    const dv = devices[s];
+    if(!dv) return "no dev";
+    const id = `${(dv.vendorId||0).toString(16).padStart(4,"0")}:${(dv.productId||0).toString(16).padStart(4,"0")}`;
+    return `${dv.productName || "?"} ${id} rdy:${state.ready[s] ? "Y" : "N"}`;
+  };
   const fmt = (s) => {
     const c = calib[s];
-    if(!c || c.baseline == null) return `Ball${s}: no data`;
+    const base = `Ball${s} [${dev(s)}]`;
+    if(!c || c.baseline == null) return `${base}  raw:--`;
     const d = Math.round(Math.max(0, c.smRaw - c.baseline));
-    return `Ball${s}${devices[s] ? "" : "(no dev)"}: raw~${Math.round(c.smRaw)}  base~${Math.round(c.baseline)}  d${d}  span${Math.round(c.span)}${c.locked ? "*" : ""}  lvl${(state.grip[s] || 0).toFixed(2)}`;
+    return `${base}\n   raw~${Math.round(c.smRaw)} base~${Math.round(c.baseline)} d${d} span${Math.round(c.span)}${c.locked ? "*" : ""} lvl${(state.grip[s] || 0).toFixed(2)}`;
   };
   el.textContent = [
     `phase:${state.phase}  step:${state.arrival.step}`,
     `audio engine:${engine ? "Y" : "N"}  ctx:${audioCtx ? audioCtx.state : "none"}  fadedIn:${state.audioFadedIn}`,
     fmt(1),
     fmt(2),
-    `handMap L:${state.handMap.left ?? "-"}  R:${state.handMap.right ?? "-"}`,
-    `[D] toggle`,
+    `handMap L:${state.handMap.left ?? "-"}  R:${state.handMap.right ?? "-"}  granted:${state.grantedCount ?? "?"}`,
+    `[D] toggle   [R] re-pair balls`,
   ].join("\n");
 }
 setInterval(updateDiag, 120);
