@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tidal — 節奏調和海浪聲景</title>
+<title>Tidal — Rhythm-attuned ocean soundscape</title>
 <style>
   :root {
     color-scheme: dark;
@@ -46,7 +46,7 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; width: 100%; min-height: 100%; overflow-x: hidden; }
   /* 背景 canvas/scrim 都是 position:fixed，捲動只移動內容、不動背景。
-     允許縱向捲動 → 內容比畫面高時可以看到全部，使用者不必再 cmd+- 縮小（Pan 2026-07-14）。 */
+     允許縱向捲動 → 內容比畫面高時可以看到全部，使用者不必再 cmd+- 縮小（Pan 2026-07-14). */
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
     background: var(--bg);
@@ -258,7 +258,7 @@
     pointer-events: none;
   }
   .core-orb::before {
-    /* 柔和外暈，不再有幾何內圈（去數位感，Pan 2026-07-14） */
+    /* 柔和外暈，不再有幾何內圈（去數位感，Pan 2026-07-14) */
     inset: 5%;
     border: 0;
     box-shadow: 0 0 40px rgba(180, 200, 218, calc(.10 + .16 * var(--core-tide)));
@@ -625,100 +625,100 @@
 <main class="app">
   <header>
     <div>
-      <h1>Tidal <a href="en/" style="font-size:13px;font-weight:400;opacity:.6;text-decoration:none;vertical-align:middle;margin-left:8px">EN</a></h1>
-      <div class="tagline">一片可被雙手塑形的海。握力與揮動不是控制命令，而是身體節奏；聲音回應它，慢慢把緊繃導回可呼吸、可停留的節奏彈性。</div>
+      <h1>Tidal <a href="../" style="font-size:13px;font-weight:400;opacity:.6;text-decoration:none;vertical-align:middle;margin-left:8px">中文</a></h1>
+      <div class="tagline">An ocean shaped by both hands. Grip and movement aren’t commands — they’re the body’s rhythm. The sound answers, gently guiding tension back to a rhythm that can breathe and stay.</div>
     </div>
     <div class="status">
-      <div><span id="audioDot" class="dot"></span><span id="audioStatus">聲音未啟動</span></div>
-      <div><span id="hidDot" class="dot"></span><span id="hidStatus">握力球未連接</span></div>
-      <div id="runtimeStatus">localhost + Chrome/Edge 最穩</div>
+      <div><span id="audioDot" class="dot"></span><span id="audioStatus">Audio not started</span></div>
+      <div><span id="hidDot" class="dot"></span><span id="hidStatus">Grip balls not connected</span></div>
+      <div id="runtimeStatus">localhost + Chrome/Edge most stable</div>
     </div>
   </header>
 
   <section class="grid">
     <div class="flow experience">
       <section class="panel experience-panel">
-        <h2>體驗</h2>
+        <h2>Experience</h2>
         <div class="controls">
-          <button id="btnAudio">啟動聲音</button>
-          <button id="btnBall" disabled>連接握力球</button>
-          <button id="btnStartSession" disabled>開始抵達</button>
-          <button id="btnEndSession" class="ghost" disabled>結束</button>
-          <button id="btnCsv" class="ghost" disabled>下載 CSV</button>
+          <button id="btnAudio">Start audio</button>
+          <button id="btnBall" disabled>Connect grip balls</button>
+          <button id="btnStartSession" disabled>Begin arrival</button>
+          <button id="btnEndSession" class="ghost" disabled>End</button>
+          <button id="btnCsv" class="ghost" disabled>Download  CSV</button>
         </div>
         <div id="browserWarn" class="hint warning" style="display:none; margin-top:10px"></div>
         <div class="hint" style="margin-top:10px">
-          無球時可用空白鍵代替按壓。戴耳機，讓畫面停在中央就好。
+          Without balls, use the spacebar in place of a squeeze. Wear headphones, and just keep the view centered.
         </div>
         <div id="log" class="logline"></div>
       </section>
 
       <section class="panel phase guide-panel active" id="phaseBefore">
-        <h2>抵達</h2>
+        <h2>Arrival</h2>
         <div id="guideOrb" class="core-orb" aria-hidden="true"><div class="orb-cue-text" id="cueOrbPrompt"></div></div>
         <div id="arrivalIntro">
-          <div class="arrival-title">正在準備</div>
+          <div class="arrival-title">Preparing</div>
           <div class="arrival-copy">
-            <p>聲音會先保持安靜。</p>
+            <p>The sound stays quiet at first.</p>
           </div>
           <div class="controls scene-action">
-            <button id="btnPracticeIntro">直接進入呼吸練習</button>
+            <button id="btnPracticeIntro">Skip to breath practice</button>
           </div>
         </div>
         <div id="arrivalConnect" style="display:none">
-          <div class="arrival-title">連接握力球</div>
+          <div class="arrival-title">Connect grip balls</div>
           <div class="arrival-copy">
-            <p id="connectCopy">接下來會用兩隻手的按壓，記錄呼吸和此刻的力道。</p>
+            <p id="connectCopy">Next we’ll use both hands’ presses to record your breath and the force of this moment.</p>
           </div>
           <div class="controls scene-action">
-            <button id="btnConnectInline">連接握力球</button>
-            <button id="btnPracticeInline" class="ghost">先進入呼吸練習</button>
+            <button id="btnConnectInline">Connect grip balls</button>
+            <button id="btnPracticeInline" class="ghost">Skip to breath practice</button>
           </div>
-          <div class="hint" style="margin-top:12px">如果只是測試，也可以用空白鍵代替按壓。</div>
+          <div class="hint" style="margin-top:12px">If you’re just testing, you can use the spacebar in place of a squeeze.</div>
         </div>
         <div id="arrivalPrelude" style="display:none">
-          <div class="arrival-title">準備</div>
+          <div class="arrival-title">Ready</div>
           <div class="countdown"><span id="preludeClock">5</span></div>
           <div class="arrival-copy">
-            <p>接下來三十秒，請自然呼吸，覺察每一次吸和吐。</p>
+            <p>For the next thirty seconds, breathe naturally and notice each inhale and exhale.</p>
           </div>
         </div>
         <div id="arrivalHandCue" style="display:none">
-          <div class="arrival-title" id="handCueTitle">校正 · 左手</div>
+          <div class="arrival-title" id="handCueTitle">Calibration · Left hand</div>
           <div class="arrival-copy">
-            <p>先幫我認識你的握力。看著中央的球，讓手跟著它的提示走三次。</p>
+            <p>First, let me get to know your grip. Watch the orb at the center and let your hand follow its cue three times.</p>
           </div>
-          <div class="breath-word" id="handCuePrompt" style="display:none">準備…</div>
-          <div class="hint" id="handCueHint">水位會跟著你的握力升降。</div>
+          <div class="breath-word" id="handCuePrompt" style="display:none">Ready…</div>
+          <div class="hint" id="handCueHint">The water level rises and falls with your grip.</div>
         </div>
         <div id="arrivalBreath" style="display:none">
-          <div class="arrival-title">聽見呼吸</div>
+          <div class="arrival-title">Hear the breath</div>
           <div class="countdown"><span id="breathClock">30</span></div>
           <div class="arrival-progress"><span id="breathProgress"></span></div>
-          <div class="hint" style="visibility:hidden">已收到 <span id="breathCount">0</span> 次呼吸變化</div>
+          <div class="hint" style="visibility:hidden">received <span id="breathCount">0</span>  breath changes</div>
         </div>
         <div id="arrivalHold" style="display:none">
-          <div class="arrival-title">用握力表達緊張的程度</div>
+          <div class="arrival-title">Use grip to express your level of tension</div>
           <div class="arrival-copy">
-            <p>現在，請用手表示你此刻的緊張、情緒或能量有多大。</p>
-            <p>越用力，代表越滿、越緊、越澎湃；越輕，代表越平靜。</p>
+            <p>Now, use your hand to show how much tension, emotion, or energy you feel right now.</p>
+            <p>The harder you grip, the fuller, tighter, more surging; the lighter, the calmer.</p>
           </div>
           <div class="arrival-progress"><span id="holdProgress"></span></div>
-          <div class="hint" id="holdHint" style="display:none">準備好時，握住一下。</div>
+          <div class="hint" id="holdHint" style="display:none">When you’re ready, give it a grip.</div>
         </div>
         <div id="arrivalReport" style="display:none">
-          <div class="arrival-title">小小回顧</div>
+          <div class="arrival-title">A brief review</div>
           <div class="report-impression" id="reportImpression">&nbsp;</div>
           <div class="arrival-copy" id="reportAgreeCopy">
-            <p>這只是一個猜測。看著中央的球，用水位告訴我它有多貼近現在的你。</p>
+            <p>This is only a guess. Watch the orb at the center, and let the water level tell me how close it is to you right now.</p>
           </div>
           <div class="agree-meter" id="agreeMeter" style="display:none"><span id="agreeFill"></span></div>
-          <div class="hint" id="reportHint" style="display:none">用握力表示這段描述有多貼近你。</div>
+          <div class="hint" id="reportHint" style="display:none">Use your grip to show how closely this description fits you.</div>
           <div class="report-suggest" id="reportSuggest" style="display:none"></div>
           <div class="confirm-choice" id="arrivalConfirmHint">&nbsp;</div>
         </div>
         <div class="practice-shortcut">
-          <button id="btnPracticeShortcut" class="ghost">呼吸練習</button>
+          <button id="btnPracticeShortcut" class="ghost">Breath practice</button>
         </div>
       </section>
 
@@ -729,27 +729,27 @@
           <div class="orb-count" id="orbCount"></div>
         </div>
         <div class="session-stage">
-          <div class="arrival-title" id="sessionTitle">海潮呼吸</div>
-          <div class="breath-word" id="breathWord">聽它靠近</div>
+          <div class="arrival-title" id="sessionTitle">Tidal breathing</div>
+          <div class="breath-word" id="breathWord">Hear it draw near</div>
           <div class="arrival-copy">
-            <p id="sessionCopy">先讓海跟著你，再讓它慢慢邀請你。握住是漲潮，放開是退潮。</p>
+            <p id="sessionCopy">First let the sea follow you, then let it slowly invite you. Gripping is the rising tide; releasing is the ebb.</p>
           </div>
           <div class="session-metrics">
-            <span id="breathMetric">呼吸週期 10.0s</span>
-            <span id="heartMetric">心跳天氣 平穩</span>
-            <span id="gripMetric">握力水位 0%</span>
+            <span id="breathMetric">Breath cycle 10.0s</span>
+            <span id="heartMetric">Heart weather Steady</span>
+            <span id="gripMetric">Grip water level 0%</span>
           </div>
-          <div class="session-preset-row" aria-label="呼吸場景">
-            <button class="preset-btn active" data-preset="resonance">海潮</button>
-            <button class="preset-btn" data-preset="alternate">左右潮</button>
+          <div class="session-preset-row" aria-label="Breath scene">
+            <button class="preset-btn active" data-preset="resonance">Tide</button>
+            <button class="preset-btn" data-preset="alternate">Left / right</button>
             <button class="preset-btn" data-preset="hold478">4-7-8</button>
-            <button class="preset-btn" data-preset="bellows">風箱</button>
+            <button class="preset-btn" data-preset="bellows">Bellows</button>
           </div>
         </div>
       </section>
 
       <section class="panel phase guide-panel" id="phaseAfter">
-        <h2>結束後</h2>
+        <h2>After</h2>
         <div id="afterOrb" class="core-orb" aria-hidden="true"><div class="orb-cue-text after-caption" id="afterOrbPrompt"></div></div>
         <div class="after-credits" id="afterCredits"></div>
       </section>
@@ -757,34 +757,34 @@
 
     <div class="flow diagnostics" aria-hidden="true">
       <section class="panel">
-        <h2>狀態</h2>
+        <h2>Status</h2>
         <div class="stats">
           <div class="stat"><b id="sessionClock">0s</b><span>session</span></div>
-          <div class="stat"><b id="impactCount">0</b><span>拍石</span></div>
-          <div class="stat"><b id="swingReadout">0.00</b><span>揮動</span></div>
-          <div class="stat"><b id="tideReadout">0%</b><span>潮汐</span></div>
+          <div class="stat"><b id="impactCount">0</b><span>Rock strike</span></div>
+          <div class="stat"><b id="swingReadout">0.00</b><span>Swing</span></div>
+          <div class="stat"><b id="tideReadout">0%</b><span>Tide</span></div>
         </div>
       </section>
 
       <section class="panel">
-        <h2>握力球</h2>
+        <h2>Grip balls</h2>
         <div class="balls">
           <div class="ball">
-            <div class="ball-title"><span>Ball 1</span><span class="role">潮汐 / 能量</span></div>
+            <div class="ball-title"><span>Ball 1</span><span class="role">Tide / Energy</span></div>
             <div class="meter"><span id="m1"></span></div>
-            <div class="readout"><span id="s1">未連接</span><span id="v1">0%</span></div>
+            <div class="readout"><span id="s1">Not connected</span><span id="v1">0%</span></div>
           </div>
           <div class="ball">
-            <div class="ball-title"><span>Ball 2</span><span class="role">鵝卵石 / 空間</span></div>
+            <div class="ball-title"><span>Ball 2</span><span class="role">Pebbles / Space</span></div>
             <div class="meter"><span id="m2"></span></div>
-            <div class="readout"><span id="s2">未連接</span><span id="v2">0%</span></div>
+            <div class="readout"><span id="s2">Not connected</span><span id="v2">0%</span></div>
           </div>
         </div>
       </section>
     </div>
   </section>
 
-  <div class="footer">本頁只做本機探索紀錄，不上傳。EEG/生理訊號若未來接入，也只作探索性量測，不作醫療或療效宣稱。</div>
+  <div class="footer">This page keeps local exploratory records only — nothing is uploaded.EEG/If physiological signals are added in future, they’re for exploratory measurement only — no medical or therapeutic claims.</div>
 </main>
 
 <script>
@@ -820,7 +820,7 @@ const ARRIVAL_HOLD_RELEASE_DELAY_MS = 650;
 const ARRIVAL_HOLD_RESPONSE_MS = 5200;
 const ARRIVAL_PRELUDE_SECONDS = 5;
 // 壓縮曲線（GRIP_GAMMA 0.55）會把微小殘壓也放大成 ~0.1，故放開門檻要高一點才偵測得到「放開」，
-// 否則抵達的握持題會卡住（Pan 2026-07-14：卡在用握力表達緊張程度）。ON/OFF 之間留 hysteresis。
+// 否則抵達的握持題會卡住（Pan 2026-07-14：卡在用握力表達緊張程度）。ON/OFF 之間留 hysteresis. 
 const ARRIVAL_PRESS_ON = 0.28;
 const ARRIVAL_PRESS_OFF = 0.16;
 // 4-7-8 數拍用較低門檻，好觸發（Pan 2026-07-14：很用力握數字也沒減少＝門檻太高）。放開＝任一手都降到 OFF 以下就重新武裝。
@@ -879,7 +879,7 @@ const state = {
     period: 10,
     pan: 0,
     heartWeather: 0.45,
-    heartLabel: "平穩",
+    heartLabel: "Steady",
     hapticKey: "",
     hapticTimers: [],
     manual478: null,
@@ -933,14 +933,14 @@ class GripCalibrator {
     // 浮動滿刻度：追蹤觀察到的最大握力，慢慢適應；有界
     this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
     this.span = clamp(this.span, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
-    // 慢漂移併入 baseline：只在「幾乎已放開」時才重新歸零（this.level < 0.16）。
+    // 慢漂移併入 baseline：只在「幾乎已放開」時才重新歸零（this.level < 0.16).
     // 這樣持續握到一半不會被當成漂移吃掉而消失（Pan 2026-07-14：用一半握力感測就消失）。
     // 也讓拿起球造成的微小偏移慢慢併回 baseline，不把「握著球」誤認成「正在表達力道」。
     if(this.level < 0.16 && delta < this.span * 0.18) this.baseline += (raw - this.baseline) * 0.07;
     const effScale = this.span * GRIP_HEADROOM;                 // 到你握力範圍就算滿
     let rawLevel = clamp(posDelta / effScale);
     rawLevel = rawLevel <= GRIP_DEADZONE ? 0 : clamp((rawLevel - GRIP_DEADZONE) / (1 - GRIP_DEADZONE));
-    const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA）
+    const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA)
     this.level += (shaped - this.level) * 0.12;                 // 平滑
     return this.level;
   }
@@ -998,7 +998,7 @@ class OceanEngine {
     this.foamHP.connect(this.foamGain);
     this.foamGain.connect(this.busIn);
 
-    // 鵝卵石沿岸：退浪時海水捲動大量石頭的沙沙／喀啦聲（Pan 2026-07-09）。
+    // 鵝卵石沿岸：退浪時海水捲動大量石頭的沙沙／喀啦聲（Pan 2026-07-09).
     // 預生成密集小石撞擊的循環紋理 → bandpass 塑成石質 → 由「退浪閘門」與能量調變，與海濤呼應。
     this.pebble = ctx.createBufferSource();
     this.pebble.buffer = OceanEngine.pebbleBuffer(ctx, 4.5);
@@ -1013,7 +1013,7 @@ class OceanEngine {
     this.pebbleBP.connect(this.pebbleGain);
     this.pebbleGain.connect(this.busIn);
 
-    // 低頻包覆床（阿朗壹「被低頻與天地包圍」的壓感）：非定位——直接進 clip、不過 panner，
+    // 低頻包覆床（阿朗壹「被低頻與天地包圍」的壓感）：非定位——直接進 clip、不過 panner, 
     // 低頻本就無方向性，繞過 HRTF 讓它裹住整個聲場而非指向某處。
     this.sub = OceanEngine.noiseSource(ctx);
     this.subLP = ctx.createBiquadFilter();
@@ -1074,7 +1074,7 @@ class OceanEngine {
     this.shimmerGain.connect(this.convolver);        // 帶空間
     this.lastGlint = 0;
 
-    // （Pan 2026-07-14：移除純正弦低頻「湧」本體——那是「電平聲」的來源，每次握壓就冒出來。
+    //  (Pan 2026-07-14：移除純正弦低頻「湧」本體——那是「電平聲」的來源，每次握壓就冒出來。
     //  低頻湧動改回只靠上面的 sub 噪音床＝海底湧動、氣泡感，不是純音。subOsc 已刪除。）
 
     // 寬幅海床：立體聲去相關噪音，不過 HRTF 點聲源——讓海是一「片」而不是一個點。
@@ -1093,8 +1093,8 @@ class OceanEngine {
     this.sideL = this.buildSideChain(-1);
     this.sideR = this.buildSideChain(1);
 
-    // 駐音層（4-7-8 停屏的「懸止」，見 BREATHING.md §9）：**只用帶通噪音、無純正弦**（Pan 2026-07-14：
-    // 純正弦＝持續電平/嗡音；駐音改成airy 的風鳴感）。且**只在 4-7-8 停屏時浮起，其他時候完全為 0**（不 drone）。
+    // 駐音層（4-7-8 停屏的「懸止」，見 BREATHING.md §9）：**只用帶通噪音、無純正弦** (Pan 2026-07-14: 
+    // 純正弦＝持續電平/嗡音；駐音改成airy 的風鳴感）。且**只在 4-7-8 停屏時浮起，其他時候完全為 0**（不 drone).
     this.droneGain = ctx.createGain();
     this.droneGain.gain.value = 0;
     this.droneBP = ctx.createBiquadFilter();
@@ -1187,12 +1187,12 @@ class OceanEngine {
         this.convolver.buffer = buf;
         this.wet.gain.setTargetAtTime(0.8, this.ctx.currentTime, 0.5);
         this.dry.gain.setTargetAtTime(0.4, this.ctx.currentTime, 0.5);
-        log("已載入 MeshRIR room.wav（"+url+"）。");
+        log("Loaded  MeshRIR room.wav ("+url+").");
         return;
-      }catch(_err){ /* 試下一個候選路徑 */ }
+      }catch(_err){ /* trying the next candidate path */ }
     }
     // 全部候選都拿不到（多半是 server 從 web/ 開，assets 在上一層）：以 HRTF 乾聲運行，海仍成立。
-    log("未載入 IR，先以 HRTF 乾聲運行（room.wav 需從 Tidal/ 這層開 server）。");
+    log("Not loaded IR, running first as  HRTF running dry (room.wav needs to be opened from  Tidal/  level server).");
   }
 
   static tanhCurve(){
@@ -1260,7 +1260,7 @@ class OceanEngine {
   }
 
   buildSideChain(side){
-    // 一條固定方位的岸浪道：噪音 → lowpass → gain → HRTF panner（±60°），走既有 dry/wet 空間鏈
+    // 一條固定方位的岸浪道：噪音 → lowpass → gain → HRTF panner (±60°），走既有 dry/wet 空間鏈
     const ctx = this.ctx;
     const src = OceanEngine.noiseSource(ctx);
     const lp = ctx.createBiquadFilter();
@@ -1295,7 +1295,7 @@ class OceanEngine {
     const buf = ctx.createBuffer(2, len, rate);
     for(let ch = 0; ch < 2; ch++){
       const d = buf.getChannelData(ch);
-      let lp = 0;                                     // 一極 lowpass 狀態
+      let lp = 0;                                     // 一極 lowpass Status
       for(let i = 0; i < len; i++){
         const tt = i / len;
         const env = Math.exp(-5.5 * tt);              // 指數長衰減（平滑收尾，非硬截）
@@ -1337,7 +1337,7 @@ class OceanEngine {
     const heartSoftening = guided.influence * (0.10 - 0.08 * guided.heart);
     const energy = clamp(0.20 + 0.90 * this.tide + breathLift + guided.activate * 0.10);
     const sp = Math.pow(clamp(this.spread), 0.55);            // Ball1 grip 響應曲線：不用很用力就有感
-    const cutoff = 250 + 700 * energy * (0.5 + 0.5 * swell) + 200 * sp + 100 * this.rw - 80 * heartSoftening;  // 依阿朗壹錄音頻譜對齊（合成中心~450Hz vs 錄音~430Hz）
+    const cutoff = 250 + 700 * energy * (0.5 + 0.5 * swell) + 200 * sp + 100 * this.rw - 80 * heartSoftening;  // 依阿朗壹錄音頻譜對齊（合成中心~450Hz vs 錄音~430Hz)
     const gate = Math.max(0, swell - 0.55) * energy * (0.82 + 0.18 * this.rw2);           // 泡沫時機不規則
     this.metrics = { swell, set, energy, foam: gate, cutoff, spread: sp, rw: this.rw, rw2: this.rw2 };
 
@@ -1345,11 +1345,11 @@ class OceanEngine {
     this.surgeGain.gain.setTargetAtTime(0.15 + 0.34 * energy * (0.6 + 0.4 * swell * set) + 0.18 * sp + 0.03 * this.rw2, now, 0.72); // 握→更有存在感
     this.foamGain.gain.setTargetAtTime(0.060 * gate + 0.05 * guided.activate * (0.35 + 0.65 * guided.phase), now, 0.45);   // 有界；風箱模式泡沫隨呼吸短促明滅
 
-    // 鵝卵石捲動：由 Ball2 grip（this.spread）主控其「量」，退浪相位給節奏（Pan 2026-07-09 置換後為 Ball2）。
+    // 鵝卵石捲動：由 Ball2 grip (this.spread）主控其「量」，退浪相位給節奏（Pan 2026-07-09 置換後為 Ball2).
     const stoneAmt = Math.pow(clamp(this.spread), 0.6);                       // Ball2 grip → 石頭捲動量
     const roll = 0.35 + 0.65 * clamp((0.55 - swell) * 2.0);                   // 退浪相位滾得最盛
     this.pebbleGain.gain.setTargetAtTime((0.030 + 0.52 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.24);
-    this.pebbleBP.frequency.setTargetAtTime(380 + 420 * stoneAmt, now, 1.0);  // 石頭壓在低-中頻（錄音主體 120-2000Hz）
+    this.pebbleBP.frequency.setTargetAtTime(380 + 420 * stoneAmt, now, 1.0);  // 石頭壓在低-中頻（錄音主體 120-2000Hz)
     // 低頻包覆床＝海底湧動（噪音床，非純音）。Pan 2026-07-14：低頻不能音量一致——
     // 浪靠近岸（tide 高）要飽滿、包覆；退去（tide 低）要明顯變小、變遠。加大 tide 動態範圍、縮短時間常數跟得上。
     const breathBody = guided.influence * guided.phase;                       // 吸氣相位 → 低頻水體靠近
@@ -1385,7 +1385,7 @@ class OceanEngine {
     this.bubblePanner.positionZ.setTargetAtTime(-Math.cos(bRad) * bDist, now, 0.12);
     this.metrics.pebble = stoneAmt * roll;
 
-    // 波光：參考 0005 的中頻水光，能量集中在 350–1600Hz、centroid 約 750Hz。
+    // 波光：參考 0005 的中頻水光，能量集中在 350–1600Hz, centroid 約 750Hz. 
     // 不是高頻叮聲，而是幾個柔和模態音以慢速包絡互相明滅。
     const caustic = 0.45 + 0.30 * Math.sin(t * 2 * Math.PI * 0.10) + 0.18 * Math.sin(t * 2 * Math.PI * 0.20 + 1.4) + 0.10 * Math.sin(t * 2 * Math.PI * 5.18);
     const causticAmt = clamp(0.012 + 0.044 * energy + 0.012 * swell);
@@ -1493,7 +1493,7 @@ class OceanEngine {
     if(now - this.lastImpact < 1.5) return false;
     this.lastImpact = now;
     // 有界隨機（guardrail 3：有界，不自由生成）：每道浪的份量、蓄積、亮度、位置、尾巴都不同——
-    // 真正的海裡沒有兩道一樣的浪（Pan 2026-07-13）。
+    // 真正的海裡沒有兩道一樣的浪（Pan 2026-07-13).
     const size = 0.7 + 0.6 * Math.random();                              // 份量 0.7–1.3
     const swellT = 0.30 + 0.28 * Math.random();                          // 蓄積 0.30–0.58s
     const peak = clamp((0.26 + 0.26 * this.tide) * size, 0, 0.60);       // 峰值仍有上限
@@ -1505,7 +1505,7 @@ class OceanEngine {
     this.impactPanner.positionX.setValueAtTime(Math.sin(rad) * dist, now);
     this.impactPanner.positionZ.setValueAtTime(-Math.cos(rad) * dist, now);
     this.impactBurst(now, swellT, peak, brightness, tailDecay);
-    // 拍岸的低頻 body：改用「低通噪音爆」而非純正弦，避免電平/嗡音；仍有胸口的悶感（Pan 2026-07-14）。
+    // 拍岸的低頻 body：改用「低通噪音爆」而非純正弦，避免電平/嗡音；仍有胸口的悶感（Pan 2026-07-14).
     const body = OceanEngine.noiseSource(this.ctx);
     const blp = this.ctx.createBiquadFilter();
     blp.type = "lowpass";
@@ -1530,10 +1530,10 @@ class OceanEngine {
     return true;
   }
 
-  // 頌缽（Tibetan singing bowl）——模態合成物理建模（Pan 2026-07-14）。
+  // 頌缽（Tibetan singing bowl)——模態合成物理建模（Pan 2026-07-14).
   // 依文獻：(2,0) 主模主導、輕度非諧泛音、每模一對微失諧正弦＝招牌 beating、長衰減。
   // 走 HRTF panner → 既有 dry/wet 空間鏈；方位/遠近由呼叫端用雙手力道向量給。
-  // azimuth −1(左)…+1(右)；distance 越小越近；intensity 0–1。
+  // azimuth −1(左)…+1(右); distance 越小越近；intensity 0–1. 
   singingBowl(azimuth = 0, distance = 3, intensity = 0.6){
     const now = this.ctx.currentTime;
     if(now - (this.lastBowl || 0) < 0.35) return;      // 冷卻：連甩不會堆疊爆音
@@ -1553,7 +1553,7 @@ class OceanEngine {
     out.connect(pan);
     pan.connect(this.dry);
     pan.connect(this.convolver);                        // 房間殘響（空間著色）
-    pan.connect(this.impactPre);                        // 再送長殘響尾巴＝很好的包覆感（Pan 2026-07-14）
+    pan.connect(this.impactPre);                        // 再送長殘響尾巴＝很好的包覆感（Pan 2026-07-14)
     const f0 = 300 + (Math.random() * 2 - 1) * 8;       // 主模 ~300Hz，每次略不同
     const ratios = [1, 2.75, 5.38, 8.90];               // 輕度非諧（文獻：各缽相近）
     const amps   = [1.0, 0.5, 0.26, 0.13];
@@ -1595,7 +1595,7 @@ class OceanEngine {
     nz.stop(now + 0.4);
   }
 
-  // 粼光（Pan 2026-07-16，0005）：中頻小群閃點，像水面折射在耳邊一簇一簇亮起。
+  // 粼光（Pan 2026-07-16, 0005）：中頻小群閃點，像水面折射在耳邊一簇一簇亮起。
   // 頻率固定在分析峰值附近，短促但不尖銳；避免變成 UI 提示音。
   glint(pan = 0, amp = 0.09){
     const now = this.ctx.currentTime;
@@ -1713,7 +1713,7 @@ function resetArrival(){
     confirmationAt: null,
     confirmationAdvanceTimer: null,
     reportSub: "agree",       // 回顧內兩段：agree(用握力表示符合度) → suggest(握或甩繼續)
-    agreePeak: 0,             // 這段描述有多貼近你（握力峰值 0–1）
+    agreePeak: 0,             // 這段描述有多貼近你（握力峰值 0–1)
     agreement: null,          // 最終符合度
     agreePressedAt: 0,        // 這輪握壓開始時間
     agreeBand: null,          // 目前停留在哪個相符程度區間
@@ -1769,7 +1769,7 @@ function beginPrelude(){
   state.arrival.breathStart = null;
   showArrivalStep("prelude");
   setPhase();
-  log("準備開始。");
+  log("Getting ready.");
 }
 
 function startArrival(){
@@ -1800,24 +1800,24 @@ function updateConnectScene(){
   const ready = readyCount();
   const hidAvailable = "hid" in navigator;
   $("btnConnectInline").textContent = !hidAvailable
-    ? "用空白鍵進行自我檢測"
+    ? "Use the spacebar for a self-check"
     : connected === 0
-      ? "連接握力球"
+      ? "Connect grip balls"
       : connected === 1
-        ? "再連接另一顆握力球"
+        ? "Connect the other grip ball"
         : ready < 2
-          ? "等待握力球回應"
-          : "準備進入校正";
+          ? "Waiting for a grip ball to respond"
+          : "Getting ready to calibrate";
   $("btnConnectInline").disabled = !hidAvailable || connected >= 2;
   $("connectCopy").textContent = !hidAvailable
-    ? "這個瀏覽器不能連握力球。你仍然可以直接進入呼吸練習，或用空白鍵先跑一段自我檢測。"
+    ? "This browser can’t connect to the grip balls. You can still go straight to breath practice, or use the spacebar to run a self-check first."
     : connected === 0
-    ? "接下來會用兩隻手的按壓，記錄呼吸和此刻的力道。"
+    ? "Next we’ll use both hands’ presses to record your breath and the force of this moment."
     : connected === 1
-      ? "已經連到一顆。請再連接另一顆。"
+      ? "One is connected. Please connect the other."
       : ready < 2
-        ? "兩顆握力球已連接，其中一顆正在等待回應。系統會自動重新喚醒。"
-        : "兩顆握力球已連接。";
+        ? "Both grip balls are connected; one is waiting to respond. The system will wake it again automatically."
+        : "Both grip balls are connected.";
 }
 
 function maybeAdvanceFromConnect(){
@@ -1841,7 +1841,7 @@ function beginHandCue(hand){
   cue.successSoundAt = 0;
   cue.waitingRelease = true;
   cue.releaseSince = 0;
-  $("handCueTitle").textContent = hand === "left" ? "校正 · 左手" : "校正 · 右手";
+  $("handCueTitle").textContent = hand === "left" ? "Calibration · Left hand" : "Calibration · Right hand";
   $("handCueHint").textContent = "";
   document.documentElement.style.setProperty("--cue-fill", "0");
   $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success");
@@ -1899,7 +1899,7 @@ function handleArrivalGrip(slot, level){
 }
 
 // 回顧環節：用握力表示這段身心描述有多貼近你（越用力越符合），放開後給一個呼吸建議；
-// 再一次握壓或甩動即開始練習（Pan 2026-07-14）。
+// 再一次握壓或甩動即開始練習（Pan 2026-07-14).
 function handleArrivalConfirmation(slot, level, now){
   const arrival = state.arrival;
   const held = Math.max(state.grip[1], state.grip[2]);
@@ -1908,7 +1908,7 @@ function handleArrivalConfirmation(slot, level, now){
       if(held <= AFTER_OFF && now - arrival.agreeFixedAt > 350) finalizeAgreement(now);
       return;
     }
-    // 先放開才開始接收：避免上一步「表達緊張」那一握殘留進來、還沒壓就定案（Pan 2026-07-15）。
+    // 先放開才開始接收：避免上一步「表達緊張」那一握殘留進來、還沒壓就定案（Pan 2026-07-15).
     if(!arrival.agreeArmed){
       if(held <= AFTER_OFF) arrival.agreeArmed = true;
       return;
@@ -1940,7 +1940,7 @@ function handleArrivalConfirmation(slot, level, now){
 }
 
 function agreementLabel(a){
-  return a >= 0.66 ? "很貼近" : a >= 0.33 ? "有點像" : "不太像";
+  return a >= 0.66 ? "Very close" : a >= 0.33 ? "Somewhat" : "Not really";
 }
 
 function agreementBand(a){
@@ -1955,8 +1955,8 @@ function fixAgreementChoice(now = performance.now()){
   arrival.agreeFixedAt = now;
   if(arrival.report) arrival.report.agreement = a;
   document.documentElement.style.setProperty("--cue-fill", a.toFixed(3));
-  $("cueOrbPrompt").textContent = `${agreementLabel(a)} · 可以放鬆`;
-  log(`相符程度已固定：${Math.round(a * 100)}%。`);
+  $("cueOrbPrompt").textContent = `${agreementLabel(a)} · You can relax`;
+  log(`Match locked in: ${Math.round(a * 100)}%. `);
 }
 
 function finalizeAgreement(now = performance.now()){
@@ -1966,9 +1966,9 @@ function finalizeAgreement(now = performance.now()){
   arrival.suggestReadyAt = now + 700;
   if(arrival.report) arrival.report.agreement = arrival.agreement;
   const a = arrival.agreement;
-  const ack = a >= 0.66 ? "謝謝你。那我們就從這個理解開始。"
-            : a >= 0.33 ? "謝謝你。也許只對了一半，那就把它當成一個線索。"
-            : "謝謝你告訴我。那我們先放下這個猜測，直接聽身體。";
+  const ack = a >= 0.66 ? "Thank you. Let’s begin from this understanding, then."
+            : a >= 0.33 ? "Thank you. Maybe it’s only half right — take it as a clue, then."
+            : "Thank you for telling me. Let’s set the guess aside and listen to the body directly.";
   // 定案：球水位停在你的相符程度、球上顯示對應標籤
   document.documentElement.style.setProperty("--cue-fill", clamp(a).toFixed(3));
   $("cueOrbPrompt").textContent = agreementLabel(a);
@@ -1976,10 +1976,10 @@ function finalizeAgreement(now = performance.now()){
   const rec = arrival.report || {};
   $("reportSuggest").style.display = "block";
   $("reportSuggest").innerHTML =
-    `${ack}<br>接下來，我們一起試 <b>${rec.recommended_label || "海潮"}</b>。${rec.recommended_reason || ""}`;
-  $("cueOrbPrompt").textContent = "再握一下開始";
-  $("arrivalConfirmHint").textContent = "看中央球。無球測試時：空白鍵或方向鍵。";
-  log(`使用者符合度 ${Math.round(a * 100)}%。建議：${rec.recommended_label || "海潮"}。`);
+    `${ack}<br>Next, let’s try  <b>${rec.recommended_label || "Tide"}</b>. ${rec.recommended_reason || ""}`;
+  $("cueOrbPrompt").textContent = "Grip again to begin";
+  $("arrivalConfirmHint").textContent = "Watch the center orb. Testing without balls: spacebar or arrow keys.";
+  log(`User match ${Math.round(a * 100)}%. Suggestion: ${rec.recommended_label || "Tide"}. `);
 }
 
 function reportAdvance(){
@@ -1987,7 +1987,7 @@ function reportAdvance(){
   if(arrival.reportSub === "done") return;
   arrival.reportSub = "done";
   if(state.phase === "before" && isArrivalReportCurrent()){
-    enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message));
+    enterGuidedPractice().catch(err => log("Failed to enter practice: " + err.message));
   }
 }
 
@@ -2003,11 +2003,11 @@ function updateArrival(){
   if(arrival.step === "handCue"){
     updateHandCue(now);
   }
-  // 覺察呼吸 & 表達緊張：中央球水位跟著握力，讓使用者看見自己的表達（Pan 2026-07-14）。
+  // 覺察呼吸 & 表達緊張：中央球水位跟著握力，讓使用者看見自己的表達（Pan 2026-07-14).
   if(arrival.step === "breath" || arrival.step === "hold"){
     if(arrival.step === "breath"){
       $("guideOrb").classList.add("show-cue-text");    // 覺察呼吸：指示放在球上
-      $("cueOrbPrompt").textContent = "吸氣握　吐氣鬆";
+      $("cueOrbPrompt").textContent = "Inhale grip · Exhale release";
     } else {
       $("guideOrb").classList.remove("show-cue-text"); // 表達緊張：球上不放字（避免殘留）
     }
@@ -2023,7 +2023,7 @@ function updateArrival(){
     }
   }
   if(arrival.step === "report" && arrival.reportSub === "agree"){
-    // 相符程度＝中央球水位：握越用力＝這段描述越貼近你。文字也在球上，對應著水位（Pan 2026-07-15）。
+    // 相符程度＝中央球水位：握越用力＝這段描述越貼近你。文字也在球上，對應著水位（Pan 2026-07-15).
     const rs = document.documentElement.style;
     rs.setProperty("--fill-r", "110"); rs.setProperty("--fill-g", "224"); rs.setProperty("--fill-b", "226");
     $("guideOrb").classList.add("show-cue-text");
@@ -2031,7 +2031,7 @@ function updateArrival(){
       const a = clamp(arrival.agreement ?? arrival.agreePeak);
       arrival.orbFill = (arrival.orbFill || 0) + (a - (arrival.orbFill || 0)) * 0.25;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
-      $("cueOrbPrompt").textContent = `${agreementLabel(a)} · 可以放鬆`;
+      $("cueOrbPrompt").textContent = `${agreementLabel(a)} · You can relax`;
       if((state.grip[1] || 0) <= AFTER_OFF && (state.grip[2] || 0) <= AFTER_OFF && a <= 0.01 && now - arrival.agreeFixedAt >= AGREEMENT_AUTO_ADVANCE_MS){
         finalizeAgreement(now);
       }
@@ -2040,13 +2040,13 @@ function updateArrival(){
       if(held <= AFTER_OFF) arrival.agreeArmed = true;
       arrival.orbFill = (arrival.orbFill || 0) * 0.8;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
-      $("cueOrbPrompt").textContent = arrival.agreeArmed ? "握出有多貼近" : "先放開球";
+      $("cueOrbPrompt").textContent = arrival.agreeArmed ? "Grip how close it feels" : "Release the ball first";
     } else {
       const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
       const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
       arrival.orbFill = (arrival.orbFill || 0) + (shown - (arrival.orbFill || 0)) * 0.25;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
-      $("cueOrbPrompt").textContent = held >= AFTER_ON ? agreementLabel(arrival.orbFill) : "握出有多貼近";
+      $("cueOrbPrompt").textContent = held >= AFTER_ON ? agreementLabel(arrival.orbFill) : "Grip how close it feels";
       if(held < AFTER_ON && now - (arrival.agreeStartedAt || now) >= AGREEMENT_RESPONSE_MS){
         arrival.agreePeak = 0;
         fixAgreementChoice(now);
@@ -2060,7 +2060,7 @@ function updateArrival(){
     if(elapsed >= ARRIVAL_PRELUDE_SECONDS){
       arrival.breathStart = performance.now();
       showArrivalStep("breath");
-      log("三十秒。吸氣時握著，吐氣時放下。");
+      log("Thirty seconds. Grip as you inhale, release as you exhale.");
     }
   }
   if(arrival.step === "breath" && arrival.breathStart){
@@ -2074,7 +2074,7 @@ function updateArrival(){
       arrival.holdStart = null;
       arrival.holdReleaseAt = null;
       showArrivalStep("hold");
-      log("現在換下一步：用手握出此刻的情緒或緊張強度。");
+      log("Now the next step: grip out the intensity of your emotion or tension right now.");
     }
   }
 
@@ -2083,17 +2083,17 @@ function updateArrival(){
     const introElapsed = arrival.holdIntroAt ? now - arrival.holdIntroAt : ARRIVAL_HOLD_INTRO_MS;
     if(introElapsed < ARRIVAL_HOLD_INTRO_MS){
       $("holdProgress").style.width = "0%";
-      $("holdHint").textContent = "先看一下這一題，準備好了再握住。";
+      $("holdHint").textContent = "Read this question first, then grip when you’re ready.";
       $("guideOrb").classList.add("show-cue-text");
-      $("cueOrbPrompt").textContent = "準備好了再握";
+      $("cueOrbPrompt").textContent = "Grip when ready";
       return;
     }
     if(!arrival.holdStart){
       const responseElapsed = Math.max(0, introElapsed - ARRIVAL_HOLD_INTRO_MS);
       $("holdProgress").style.width = Math.round(clamp(responseElapsed / ARRIVAL_HOLD_RESPONSE_MS) * 100) + "%";
-      $("holdHint").textContent = "準備好時，握住一下。";
+      $("holdHint").textContent = "When you’re ready, give it a grip.";
       $("guideOrb").classList.add("show-cue-text");
-      $("cueOrbPrompt").textContent = "握住一下";
+      $("cueOrbPrompt").textContent = "Grip and hold";
       if(level >= ARRIVAL_PRESS_ON){
         arrival.holdStart = now;
         arrival.holdReleaseAt = null;
@@ -2102,7 +2102,7 @@ function updateArrival(){
       } else if(responseElapsed >= ARRIVAL_HOLD_RESPONSE_MS){
         arrival.holdSamples = [{ t: 0, level: 0, b1: 0, b2: 0, noGrip: true }];
         arrival.holdComplete = true;
-        $("cueOrbPrompt").textContent = "收到了";
+        $("cueOrbPrompt").textContent = "Got it";
         $("holdProgress").style.width = "100%";
         finishArrival();
       }
@@ -2112,9 +2112,9 @@ function updateArrival(){
     if(level <= ARRIVAL_PRESS_OFF && elapsed < ARRIVAL_HOLD_SECONDS){
       arrival.holdStart = null;
       arrival.holdSamples = [];
-      $("holdHint").textContent = "沒關係，再握一次，讓它停留一下。";
+      $("holdHint").textContent = "It’s okay — grip once more, and let it stay a moment.";
       $("guideOrb").classList.add("show-cue-text");
-      $("cueOrbPrompt").textContent = "再握一次";
+      $("cueOrbPrompt").textContent = "Grip once more";
       return;
     }
     if(now - arrival.lastHoldSampleAt > 35){
@@ -2123,20 +2123,20 @@ function updateArrival(){
     }
     $("holdProgress").style.width = Math.round(clamp(elapsed / ARRIVAL_HOLD_SECONDS) * 100) + "%";
     $("holdHint").textContent = elapsed >= ARRIVAL_HOLD_SECONDS
-      ? "可以放開了。"
-      : "留在這個力道裡，請保持片刻。";
+      ? "You can let go now."
+      : "Stay in this force, and hold it for a moment.";
     $("guideOrb").classList.add("show-cue-text");
-    $("cueOrbPrompt").textContent = elapsed >= ARRIVAL_HOLD_SECONDS ? "可以放開" : "保持一下";
+    $("cueOrbPrompt").textContent = elapsed >= ARRIVAL_HOLD_SECONDS ? "You can let go" : "Hold a moment";
     if(elapsed >= ARRIVAL_HOLD_SECONDS){
       if(!arrival.holdDoneAt) arrival.holdDoneAt = now;
       if(level <= ARRIVAL_PRESS_OFF){
         if(!arrival.holdReleaseAt) arrival.holdReleaseAt = now;
-        $("holdHint").textContent = "收到了。";
-        $("cueOrbPrompt").textContent = "收到了";
+        $("holdHint").textContent = "Got it.";
+        $("cueOrbPrompt").textContent = "Got it";
       } else {
         arrival.holdReleaseAt = null;
-        $("holdHint").textContent = "可以放開了。";
-        $("cueOrbPrompt").textContent = "可以放開";
+        $("holdHint").textContent = "You can let go now.";
+        $("cueOrbPrompt").textContent = "You can let go";
       }
       // 放開後短暫確認就完成；即使沒偵測到放開，停留 ~3.5 秒也自動繼續（保險，不卡住）
       const releasedOk = arrival.holdReleaseAt && now - arrival.holdReleaseAt >= ARRIVAL_HOLD_RELEASE_DELAY_MS;
@@ -2156,7 +2156,7 @@ function updateHandCue(now){
     cue.cueOn = false;
     cue.fill *= 0.82;
     document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
-    $("cueOrbPrompt").textContent = cue.hand === "left" ? "先放鬆" : "換右手";
+    $("cueOrbPrompt").textContent = cue.hand === "left" ? "Relax first" : "Switch to right hand";
     $("guideOrb").classList.add("show-cue-text", "cue-off");
     $("guideOrb").classList.remove("cue-on", "cue-success");
     if(bothReleased){
@@ -2176,7 +2176,7 @@ function updateHandCue(now){
   const elapsed = now - cue.startedAt;
   if(elapsed < HAND_CUE_READY_MS){
     cue.cueOn = false;
-    $("cueOrbPrompt").textContent = "準備…";
+    $("cueOrbPrompt").textContent = "Ready…";
     $("guideOrb").classList.add("show-cue-text");
     $("guideOrb").classList.remove("cue-on", "cue-success");
     $("guideOrb").classList.add("cue-off");
@@ -2206,10 +2206,10 @@ function updateHandCue(now){
       engine.cueWave(cue.hand === "left" ? -0.58 : 0.58);
     }
   }
-  // 水位直接平滑跟著握力：握起→水灌高、放鬆→退掉。校正就是用你舒適的力量（Pan 2026-07-14）。
+  // 水位直接平滑跟著握力：握起→水灌高、放鬆→退掉。校正就是用你舒適的力量（Pan 2026-07-14).
   const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
   if(!inOn && grip <= ARRIVAL_PRESS_OFF) cue.armed = true;
-  $("cueOrbPrompt").textContent = inOn ? "請握起" : "請放鬆";   // 提示語在球上
+  $("cueOrbPrompt").textContent = inOn ? "Grip now" : "Relax";   // 提示語在球上
   $("guideOrb").classList.add("show-cue-text");
   cue.fill += (clamp(grip) - cue.fill) * 0.25;
   document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
@@ -2223,7 +2223,7 @@ function finishHandCue(){
   if(cue.completed) return;
   cue.completed = true;
   document.documentElement.style.setProperty("--cue-fill", "0");
-  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success", "show-cue-text");   // 清掉校正提示，別讓「請放鬆」殘留到後面（Pan 2026-07-15）
+  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success", "show-cue-text");   // 清掉校正提示，別讓「請放鬆」殘留到後面（Pan 2026-07-15)
   $("cueOrbPrompt").textContent = "";
   const picked = cue.scores[2] > cue.scores[1] ? 2 : 1;
   if(cue.hand === "left"){
@@ -2255,15 +2255,15 @@ function finishArrival(){
   state.arrival.orbFill = 0;
   $("reportImpression").textContent = report.impression;
   $("reportAgreeCopy").style.display = "";
-  // 相符程度用中央球水位＋球上文字表示（Pan 2026-07-15）
+  // 相符程度用中央球水位＋球上文字表示（Pan 2026-07-15)
   document.documentElement.style.setProperty("--cue-fill", "0");
   $("guideOrb").classList.add("show-cue-text");
-  $("cueOrbPrompt").textContent = "握出有多貼近";
+  $("cueOrbPrompt").textContent = "Grip how close it feels";
   $("reportSuggest").style.display = "none";
   $("reportSuggest").innerHTML = "";
   $("arrivalConfirmHint").innerHTML = "&nbsp;";
   showArrivalStep("report");
-  log("抵達完成。這是一個猜測，用握力告訴我它有多準。");
+  log("Arrival complete. This is a guess — use your grip to tell me how accurate it is.");
 }
 
 function buildArrivalReport(){
@@ -2292,21 +2292,21 @@ function buildArrivalReport(){
   // 綜合成一句身心印象（Pan 2026-07-14）：不逐項闡述參數，而是「我猜你大概是這樣」，
   // 準確性交還給使用者用握力校正。文獻依據見 READING.md §四·五。
   const breathClause = events.length < 4
-    ? "你的呼吸正在逐漸平緩中"
+    ? "your breath is gradually settling"
     : (pattern.closeRun >= 2 || pattern.closeRatio > 0.34)
-      ? "你的呼吸有點淺、有點急"
+      ? "your breath is a little shallow and quick"
       : pattern.driftRatio > 1.8
-        ? "你的呼吸節奏前後在變"
+        ? "your breathing rhythm shifts over time"
         : intervalVar > 1.2
-          ? "你的呼吸有快有慢、還在流動"
-          : "你的呼吸相對平緩";
+          ? "your breath varies in pace and is still flowing"
+          : "your breath is relatively calm";
   const tensionClause = peak > 0.72
-    ? "身體裡的壓力和張力也比較大"
+    ? "there’s more stress and tension in the body"
     : peak < 0.32
-      ? "身體算是放鬆、比較輕"
-      : "身體的能量適中";
+      ? "the body is fairly relaxed and light"
+      : "the body’s energy is moderate";
   // settleClause 已移除（Pan 2026-07-14：「還有一點停不太住」沒明確指向身心，只是握持施力在變）。
-  const impression = `此刻，${breathClause}，${tensionClause}。`;
+  const impression = `Right now, ${breathClause}, ${tensionClause}. `;
   const recommendation = recommendBreathPreset({
     eventCount: events.length,
     pattern,
@@ -2356,10 +2356,10 @@ function gripBalanceMetrics(samples){
 }
 
 function recommendBreathPreset({ eventCount, pattern, peak, rise, stability, balance }){
-  // 現階段一律只導引到 4-7-8（Pan 2026-07-14：其他先放著就好）。理由文案隨狀態微調，但都進 4-7-8。
+  // 現階段一律只導引到 4-7-8 (Pan 2026-07-14：其他先放著就好）。理由文案隨狀態微調，但都進 4-7-8. 
   const reason = peak > 0.70 || rise > 0.90 || stability > 0.11
-    ? "身體裡的能量比較滿；用 4-7-8 的長吐，把它慢慢放出去。"
-    : "先用 4-7-8 的節奏，吸氣、憋住、慢慢吐，陪你把呼吸放長。";
+    ? "there’s a lot of energy in the body; use the  4-7-8 ’s long exhale to let it out slowly."
+    : "Let’s use  4-7-8 ’s rhythm — inhale, hold, exhale slowly — lengthening your breath.";
   return { id: "hold478", label: "4-7-8", reason };
 }
 
@@ -2423,7 +2423,7 @@ function requestAudioFadeIn(){
       if(!engine) return;
       engine.fadeIn();
       state.audioFadedIn = true;
-      log("聲音開始進來。");
+      log("The sound begins to come in.");
     })
     .finally(() => { state.audioFadePending = false; });
 }
@@ -2449,7 +2449,7 @@ function setGrip(slot, level){
     cue.scores[slot] += level;          // 記哪隻手在響應（左右手指派用）
     cue.successThisRep = true;
     cue.armed = false;
-    // 水位由 updateHandCue 直接跟著握力，不再用累加（Pan：很用力也只到 1/4）。
+    // 水位由 updateHandCue 直接跟著握力，不再用累加（Pan：很用力也只到 1/4).
     $("guideOrb").classList.add("cue-success");
     const now = performance.now();
     if(engine && now - cue.successSoundAt > 650){
@@ -2481,7 +2481,7 @@ function setGrip(slot, level){
   const total = leftGrip + rightGrip;
   const gripPan = total > 0.04 ? (rightGrip - leftGrip) / (total + 0.12) : 0;
   engine.setGripCenter(gripPan, clamp(total));   // 質量中心方位 + 總力道 → 驅動 OBA 氣泡聲源位置
-  engine.setSideGrip(leftGrip, rightGrip);       // 雙手各自的潮線也有聲音（對應視覺 __leftWave/__rightWave）
+  engine.setSideGrip(leftGrip, rightGrip);       // 雙手各自的潮線也有聲音（對應視覺 __leftWave/__rightWave)
 }
 
 async function startAudio(options = {}){
@@ -2494,11 +2494,11 @@ async function startAudio(options = {}){
   engine = new OceanEngine(audioCtx);
   state.audioFadedIn = false;
   $("audioDot").classList.add("on");
-  $("audioStatus").textContent = "聲音已準備";
+  $("audioStatus").textContent = "Audio ready";
   $("btnBall").disabled = !("hid" in navigator);
   $("btnStartSession").disabled = false;
   if(state.phase !== "session") resetArrival();
-  log(("hid" in navigator) ? "聲音已準備。第一次按下握力球時，海會慢慢進來。" : "聲音已準備。第一次按空白鍵時，海會慢慢進來。");
+  log(("hid" in navigator) ? "Audio is ready. The first time you press a grip ball, the sea will slowly come in." : "Audio is ready. The first time you press the spacebar, the sea will slowly come in.");
 }
 
 // —— 動態偵測 + 去重的握力球連線（修正「兩顆球 mapping 成同一顆」）——
@@ -2523,27 +2523,27 @@ function forgetBallSlot(slot, reason = "stale"){
   calib[slot] = new GripCalibrator();
   accBaseline[slot] = null;
   setGrip(slot, 0);
-  $("s" + slot).textContent = "未連接";
+  $("s" + slot).textContent = "Not connected";
   updateHidStatus();
   if(state.arrival.step === "connect") updateConnectScene();
-  log(`${name} 已從 Ball ${slot} 移除（${reason}）。`);
+  log(`${name} removed from  Ball ${slot} removed (${reason}).`);
 }
 
 function updateHidStatus(){
   const n = Object.values(state.connected).filter(Boolean).length;
   const r = readyCount();
   $("hidDot").classList.toggle("on", n > 0);
-  $("hidStatus").textContent = n ? `握力球已連接 ×${n} / 已回應 ×${r}` : "握力球未連接";
+  $("hidStatus").textContent = n ? `Grip balls connected ×${n} / responded ×${r}` : "Grip balls not connected";
   [1, 2].forEach(slot => {
     if(!devices[slot] || !state.connected[slot]){
-      $("s" + slot).textContent = "未連接";
+      $("s" + slot).textContent = "Not connected";
       return;
     }
     const age = state.lastGripReportAt[slot] ? performance.now() - state.lastGripReportAt[slot] : Infinity;
     const name = gripBallName(devices[slot]) || ("Ball " + slot);
     $("s" + slot).textContent = state.ready[slot] && age < HID_STALE_MS
-      ? `${name} 回應中`
-      : `${name} 等待回應`;
+      ? `${name} responding`
+      : `${name} Waiting to respond`;
   });
 }
 
@@ -2559,10 +2559,10 @@ async function sendModeCommand(slot, reason = ""){
     cmd[0] = 1;
     cmd[1] = MODE_9DOF_GRIP;
     await dev.sendReport(1, cmd);
-    if(reason) log(`Ball ${slot} 重新喚醒中。`);
+    if(reason) log(`Ball ${slot} waking again.`);
     return true;
   }catch(err){
-    log(`Ball ${slot} 模式指令失敗：${err.message}`);
+    log(`Ball ${slot} mode command failed: ${err.message}`);
     return false;
   }
 }
@@ -2588,7 +2588,7 @@ async function registerDevice(dev, slot){
   $("s" + slot).textContent = gripBallName(dev) || ("Ball " + slot);
   updateHidStatus();
   maybeAdvanceFromConnect();
-  log(`Ball ${slot} 已連接（${gripBallName(dev)} · ${dev.vendorId.toString(16).padStart(4, "0")}:${dev.productId.toString(16).padStart(4, "0")}）。`);
+  log(`Ball ${slot} connected (${gripBallName(dev)} · ${dev.vendorId.toString(16).padStart(4, "0")}:${dev.productId.toString(16).padStart(4, "0")}).`);
 }
 
 // 掃描目前已授權的球，去重（同一顆 device 不會佔兩個 slot），逐一分配到空的 slot
@@ -2618,7 +2618,7 @@ function watchHidLiveness(){
       }
       sendModeCommand(slot, "stale").catch(() => {});
       if(age > HID_FORGET_STALE_MS){
-        forgetBallSlot(slot, "沒有回應");
+        forgetBallSlot(slot, "No response");
       }
     }
   });
@@ -2676,7 +2676,7 @@ function handleSwing(slot, ax, ay, az){
     return;
   }
   if(engine) engine.setSwing(dir, clamp(motion));
-  // 4-7-8 的頌缽改由「每段第一次握」觸發（見 advanceManual478），不再用晃動——晃動太敏感、會一次好幾聲（Pan 2026-07-14）。
+  // 4-7-8 的頌缽改由「每段第一次握」觸發（見 advanceManual478），不再用晃動——晃動太敏感、會一次好幾聲（Pan 2026-07-14).
   if(state.phase === "session" && state.guided.preset === "hold478") return;
   if(state.grip[slot] >= HARD_GRIP && motion >= STRONG_SWING){
     if(engine && state.audioFadedIn && engine.impact()) sendHaptic(slot, 110, 80);
@@ -2688,47 +2688,47 @@ function handleSwing(slot, ax, ay, az){
 
 const BREATH_PRESETS = {
   resonance: {
-    title: "海潮呼吸",
-    copy: "海面會隨呼吸靠近與退去。讓手、眼睛與海潮停在同一個中心。",
+    title: "Tidal breathing",
+    copy: "The sea draws near and recedes with your breath. Let hand, eyes, and tide rest on the same center.",
     phases: [
-      { name: "inhale", label: "聽它靠近", dur: 5 },
-      { name: "exhale", label: "讓它退去", dur: 5 },
+      { name: "inhale", label: "Hear it draw near", dur: 5 },
+      { name: "exhale", label: "Let it recede", dur: 5 },
     ],
     targetPeriod: 10,
     influence: 0.44,   // Pan 2026-07-13：海潮的低頻湧動是主角，呼吸相位對水體的牽引加強
     activate: 0,
   },
   alternate: {
-    title: "左右潮",
-    copy: "聲音與海色會在左右之間往返。不要追準，只感覺身體如何在兩側移動。",
+    title: "Left / right",
+    copy: "The sound and sea color travel between left and right. Don’t chase precision — just feel how the body moves between the two sides.",
     phases: [
-      { name: "leftInhale", label: "左側靠近", dur: 4.5, pan: -0.72 },
-      { name: "rightExhale", label: "右側退去", dur: 4.5, pan: 0.72 },
-      { name: "rightInhale", label: "右側靠近", dur: 4.5, pan: 0.72 },
-      { name: "leftExhale", label: "左側退去", dur: 4.5, pan: -0.72 },
+      { name: "leftInhale", label: "Left side draws near", dur: 4.5, pan: -0.72 },
+      { name: "rightExhale", label: "Right side recedes", dur: 4.5, pan: 0.72 },
+      { name: "rightInhale", label: "Right side draws near", dur: 4.5, pan: 0.72 },
+      { name: "leftExhale", label: "Left side recedes", dur: 4.5, pan: -0.72 },
     ],
     targetPeriod: 18,
     influence: 0.28,
     activate: 0,
   },
   hold478: {
-    title: "4-7-8 呼吸",
-    copy: "吸氣＝青綠、屏住呼吸＝暖金、吐氣＝靛藍。每一段用不同顏色陪你數拍，跟著顏色走就好。",
+    title: "4-7-8 breathing",
+    copy: "Inhale = teal, hold = warm gold, exhale = indigo. Each stage counts with you in a different color — just follow the color.",
     phases: [
-      { name: "inhale", label: "吸進來", dur: 4 },
-      { name: "hold", label: "屏住呼吸", dur: 7, hold: true },
-      { name: "exhale", label: "慢慢吐出去", dur: 8 },
+      { name: "inhale", label: "Breathe in", dur: 4 },
+      { name: "hold", label: "Hold the breath", dur: 7, hold: true },
+      { name: "exhale", label: "exhale slowly", dur: 8 },
     ],
     targetPeriod: 19,
     influence: 0.30,
     activate: 0,
   },
   bellows: {
-    title: "風箱",
-    copy: "這是提振型場景。海面會更亮、更短促；覺得太滿就切回海潮。",
+    title: "Bellows",
+    copy: "This is an uplifting scene. The sea is brighter and quicker; if it feels too full, switch back to Tide.",
     phases: [
-      { name: "inhale", label: "短吸", dur: 1.1 },
-      { name: "exhale", label: "短吐", dur: 1.1 },
+      { name: "inhale", label: "Short inhale", dur: 1.1 },
+      { name: "exhale", label: "Short exhale", dur: 1.1 },
     ],
     targetPeriod: 2.2,
     influence: 0.22,
@@ -2737,16 +2737,16 @@ const BREATH_PRESETS = {
 };
 
 const MANUAL_478_PHASES = [
-  { name: "inhale", label: "吸氣", count: 4, rgb: [78, 206, 178], curve: 1, drone: 0, voice: "audio/478-inhale.wav" },
-  { name: "hold", label: "屏住呼吸", count: 7, rgb: [236, 190, 120], curve: 0.76, drone: 0, voice: "audio/478-hold.wav" },
-  { name: "exhale", label: "吐氣", count: 8, rgb: [116, 138, 224], curve: 0, drone: 0, voice: "audio/478-exhale.wav" },
+  { name: "inhale", label: "Inhale", count: 4, rgb: [78, 206, 178], curve: 1, drone: 0, voice: "audio/478-inhale.wav" },
+  { name: "hold", label: "Hold the breath", count: 7, rgb: [236, 190, 120], curve: 0.76, drone: 0, voice: "audio/478-hold.wav" },
+  { name: "exhale", label: "Exhale", count: 8, rgb: [116, 138, 224], curve: 0, drone: 0, voice: "audio/478-exhale.wav" },
 ];
 
-const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成這麼多輪才算「完全結束」→ 淡出（Pan 2026-07-14）。
+const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成這麼多輪才算「完全結束」→ 淡出（Pan 2026-07-14).
 
 function resetManual478(){
   state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true, firstBeatPending: false };
-  // 進場先當成「已握住」＋高 peak：必須先真正放開才會開始數，避免「進入用的那一握」直接扣一拍（Pan 2026-07-14）。
+  // 進場先當成「已握住」＋高 peak：必須先真正放開才會開始數，避免「進入用的那一握」直接扣一拍（Pan 2026-07-14).
   state.guided.manual478Pressed = true;
   state.guided.manual478Peak = 1;
   state.guided.manual478LastPressAt = 0;
@@ -2794,7 +2794,7 @@ function advanceManual478(){
   beatPulse(phase.rgb);
   sendHapticAll(95, 42, true);
   if(m.firstBeatPending){
-    m.firstBeatPending = false;                          // 第二次握：為「4」發聲，但畫面仍停在 4。
+    m.firstBeatPending = false;                          // 第二次握：為「4」發聲，但畫面仍停在 4. 
     playBowlForHands();
     updateGuidedSession(true);
     return;
@@ -2820,11 +2820,11 @@ function complete478(){
   const m = state.guided.manual478;
   if(!m || m.done) return;
   m.done = true;
-  $("breathWord").textContent = "完成了";
-  $("orbPhaseLabel").textContent = "完成";
+  $("breathWord").textContent = "Done";
+  $("orbPhaseLabel").textContent = "Completed ";
   $("orbCount").textContent = "✓";
-  $("sessionCopy").textContent = "很好，先在這裡待一下，讓呼吸自己回到平常。";
-  log(`4-7-8 完成 ${m.completedCycles} 輪。`);
+  $("sessionCopy").textContent = "Good — stay here a moment, and let your breath return to normal on its own.";
+  log(`4-7-8 Completed  ${m.completedCycles}  rounds.`);
   setTimeout(() => {
     if(state.phase === "session" && state.guided.preset === "hold478") endSession();
   }, 2000);
@@ -2859,7 +2859,7 @@ function setBreathPreset(id){
   }
   document.querySelectorAll(".preset-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.preset === id));
   if(state.phase === "session") updateGuidedSession(true);
-  log(`引導場景：${BREATH_PRESETS[id].title}`);
+  log(`Guided scene: ${BREATH_PRESETS[id].title}`);
 }
 
 function phaseAt(preset, elapsedSeconds){
@@ -2884,7 +2884,7 @@ function guideHapticsForPhase(presetId, phase, phaseKey){
   clearGuidedHaptics();
   const unitMs = Math.max(180, (phase.dur * 1000) / Math.max(1, Math.round(phase.dur)));
 
-  // 4-7-8：保留畫面的相位色明滅（beatPulse）作為數拍；sendHaptic 已關閉為 no-op。
+  // 4-7-8：保留畫面的相位色明滅（beatPulse）作為數拍；sendHaptic 已關閉為 no-op. 
   if(presetId === "hold478"){
     const rgb478 = phase.name === "hold" ? [236, 190, 120] : phase.name === "exhale" ? [116, 138, 224] : [78, 206, 178];
     const nBeats = phase.name === "inhale" ? 4 : phase.name === "hold" ? 7 : 8;
@@ -2961,7 +2961,7 @@ function updateGuidedSession(force = false){
   state.guided.pan = phasePan;
   const heartTarget = 0.30 + 0.14 * slowPulse + 0.30 * motionHeat + 0.32 * gripWater + 0.16 * preset.activate;
   state.guided.heartWeather += (clamp(heartTarget) - state.guided.heartWeather) * 0.028;
-  state.guided.heartLabel = state.guided.heartWeather > 0.64 ? "轉暖" : state.guided.heartWeather < 0.42 ? "偏冷" : "流動";
+  state.guided.heartLabel = state.guided.heartWeather > 0.64 ? "Warming" : state.guided.heartWeather < 0.42 ? "Cool" : "Flowing";
   document.documentElement.style.setProperty("--breath-phase", breathCurve.toFixed(3));
   document.documentElement.style.setProperty("--breath-pan", phasePan.toFixed(3));
   document.documentElement.style.setProperty("--breath-pan-x", (phasePan * 42).toFixed(1) + "px");
@@ -2975,13 +2975,13 @@ function updateGuidedSession(force = false){
   sessionOrb?.classList.remove("show-count");
   sessionOrb?.classList.add("show-phase-label");
   $("sessionTitle").textContent = preset.title;
-  $("sessionCopy").textContent = preset.copy.replace("握住是漲潮，放開是退潮。", "讓海跟著球心的提示流動。");
+  $("sessionCopy").textContent = preset.copy.replace("Gripping is the rising tide; releasing is the ebb.", "Let the sea flow with the orb’s cue.");
   $("breathWord").textContent = ph.phase.label;
-  $("orbPhaseLabel").textContent = "握住漲潮 · 放開退潮";
+  $("orbPhaseLabel").textContent = "Grip = rising tide · Release = ebb";
   $("orbCount").textContent = "";
-  $("breathMetric").textContent = `呼吸週期 ${ph.total.toFixed(1)}s`;
-  $("heartMetric").textContent = `海色 ${state.guided.heartLabel}`;
-  $("gripMetric").textContent = `握力水位 ${Math.round(gripWater * 100)}%`;
+  $("breathMetric").textContent = `Breath cycle ${ph.total.toFixed(1)}s`;
+  $("heartMetric").textContent = `Sea color ${state.guided.heartLabel}`;
+  $("gripMetric").textContent = `Grip water level ${Math.round(gripWater * 100)}%`;
   // 各 preset 的聲音簽名（BREATHING.md §3：時間包絡 × 喚起方向 × 音色）
   const presetId = state.guided.preset;
   let droneAmt = 0;
@@ -2990,7 +2990,7 @@ function updateGuidedSession(force = false){
     // 停屏 → 駐音層浮起（懸止非停頓）；吐氣時慢慢退掉
     if(ph.phase.hold) droneAmt = smooth01(Math.min(1, ph.local * 3));
     else if(ph.phase.name === "exhale") droneAmt = Math.max(0, 1 - ph.local * 2.2);
-    // 三階段各用「明顯不同的顏色」，讓使用者一眼知道現在要吸/停/吐（Pan 2026-07-14）。
+    // 三階段各用「明顯不同的顏色」，讓使用者一眼知道現在要吸/停/吐（Pan 2026-07-14).
     // 吸＝青綠（漲）、停＝暖金（懸）、吐＝靛藍（退）。整個場景會被染成該色。
     const nm = ph.phase.name;
     const PHASE_RGB = { inhale: [78, 206, 178], hold: [236, 190, 120], exhale: [116, 138, 224] };
@@ -3034,7 +3034,7 @@ function updateManual478Session(preset){
   state.guided.period = 19;
   state.guided.pan = 0;
   state.guided.heartWeather += (clamp(0.30 + 0.14 * slowPulse + 0.30 * motionHeat + 0.32 * gripWater) - state.guided.heartWeather) * 0.028;
-  state.guided.heartLabel = state.guided.heartWeather > 0.64 ? "轉暖" : state.guided.heartWeather < 0.42 ? "偏冷" : "流動";
+  state.guided.heartLabel = state.guided.heartWeather > 0.64 ? "Warming" : state.guided.heartWeather < 0.42 ? "Cool" : "Flowing";
 
   document.documentElement.style.setProperty("--breath-phase", breathCurve.toFixed(3));
   document.documentElement.style.setProperty("--breath-pan", "0");
@@ -3050,24 +3050,24 @@ function updateManual478Session(preset){
   document.documentElement.style.setProperty("--phase-b", phase.rgb[2]);
   document.documentElement.style.setProperty("--phase-glow", (0.72 + 0.22 * gripWater).toFixed(3));
 
-  $("sessionTitle").textContent = "4-7-8 呼吸";
+  $("sessionTitle").textContent = "4-7-8 breathing";
   document.querySelector("#phaseSession .core-orb")?.classList.add("show-count", "show-phase-label");
   if(m.intro){
-    // 開始前：數字「4」先出現、告訴使用者現在要開始了；等使用者握下第一下才發頌缽並開始數（Pan 2026-07-14）。
-    $("sessionCopy").textContent = "讓手、眼睛和數字停在同一個焦點。";
-    $("breathWord").textContent = "看著球心";
-    $("breathMetric").textContent = "準備開始";
-    $("heartMetric").textContent = "看球心";
-    $("gripMetric").textContent = "球心提示";
-    $("orbPhaseLabel").textContent = "握一下開始";
+    // 開始前：數字「4」先出現、告訴使用者現在要開始了；等使用者握下第一下才發頌缽並開始數（Pan 2026-07-14).
+    $("sessionCopy").textContent = "Let hand, eyes, and the count rest on the same focus.";
+    $("breathWord").textContent = "Watch the orb";
+    $("breathMetric").textContent = "Get ready";
+    $("heartMetric").textContent = "Watch the orb";
+    $("gripMetric").textContent = "Orb cue";
+    $("orbPhaseLabel").textContent = "Grip to begin";
     $("orbCount").textContent = "";
   } else {
-    $("sessionCopy").textContent = "每一次握放，都讓聲音和數字一起往前。";
-    $("breathWord").textContent = `現在${phase.label}`;
-    $("breathMetric").textContent = `第 ${Math.min(m.completedCycles + 1, MANUAL_478_TARGET_CYCLES)} / ${MANUAL_478_TARGET_CYCLES} 輪`;
+    $("sessionCopy").textContent = "Each grip and release moves the sound and the count forward together.";
+    $("breathWord").textContent = `Now ${phase.label}`;
+    $("breathMetric").textContent = `Round  ${Math.min(m.completedCycles + 1, MANUAL_478_TARGET_CYCLES)} / ${MANUAL_478_TARGET_CYCLES} `;
     $("heartMetric").textContent = `${phase.label} ${m.remaining}`;
-    $("gripMetric").textContent = "跟著球心";
-    $("orbPhaseLabel").textContent = `${phase.label} · 握一下`;
+    $("gripMetric").textContent = "Follow the orb";
+    $("orbPhaseLabel").textContent = `${phase.label} · grip once`;
     $("orbCount").textContent = m.remaining;
   }
 
@@ -3118,7 +3118,7 @@ function startSession(presetId = ""){
     setTimeout(() => requestAnimationFrame(() => sp.classList.remove("scene-dim")), 460);
   }
   updateGuidedSession(true);
-  log("Session 開始。先讓海跟著你，再讓它慢慢邀請你。");
+  log("Session beginning. First let the sea follow you, then let it slowly invite you.");
 }
 
 async function enterGuidedPractice(presetId = ""){
@@ -3131,7 +3131,7 @@ async function enterGuidedPractice(presetId = ""){
       engine.fadeIn();
     }
   }catch(err){
-    log("已進入練習；聲音需要瀏覽器允許後才會進來。");
+    log("Practice started; the sound will come in once the browser allows audio.");
   }
 }
 
@@ -3148,17 +3148,17 @@ function endSession(){
   $("btnEndSession").disabled = true;
   beginAfter();       // 結束後問卷：用握力一題一幕
   setPhase();
-  log("Session 結束，請用握力回答幾個問題。");
+  log("Session ended — please use your grip to answer a few questions.");
 }
 
-// 結束後問卷：比照前面「相符程度／緊張程度」，用握力一題一幕作答（Pan 2026-07-15）。
+// 結束後問卷：比照前面「相符程度／緊張程度」，用握力一題一幕作答（Pan 2026-07-15).
 // 結束後：電影字幕式問句都在球上、淡入淡出，握越緊越符合、握住一段時間自動紀錄；
 // 之後工作人員名單式呈現數值＋整體分析，再換幕鼓勵、說明握力好處，最後整幕淡出（Pan 2026-07-15 沉浸式）。
 const AFTER_QUESTIONS = [
-  { key: "post",   sub: "現在，身體還緊繃嗎？" },
-  { key: "pushed", sub: "剛才，節奏受催促嗎？" },
-  { key: "stay",   sub: "你，覺察得到當下嗎？" },
-  { key: "agency", sub: "海潮，與你同調嗎？" },
+  { key: "post",   sub: "Right now, is the body still tense?" },
+  { key: "pushed", sub: "Just now, did the pace feel rushed?" },
+  { key: "stay",   sub: "Can you sense the present moment?" },
+  { key: "agency", sub: "Did the tide move in sync with you?" },
 ];
 const AFTER_ON = 0.14, AFTER_OFF = 0.07;
 const AFTER_HOLD_MS = 900;   // 握著這麼久＝自動紀錄
@@ -3203,7 +3203,7 @@ function afterSurveyStep(a, dt){
   if(a.fixed){
     a.orbFill += (a.fixedValue - a.orbFill) * 0.25;
     rs.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
-    $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · 可以放鬆`;
+    $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · You can relax`;
     if(held <= AFTER_OFF && now - a.fixedAt >= AFTER_FIXED_RELEASE_MS){
       afterRecordAnswer(a, q, a.fixedValue);
     }
@@ -3243,7 +3243,7 @@ function afterAnswerBand(v){
   return v >= 0.66 ? 3 : v >= 0.33 ? 2 : v >= AFTER_ON ? 1 : 0;
 }
 function afterAnswerLabel(v){
-  return v >= 0.66 ? "很明顯" : v >= 0.33 ? "有一點" : "沒有";
+  return v >= 0.66 ? "Very clearly" : v >= 0.33 ? "A little" : "None";
 }
 function afterFixAnswer(a, value){
   a.fixed = true;
@@ -3251,7 +3251,7 @@ function afterFixAnswer(a, value){
   a.fixedValue = clamp(value);
   a.orbFill = clamp(value);
   document.documentElement.style.setProperty("--cue-fill", a.orbFill.toFixed(3));
-  $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · 可以放鬆`;
+  $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · You can relax`;
 }
 function afterRecordAnswer(a, q, value){
   a.answers[q.key] = Math.round(clamp(value) * 10);
@@ -3264,7 +3264,7 @@ function afterNextQuestion(a){
   if(a.i >= AFTER_QUESTIONS.length){
     state.post = a.answers.post; state.pushed = a.answers.pushed;
     state.stay = a.answers.stay; state.agency = a.answers.agency; state.note = "";
-    saveAfter();                                           // 寫入 CSV（不換 phase）
+    saveAfter();                                           // 寫入 CSV（不換 phase)
     afterShowResults(a);
     return;
   }
@@ -3274,13 +3274,13 @@ function afterNextQuestion(a){
 }
 function afterAnalysis(v){
   const changed = (state.pre != null) ? (state.pre - v.post) : 0;   // 緊張下降＝正
-  let s = changed >= 2 ? "比開始時明顯放鬆了。"
-        : changed >= 1 ? "比開始時鬆了一些。"
-        : changed <= -1 ? "比開始時緊了一點——沒關係，身體有它的節奏。"
-        : "緊張程度大致維持。";
-  if(v.stay >= 7) s += "你覺察當下做得非常好。";
-  else if(v.stay <= 3) s += "覺察當下還不太容易，多練幾次會更好。";
-  if(v.agency >= 7) s += "海潮也很跟得上你。";
+  let s = changed >= 2 ? "Noticeably more relaxed than at the start."
+        : changed >= 1 ? "A little looser than at the start."
+        : changed <= -1 ? "a little tenser than at the start——It’s okay — the body has its own rhythm."
+        : "Tension held about the same.";
+  if(v.stay >= 7) s += "You’re staying present really well.";
+  else if(v.stay <= 3) s += "Staying present isn’t easy yet — a few more practices will help.";
+  if(v.agency >= 7) s += "The tide keeps up with you well, too.";
   return s;
 }
 function afterShowResults(a){
@@ -3289,11 +3289,11 @@ function afterShowResults(a){
   document.documentElement.style.setProperty("--cue-fill", "0");
   const v = a.answers;
   $("afterCredits").innerHTML =
-    '<div class="credit-title">這一次</div>' +
-    '<div class="credit-row">緊張程度　' + v.post + ' / 10</div>' +
-    '<div class="credit-row">節奏受催促　' + v.pushed + ' / 10</div>' +
-    '<div class="credit-row">覺察當下　' + v.stay + ' / 10</div>' +
-    '<div class="credit-row">與海同調　' + v.agency + ' / 10</div>' +
+    '<div class="credit-title">This time</div>' +
+    '<div class="credit-row">Tension level ' + v.post + ' / 10</div>' +
+    '<div class="credit-row">Pace felt rushed ' + v.pushed + ' / 10</div>' +
+    '<div class="credit-row">Present awareness ' + v.stay + ' / 10</div>' +
+    '<div class="credit-row">In sync with the sea ' + v.agency + ' / 10</div>' +
     '<div class="credit-analysis">' + afterAnalysis(v) + '</div>';
   $("afterCredits").classList.add("show");
 }
@@ -3302,11 +3302,11 @@ function afterShowEncourage(a){
   $("afterCredits").classList.remove("show");
   setTimeout(() => {
     $("afterCredits").innerHTML =
-      '<div class="credit-title">謝謝你陪自己這一段</div>' +
-      '<div class="credit-row">你已經做了 ' + a.rounds + ' 回 4-7-8 呼吸</div>' +
-      '<div class="credit-row">以及 ' + a.grips + ' 次握放</div>' +
-      '<div class="credit-note">握力是身體整體活力的一個窗口——規律地握緊、放鬆，' +
-      '不只是在數拍，也在陪伴你的肌肉、神經與情緒的調節。每一次握放，都是給身體的一份溫柔練習。</div>';
+      '<div class="credit-title">Thank you for staying with yourself</div>' +
+      '<div class="credit-row">You’ve done  ' + a.rounds + '  rounds of  4-7-8 breathing</div>' +
+      '<div class="credit-row">and  ' + a.grips + '  grip-releases</div>' +
+      '<div class="credit-note">Grip strength is a window into the body’s overall vitality——gripping and releasing regularly' +
+      'Not just counting beats — also supporting your muscles, nerves, and emotional regulation. Each grip and release is a gentle practice for the body.</div>';
     $("afterCredits").classList.add("show");
     a.stageAt = performance.now();   // 從字幕真正出現才開始計時
   }, 1100);
@@ -3364,7 +3364,7 @@ function saveAfter(){
   state.sessions.push(summary);
   $("btnCsv").disabled = false;
   // phase 轉場交給沉浸式結束流程（結果→鼓勵→淡出）。
-  log(`已儲存：緊張 ${state.pre} → ${state.post}。`);
+  log(`Saved: tension  ${state.pre} → ${state.post}. `);
 }
 
 function avg(xs){
@@ -3409,21 +3409,21 @@ function analyzeMode(){
   const bothHigh = g1 > 0.78 && g2 > 0.78;
   const hardStill = bothHigh && motion < 0.25;
   let mode = "poly";
-  let label = "多層流動";
-  let detail = "握力、潮汐與海面各自有節奏，暫時不用把它們同步。";
+  let label = "Layered flow";
+  let detail = "Grip, tide, and sea surface each have their own rhythm — no need to sync them for now.";
 
   if(recentImpact || motion > 1.1){
     mode = "arry";
-    label = "能量釋放";
-    detail = "海承認這股力道，但會用限幅、冷卻與退潮把它帶回可停留的範圍。";
-  } else if(g1 < 0.42 && motion < 0.35 && g2 < 0.55){   // 潮汐(現 Ball1)低 + 平靜
+    label = "Energy release";
+    detail = "The sea acknowledges this force, but uses limiting, cooling, and ebb to bring it back to a range where you can stay.";
+  } else if(g1 < 0.42 && motion < 0.35 && g2 < 0.55){   // Tide(現 Ball1)低 + 平靜
     mode = "eu";
-    label = "可以停留";
-    detail = "潮汐較慢、聲場較寬，現在比較像能呼吸的穩定流動。";
+    label = "Able to stay";
+    detail = "The tide is slower and the soundfield wider — now more like a steady flow that can breathe.";
   } else if(hardStill){
     mode = "iso";
-    label = "有點鎖住";
-    detail = "兩邊都很用力但缺少流動。試著放一點，讓聲音不要只剩單一張力。";
+    label = "A bit locked";
+    detail = "Both sides grip hard but lack flow. Try easing off a little, so the sound isn’t left with a single tension.";
   }
   state.dominantMode = mode;
   return { mode, label, detail };
@@ -3472,11 +3472,11 @@ $("btnAudio").addEventListener("click", async () => {
     await startAudio({ resume: true });
   }catch(err){
     $("btnAudio").disabled = false;
-    log("聲音啟動失敗：" + err.message);
+    log("Audio failed to start: " + err.message);
   }
 });
-$("btnBall").addEventListener("click", () => connectBall().catch(err => log("連線失敗：" + err.message)));
-$("btnConnectInline").addEventListener("click", () => connectBall().catch(err => log("連線失敗：" + err.message)));
+$("btnBall").addEventListener("click", () => connectBall().catch(err => log("Connection failed: " + err.message)));
+$("btnConnectInline").addEventListener("click", () => connectBall().catch(err => log("Connection failed: " + err.message)));
 if("hid" in navigator){
   // 動態偵測：球插拔時自動接回／釋放 slot
   navigator.hid.addEventListener("connect", () => syncBalls().then(() => {
@@ -3485,18 +3485,18 @@ if("hid" in navigator){
   navigator.hid.addEventListener("disconnect", (e) => {
     const s = deviceSlot(e.device);
     if(s){
-      forgetBallSlot(s, "已斷線");
+      forgetBallSlot(s, "disconnected");
     }
   });
   syncBalls().catch(() => {});   // 頁面載入即接回先前已授權的球
 }
 $("btnStartSession").addEventListener("click", startArrival);
 $("btnEndSession").addEventListener("click", endSession);
-// btnSaveAfter 已移除：結束後問卷用握力作答，最後一題完成時自動 saveAfter()。
+// btnSaveAfter 已移除：結束後問卷用握力作答，最後一題完成時自動 saveAfter(). 
 $("btnCsv").addEventListener("click", downloadCsv);
-$("btnPracticeIntro").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
-$("btnPracticeInline").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
-$("btnPracticeShortcut").addEventListener("click", () => enterGuidedPractice().catch(err => log("進入練習失敗：" + err.message)));
+$("btnPracticeIntro").addEventListener("click", () => enterGuidedPractice().catch(err => log("Failed to enter practice: " + err.message)));
+$("btnPracticeInline").addEventListener("click", () => enterGuidedPractice().catch(err => log("Failed to enter practice: " + err.message)));
+$("btnPracticeShortcut").addEventListener("click", () => enterGuidedPractice().catch(err => log("Failed to enter practice: " + err.message)));
 document.querySelectorAll(".preset-btn").forEach(btn => {
   btn.addEventListener("click", () => setBreathPreset(btn.dataset.preset));
 });
@@ -3504,7 +3504,7 @@ document.querySelectorAll(".preset-btn").forEach(btn => {
 
 if(!("hid" in navigator)){
   $("browserWarn").style.display = "block";
-  $("browserWarn").innerHTML = "此瀏覽器不支援 WebHID。請用桌面 Chrome / Edge，並透過 localhost 開啟；仍可用鍵盤模擬。";
+  $("browserWarn").innerHTML = "This browser doesn’t support  WebHID. Please use desktop  Chrome / Edge, and via  localhost to open; keyboard simulation still works.";
 }
 
 const sim = { space: 0, shift: 0, dir: 0 };
@@ -3517,7 +3517,7 @@ addEventListener("keydown", (e) => {
       if(engine && !state.audioFadedIn){
         state.audioFadedIn = true;
         engine.fadeIn();
-        log("聲音開始進來。");
+        log("The sound begins to come in.");
       } else {
         requestAudioFadeIn();
       }
@@ -3635,7 +3635,7 @@ function emitRipple(cx, cy, opts){
   if(__ripples.length > 48) __ripples.shift();
 }
 
-// 4-7-8 每一拍的畫面明滅：中央亮一下＋一圈快速外擴，用相位色，明顯可數（Pan 2026-07-14）
+// 4-7-8 每一拍的畫面明滅：中央亮一下＋一圈快速外擴，用相位色，明顯可數（Pan 2026-07-14)
 let __beat = { at: -9, rgb: [255, 255, 255] };
 function beatPulse(rgb){ __beat = { at: performance.now() / 1000, rgb: rgb || [255, 255, 255] }; }
 function emitShoreWave(side, strength){
@@ -3697,7 +3697,7 @@ function drawSea(){
   const phaseMix = phaseRGB ? 0.18 : 0;
   const mix = (base, idx, amt = phaseMix) => phaseRGB ? Math.round(base * (1 - amt) + phaseRGB[idx] * amt) : base;
 
-  // 清澈淺海 × 水下 caustics × 粉紫天空（Pan 2026-07-15 參考圖 IMG_9778）。
+  // 清澈淺海 × 水下 caustics × 粉紫天空（Pan 2026-07-15 參考圖 IMG_9778).
   // 海平面不再被握力上下擠壓；握力改為推動前景浪花朝岸邊湧來，放鬆時退回海裡。
   const waterTop = H * (0.455 - 0.012 * guidedPhase + 0.006 * Math.sin(t * 0.16));
 
