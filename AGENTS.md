@@ -69,6 +69,13 @@
 
 ## 交接紀錄
 
+### 2026-07-17 (b) — Claude｜修 GripCalibrator 漂移（解「準備卡住／還沒答就跳關」）
+- **症狀（Pan）**：準備等待太長；反饋（抵達小小回顧＋結束後問卷）還沒答題就被帶往下一階段。Pan 直覺與握力球數值飄移有關——正確。
+- **根因**：舊 `GripCalibrator` 的 baseline 漂移是閘控式（`level<0.16 && delta<span*0.18 → baseline+=0.07`）。感測器慢慢往上飄時，一旦 level 超過 0.16 就停止吸收 → 漂移殘留成「假握壓」。模擬證實：僅 +14/秒的漂移就讓閒置 level 衝到 **0.154**，同時超過 arm 門檻 `AFTER_OFF=0.07`（→ 放不開、卡「準備」）與答題門檻 `AFTER_ON=0.14`（→ 在門檻附近抖動使 heldMs 一直歸零，5.2s response window 逾時自動記 0 跳關）。span 又用「瞬時最大值＋極慢衰減」，一次尖峰讓之後同樣握力都變弱。
+- **修法**：`GripCalibrator.update` 改**非對稱 rest-floor baseline**——`smRaw` 輕平滑後，低於基線（放開）快速歸零 `*0.3`、高於基線（漂移/握持）慢吸收 `*0.008`；span 上升改 attack 限速 `*0.04`、閒置才衰減。**未動** HEADROOM/GAMMA/DEADZONE/MIN/MAX 手感值。
+- **驗證（node 模擬 `/tmp/calib_fix2.js`）**：漂移 14 與 28/秒下閒置 level ≤0.03（<arm 0.07）；重/中/輕握分別到 ~0.63/0.36/0.21（皆 >answer 0.14），peak 保留。真檔 node --check + jsdom 載入 0 錯誤（中英各一）。中英雙語同步（重新生成 web/en）。細節見 `GRIPBALL_PROTOCOL.md` 校正段。
+- 未改聲音引擎與 guardrail。註：answer/arm 的固定時窗（AFTER_RESPONSE_MS=5200 等）未動——漂移修好後 arm 會即時放開、band 不再抖動，兩症狀應一併解除；若真機仍覺 5.2s 太短再議。
+
 ### 2026-07-17 — Claude｜校正整體檢查 + 英文完整同步版 + GitHub Pages 上線
 - **校正穩定性檢查（Pan：校正感覺不穩）**：通讀後判斷校正分三層，最大不穩來源在 `GripCalibrator`：`span = Math.max(posDelta, span*0.99975)` 用**瞬時最大值當滿刻度**，衰減極慢（~40–90s 半衰期，視 report 率）。後果：①握越用力 span 同步變大、水位被壓縮（越握越沒反應）；②一次用力/雜訊尖峰後約一分鐘同握力都變弱（前後不一致）；③`HEADROOM=1.35` 讓峰值恆為 ~0.74，滿水位達不到、頂端無解析。次要：baseline 漂移 `level<0.16 && delta<span*0.18 → 0.07/report`（~0.3s）會吃掉穩定輕握；baseline 初始化用第一筆 raw（連線時手在球上會偏高）。左右手指派 `cue.scores[slot]` 只在跨 `ARRIVAL_PRESS_ON=0.28` 的 edge 累加，弱球（有些球很用力也只 +380）可能整回合 0 分→靠 fallback；單球情境易誤指。**建議（尚未實作，等 Pan 決定）**：把 onset 參考（穩定 baseline）與顯示滿刻度分離、span 改 attack 限速上升別追瞬時峰值、HEADROOM 降到 ~1.05、baseline 漂移放慢/加閘、左右手指派容忍弱球/單球。
 - **英文完整同步版（Pan 要中英文都要）**：`english-us-demo` 分支原落後 main 16 個 commit。改採「單一發佈分支、雙語子路徑」：以現行 main `web/index.html` 為基底，用 Python 對「最大中日韓字元 run」做整檔取代（只動中文字＋全形標點，不碰程式/引號/標籤）翻譯出 **`web/en/index.html`**（231 個 user-facing run 全譯，英文用 typographic ’ 避免破壞單引號字串）。兩頁 `<h1>` 加語言切換連結（中↔EN）。`english-us-demo` 分支已 reset 對齊 main（兩分支都含中英雙語）。驗證：node --check 語法 OK、jsdom 載入 0 錯誤（中英各一）、user-facing 殘留中文 = 0。程式碼註解仍為中文（非使用者可見，未譯）。

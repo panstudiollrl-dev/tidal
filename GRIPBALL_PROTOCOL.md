@@ -53,10 +53,11 @@ Python：`struct.pack("<BB25s", report_id=1, cmd_id, padded_data)` → `device.w
   - `GRIP_HEADROOM = 1.35`：舒適最大握力不會立刻被映射成滿水位。
   - `GRIP_GAMMA = 0.78`：比舊版 `0.55` 少放大低端小壓力。
   - `GRIP_DEADZONE = 0.10`：低端死區，把「拿起來／輕碰」留給 0 附近。
-  - baseline 漂移：`level < 0.16 && delta < span * 0.18` 時，以 `0.07` 併回 baseline。
-  - smoothing：`level += (shaped - level) * 0.12`。
+  - **baseline 漂移改為非對稱 rest-floor（更新 2026-07-17，取代舊的 `level<0.16 && delta<span*0.18 → 0.07` 閘控式漂移）**：先對 raw 做輕平滑 `smRaw += (raw-smRaw)*0.3`；`smRaw < baseline`（正在放開）→ `baseline += (smRaw-baseline)*0.3` 快速歸零；`smRaw > baseline`（漂移或握持）→ `baseline += (smRaw-baseline)*0.008` 慢慢吸收。span 上升改 attack 限速 `span += (posDelta-span)*0.04`（不追一次尖峰），閒置才 `*GRIP_SPAN_DECAY`。
+  - smoothing：`level += (shaped - level) * 0.2`。
 
-  這次調整的理由：Pan 實測一拿起球水位幾乎全滿，代表低端被曲線過度放大。接手者測試時請確認：只是拿起球不刻意握時水位應接近 0；舒適握應有明顯但不滿格的反應；非常用力才接近滿水位。
+  舊閘控式漂移的問題（Pan 2026-07-17 實測）：感測器數值**慢慢往上飄**時，一旦 `level` 超過 0.16 就不再吸收，漂移殘留成「假握壓」。實測讓抵達/結束後的**答題卡在「準備」**（arm 門檻 `AFTER_OFF=0.07` 一直被假握壓壓著、放不開）以及**還沒答題就自動跳關**（假 level 在 `AFTER_ON=0.14` 附近抖動，heldMs 一直歸零 → 5.2s response window 逾時自動記 0）。新的非對稱 baseline 讓閒置 level 穩定回到 ~0（模擬：感測器漂移 14–28/秒時閒置 level ≤0.03，仍低於 arm 0.07），真實握壓（重/中/輕）仍分別到 ~0.63/0.36/0.21，peak 保留。**未改** `GRIP_HEADROOM/GAMMA/DEADZONE/MIN_SPAN/MAX_SPAN` 的手感值。
+  - 早先調整（HEADROOM 1.35 等）的理由：Pan 實測一拿起球水位幾乎全滿，代表低端被曲線過度放大。接手者測試時請確認：只是拿起球不刻意握時水位應接近 0；舒適握應有明顯但不滿格的反應；非常用力才接近滿水位。
 
 ## 觸覺回饋（haptic，可選）
 

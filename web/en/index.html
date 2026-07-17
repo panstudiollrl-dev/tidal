@@ -925,23 +925,26 @@ const state = {
 };
 
 class GripCalibrator {
-  constructor(){ this.baseline = null; this.span = GRIP_MIN_SPAN; this.level = 0; }
+  constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; }
   update(raw){
-    if(this.baseline === null){ this.baseline = raw; return 0; }
-    const delta = raw - this.baseline;
-    const posDelta = Math.max(0, delta);
-    // 浮動滿刻度：追蹤觀察到的最大握力，慢慢適應；有界
-    this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
+    if(this.baseline === null){ this.baseline = raw; this.smRaw = raw; this.level = 0; return 0; }
+    this.smRaw += (raw - this.smRaw) * 0.3;                     // 輕度平滑，抗單筆雜訊
+    const posDelta = Math.max(0, this.smRaw - this.baseline);
+    // 浮動滿刻度：上升用 attack 限速跟隨（不追一次尖峰/雜訊，避免之後同樣握力都變弱），閒置慢衰減；有界
+    if(posDelta > this.span) this.span += (posDelta - this.span) * 0.04;
+    else this.span *= GRIP_SPAN_DECAY;
     this.span = clamp(this.span, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
-    // 慢漂移併入 baseline：只在「幾乎已放開」時才重新歸零（this.level < 0.16).
-    // 這樣持續握到一半不會被當成漂移吃掉而消失（Pan 2026-07-14：用一半握力感測就消失）。
-    // 也讓拿起球造成的微小偏移慢慢併回 baseline，不把「握著球」誤認成「正在表達力道」。
-    if(this.level < 0.16 && delta < this.span * 0.18) this.baseline += (raw - this.baseline) * 0.07;
+    // 非對稱 rest-floor baseline (Pan 2026-07-17：感測器數值飄移造成「準備卡住／還沒答就跳關」）：
+    //   訊號低於基線＝正在放開 → 快速歸零；高於基線＝可能是漂移或握持 → 慢慢吸收。
+    // 慢吸收讓緩慢的感測器漂移不會累積成「假握壓」（閒置 level 穩定回到 ~0, arm 門檻與答題門檻不會被漂移誤觸），
+    // 又因為只吸收 0.8%/筆，真實握壓的峰值仍保留（答題取 peak）。放開時快速歸零，下一次握壓乾淨起算。
+    if(this.smRaw < this.baseline) this.baseline += (this.smRaw - this.baseline) * 0.3;
+    else this.baseline += (this.smRaw - this.baseline) * 0.008;
     const effScale = this.span * GRIP_HEADROOM;                 // 到你握力範圍就算滿
     let rawLevel = clamp(posDelta / effScale);
     rawLevel = rawLevel <= GRIP_DEADZONE ? 0 : clamp((rawLevel - GRIP_DEADZONE) / (1 - GRIP_DEADZONE));
     const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA)
-    this.level += (shaped - this.level) * 0.12;                 // 平滑
+    this.level += (shaped - this.level) * 0.2;                  // 平滑
     return this.level;
   }
 }
