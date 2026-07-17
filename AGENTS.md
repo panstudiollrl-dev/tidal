@@ -69,6 +69,12 @@
 
 ## 交接紀錄
 
+### 2026-07-17 — Claude｜校正整體檢查 + 英文完整同步版 + GitHub Pages 上線
+- **校正穩定性檢查（Pan：校正感覺不穩）**：通讀後判斷校正分三層，最大不穩來源在 `GripCalibrator`：`span = Math.max(posDelta, span*0.99975)` 用**瞬時最大值當滿刻度**，衰減極慢（~40–90s 半衰期，視 report 率）。後果：①握越用力 span 同步變大、水位被壓縮（越握越沒反應）；②一次用力/雜訊尖峰後約一分鐘同握力都變弱（前後不一致）；③`HEADROOM=1.35` 讓峰值恆為 ~0.74，滿水位達不到、頂端無解析。次要：baseline 漂移 `level<0.16 && delta<span*0.18 → 0.07/report`（~0.3s）會吃掉穩定輕握；baseline 初始化用第一筆 raw（連線時手在球上會偏高）。左右手指派 `cue.scores[slot]` 只在跨 `ARRIVAL_PRESS_ON=0.28` 的 edge 累加，弱球（有些球很用力也只 +380）可能整回合 0 分→靠 fallback；單球情境易誤指。**建議（尚未實作，等 Pan 決定）**：把 onset 參考（穩定 baseline）與顯示滿刻度分離、span 改 attack 限速上升別追瞬時峰值、HEADROOM 降到 ~1.05、baseline 漂移放慢/加閘、左右手指派容忍弱球/單球。
+- **英文完整同步版（Pan 要中英文都要）**：`english-us-demo` 分支原落後 main 16 個 commit。改採「單一發佈分支、雙語子路徑」：以現行 main `web/index.html` 為基底，用 Python 對「最大中日韓字元 run」做整檔取代（只動中文字＋全形標點，不碰程式/引號/標籤）翻譯出 **`web/en/index.html`**（231 個 user-facing run 全譯，英文用 typographic ’ 避免破壞單引號字串）。兩頁 `<h1>` 加語言切換連結（中↔EN）。`english-us-demo` 分支已 reset 對齊 main（兩分支都含中英雙語）。驗證：node --check 語法 OK、jsdom 載入 0 錯誤（中英各一）、user-facing 殘留中文 = 0。程式碼註解仍為中文（非使用者可見，未譯）。
+- **GitHub Pages**：已在 main 上線並確認可讀取。中文 <https://panstudiollrl-dev.github.io/tidal/web/>、英文 <https://panstudiollrl-dev.github.io/tidal/web/en/>。加了根目錄 `.nojekyll`。IR 路徑靠 `loadIR` 的相對 fallback（`../assets` 與 `../../assets`）在 web/ 與 web/en/ 兩種深度都載得到。
+- 小瑕疵（未修）：英文版隱私句 "…nothing is uploaded.EEG/If physiological signals…" 的 `EEG/` 前後少空格（沿用原文 `。EEG/生理訊號` 的緊排）；幾處 `${var}` 旁有雙空格，HTML 會收合。未改聲音引擎與 guardrail。
+
 ### 2026-07-16 — Claude｜波光 shimmer/粼光電子音（Luc Ferrari 風）＋覺察呼吸海潮隨握力漲退
 - 做了什麼（依 Pan 回饋）：
   1. **波光聲層**（Pan 上傳 4 個 .aif、指名 0004＝Luc Ferrari「Sea Hole」風：人聲/鳥/電子＋水，像陽光在水面波光嶙峋）。分析 0004（40s）：主體 500–2000Hz 71%、centroid ~3kHz（亮）、spectral flatness 在 0.24（電子/人聲音高）↔0.77（水/噪音）間擺盪、高頻粼光事件 ~1.2/s、電子音峰約 527/624/785/882/1055/1184/1335…Hz。據此新增：`shimmer`（明亮帶通噪音 ~1.5–2.7kHz＋慢 twinkle LFO＝波光明滅）＋ `glint(freq,pan,amp)`（明亮電子鐘聲：三個輕微非諧正弦、快起音短衰減、走 HRTF＋殘響）。loop 內稀疏排 glint（~1/s、能量越高越密），音高取中頻五聲音階，與 caustics 視覺對位。有界、過 tanh。engine mock 測試通過。
