@@ -70,6 +70,13 @@
 
 ## 交接紀錄
 
+### 2026-07-20 (i) — Claude｜修「表達緊張」放手歸零＋下一幕文字提早出現
+- **Pan 回饋**：表達緊張程度那段，「可以放開」出現後一放手水位就歸零（看不見自己選了什麼），而且下一段「符合程度」的字在**還沒換幕**時就跳出來。
+- **根因**：`finishArrival()` 在放手當下同步執行：把球上文字設成下一幕的「握出有多貼近」＋ `--cue-fill=0`＋`orbFill=0`，但 `showArrivalStep("report")` 的換幕動畫要 720ms 才真正切 step——所以舊畫面上出現新幕的字、水位被硬歸零。
+- **修法**：①hold 完成時記 `arrival.holdExpressed`（表達的高度）；hold 步驟的水位在 `holdDoneAt` 之後凍結在這個高度（放手不歸零），直到換幕。②`finishArrival` 不再直接動球上文字/水位；改由 `updateArrival` 的 report/agree 分支在 step 真正切到 report 後逐幀接手（原本就會每幀設字與水位——水位從表達高度以 ×0.8/幀平滑退掉，銜接自然）。③移除 `orbFill=0` 的瞬間歸零。
+- **驗證**：node --check、jsdom 0 錯誤、30 項校正模擬全過（calibrator 未動）。**尚待 Pan 實測換幕觀感。**
+- 未解：Pan 說「校正的時候畫面看起來很怪」——具體是什麼樣待問（cue 球？文字？時序？）。「一隻手要特別用力」＝硬球 span 地板 140，看下一份 log 的 pulseRises/lockedSpan 再決定要不要降 `GRIP_MIN_SPAN_LOCKED`。
+
 ### 2026-07-20 (h) — Claude｜換手支援：edge-pulse 驅動的雙向 span 適應
 - **需求（Pan）**：常常左右手互換球。sign/restRef/baseline 是球的物理特性、換手不受影響；但 span 是「球×校正那隻手」的，原本只會慢擴張、不會縮＝弱手拿到強校正的球會一直遲鈍。
 - **設計**：把 4-7-8 的「握一拍」偵測拿來當力量探針。每個 pulse 結束記峰值 rise（相對**起握當下**的 rest floor，避免長握時 floor 爬上來低估）；最近 3-5 筆的中位數 ×`GRIP_PEAK_TO_SPAN` 當新滿刻度 target，`lockedSpan` 以 `GRIP_SPAN_ADAPT_RATE(0.45)`/pulse 收斂（~5-6 握到位），span 在 pulse 結束（手已放開）時直接重標定。範圍鎖 `calibSpan × [0.4, 2.5]`。

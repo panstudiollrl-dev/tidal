@@ -2270,7 +2270,12 @@ function updateArrival(){
       $("guideOrb").classList.remove("show-cue-text"); // 表達緊張：球上不放字（避免殘留）
     }
     const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
-    arrival.orbFill = (arrival.orbFill || 0) + (clamp(grip) - (arrival.orbFill || 0)) * 0.25;
+    let fillTarget = clamp(grip);
+    // 表達緊張完成（「可以放開」出現）後：水位凍結在表達的高度——使用者要看得見自己選了什麼，
+    // 放手不歸零，一直保持到換幕（Pan 2026-07-20）。
+    if(arrival.step === "hold" && arrival.holdDoneAt)
+      fillTarget = Math.max(fillTarget, clamp(arrival.holdExpressed || 0));
+    arrival.orbFill = (arrival.orbFill || 0) + (fillTarget - (arrival.orbFill || 0)) * 0.25;
     const rs = document.documentElement.style;
     rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
     if(arrival.step === "hold"){
@@ -2386,7 +2391,7 @@ function updateArrival(){
     $("guideOrb").classList.add("show-cue-text");
     $("cueOrbPrompt").textContent = elapsed >= ARRIVAL_HOLD_SECONDS ? "可以放開" : "保持一下";
     if(elapsed >= ARRIVAL_HOLD_SECONDS){
-      if(!arrival.holdDoneAt) arrival.holdDoneAt = now;
+      if(!arrival.holdDoneAt){ arrival.holdDoneAt = now; arrival.holdExpressed = level; }   // 記下表達的高度（放手後水位停在這）
       if(level <= ARRIVAL_PRESS_OFF){
         if(!arrival.holdReleaseAt) arrival.holdReleaseAt = now;
         $("holdHint").textContent = "收到了。";
@@ -2518,13 +2523,12 @@ function finishArrival(){
   state.arrival.agreeFixed = false;
   state.arrival.agreeFixedAt = 0;
   state.arrival.agreeStartedAt = performance.now();
-  state.arrival.orbFill = 0;
+  // orbFill 不歸零：換幕期間水位保持在「表達的高度」，進 report 後由 agree 分支平滑退掉
   $("reportImpression").textContent = report.impression;
   $("reportAgreeCopy").style.display = "";
-  // 相符程度用中央球水位＋球上文字表示（Pan 2026-07-15）
-  document.documentElement.style.setProperty("--cue-fill", "0");
-  $("guideOrb").classList.add("show-cue-text");
-  $("cueOrbPrompt").textContent = "握出有多貼近";
+  // 相符程度的球上文字/水位「不在這裡設」——換幕動畫要 0.72s，這裡立刻設會讓下一幕的字提早出現在
+  // 還沒換的畫面上、水位也被硬歸零（Pan 2026-07-20）。改由 updateArrival 的 report/agree 分支在
+  // step 真正切到 report 後逐幀接手（水位會從「表達的高度」平滑退掉，銜接自然）。
   $("reportSuggest").style.display = "none";
   $("reportSuggest").innerHTML = "";
   $("arrivalConfirmHint").innerHTML = "&nbsp;";
