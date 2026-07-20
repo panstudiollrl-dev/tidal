@@ -58,6 +58,7 @@ Python：`struct.pack("<BB25s", report_id=1, cmd_id, padded_data)` → `device.w
   - baseline 漂移目前仍是 heuristic，不是完整 per-ball estimator；4-7-8 卡住時，先看 log 中放鬆後 `level` 是否仍高於 `MANUAL_478_OFF`，以及握下去 `delta` 是否為正。
 
   接手者測試時請確認：只是拿起球不刻意握時水位應接近 0；舒適握應有明顯但不滿格的反應；很用力才接近滿水位。若要再做 per-ball span lock，請不要直接回到 2026-07-17 後段那套已造成流程混亂的版本，而要另寫小步模擬與真球測試。
+- **更新 2026-07-20 深夜（Claude）**：上面段落描述的四個問題已各自定位並修正（sign 無 margin 亂跳／未鎖定 baseline 快追吃掉下降型證據／span 鎖定後仍衰減到地板＝越玩越敏感／478 全域 level 門檻卡拍）。修法與 18 項 node 模擬紀錄見 `AGENTS.md` 2026-07-20 (e)。4-7-8 現在走 per-ball edge detector（rest floor＋相對 span 遲滯），殘壓不用回到 0 也數得到拍。**尚待真球驗證**：跑一輪→按 L 下載 log→`python3 tools/analyze_grip_log.py <log>` 自動判讀。
 
 ## 觸覺回饋（haptic，可選）
 

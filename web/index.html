@@ -807,6 +807,15 @@ const GRIP_MAX_SPAN = 1500;        // 滿刻度上限（避免異常大值）
 const GRIP_HEADROOM = 1.35;        // 留一點餘裕：校正時的舒適握壓 → ~0.74 水位；更用力才接近滿。
 const GRIP_SPAN_DECAY = 0.99985;   // 慢遺忘/重新適應（每筆 report 乘一次）；鎖定後只慢慢擴張，不被單一尖峰改掉尺標
 const GRIP_POLARITY_MARGIN = 45;   // 校正時 press-rest 至少差這麼多 raw，才鎖定方向；避免噪音把球判反。
+const GRIP_SIGN_MARGIN = 60;       // 未鎖定時的暫定方向：預設 +1（MB01 常態＝握下去 raw 上升）；
+                                   // 只有 downMax 比 upMax 多超過這個量（且本身夠大）才暫判 −1。
+                                   // 沒有 margin 的 upMax>=downMax 在靜止雜訊下會 ±1 亂跳（漂移被當握壓／水位偶爾倒反）。
+// 4-7-8「握一拍」的 per-ball edge detector（不再只靠全域 level 門檻——殘壓會讓 level 降不回 OFF＝卡在 4）：
+const EDGE_ON_FRAC = 0.26;         // 一拍至少要相對 rest floor 上升 span 的這個比例
+const EDGE_ON_MIN_RAW = 80;        // 且至少這麼多 raw（防 span 很小時輕碰成拍）
+const EDGE_REARM_FRAC = 0.45;      // 從峰值退回這個比例以下＝視為放開，重新武裝
+const EDGE_FLOOR_RISE = 0.02;      // rest floor 每筆 report 向上爬的比率：殘壓 ~1 秒內被吸收，下一拍照樣測得到
+const MANUAL_478_REFRACTORY_MS = 380;  // edge 路徑與 level 路徑對同一握的去重窗
 // 握力→水位的「自然對應曲線」：不是線性。依 Stevens 冪定律（S=k·Iⁿ；握力是 Stevens 1960 的經典連續量），
 // 用 pow(level, GRIP_GAMMA) 做知覺補償。GRIP_GAMMA<1＝壓縮曲線，低-中握就有明顯反應、末段趨緩，握起來最自然
 // （等同 Max/MSP `scale` 物件第 5 參數 exponent 的作用——把線性輸入彎成知覺線性）。0.55 比 0.75 更靈敏。
@@ -932,7 +941,13 @@ const state = {
 
 class GripCalibrator {
   constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; this.locked = false;
-    this.sign = 0; this.upMax = 0; this.downMax = 0; this.restSamples = []; this.pressSamples = []; }
+    this.sign = 0; this.upMax = 0; this.downMax = 0; this.restSamples = []; this.pressSamples = [];
+    this.lockedSpan = 0;                                            // 校正學到的滿刻度＝session 中 span 衰減的下限（不再崩回 MIN_SPAN）
+    this.edge = { armed: true, floor: 0, peak: 0, pulse: false }; } // 4-7-8 用的 per-ball「握一拍」偵測
+  // 未鎖定時的暫定方向：預設 +1，只有下降證據明顯壓過上升（帶 margin）才 −1（FIX_BRIEF §2.2）。
+  provisionalSign(){
+    return (this.downMax > this.upMax + GRIP_SIGN_MARGIN && this.downMax > GRIP_SIGN_MARGIN) ? -1 : 1;
+  }
   // 校正結束後鎖定：滿刻度＝這顆球在三握校正時學到的舒適握壓（每顆球各自）＋鎖定握壓「方向」（polarity）。
   // 解兩手不對稱、也解「換球後水位倒過來」——有些球握下去 raw 上升、有些下降，之前寫死「上升＝握」就會倒反（Pan 2026-07-17）。
   median(values){
@@ -963,8 +978,9 @@ class GripCalibrator {
       this.baseline = learned.rest;
       this.span = clamp(Math.max(Math.abs(learned.delta), this.span), GRIP_MIN_SPAN, GRIP_MAX_SPAN);
     } else if(this.sign === 0) {
-      this.sign = this.upMax >= this.downMax ? 1 : -1;
+      this.sign = this.provisionalSign();
     }
+    this.lockedSpan = this.span;   // 之後 span 只會在這個值以上（衰減不再吃回地板→session 中途不會越來越敏感）
     this.locked = true;
   }
   update(raw){
@@ -972,34 +988,55 @@ class GripCalibrator {
     this.smRaw += (raw - this.smRaw) * 0.3;                     // 輕度平滑，抗單筆雜訊
     const rawDev = this.smRaw - this.baseline;                  // 帶正負：離開靜止基線的方向與幅度
     if(!this.locked){ if(rawDev > this.upMax) this.upMax = rawDev; if(-rawDev > this.downMax) this.downMax = -rawDev; }
-    const s = this.sign !== 0 ? this.sign : (this.upMax >= this.downMax ? 1 : -1);   // 握壓方向（校正學到；未鎖定時即時猜）
+    const s = this.sign !== 0 ? this.sign : this.provisionalSign();   // 握壓方向（校正學到；未鎖定時帶 margin 的暫定，不會 ±1 亂跳）
     const dev = rawDev * s;                                     // 轉成「握＝正」：不論球是上升還下降都一致
     const posDelta = Math.max(0, dev);
-    // 滿刻度 span：校正中即時學這顆球的握壓範圍；鎖定後只慢慢擴張（別讓一次尖峰或漂移改掉尺標→之後同力變弱）。有界。
+    // 滿刻度 span：校正中即時學這顆球的握壓範圍；鎖定後只慢慢擴張、衰減只回到校正學到的 lockedSpan（不再崩回 MIN_SPAN
+    // → 修「同一顆球剛校完正常、幾分鐘後變超敏感」：0.99985^每筆 report 在 50–100Hz 下 1–2 分鐘就腰斬）。有界。
     if(!this.locked) this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
-    else if(posDelta > this.span) this.span += (posDelta - this.span) * 0.02;
-    else this.span *= GRIP_SPAN_DECAY;
+    else if(posDelta > this.span) this.span += (posDelta - this.span) * 0.002;  // 慢擴張：一次用力先到滿，不立刻改掉尺標（0.02 在 60Hz 下 1 秒內就追掉峰值→「更用力反而不滿」）
+    else this.span = Math.max(this.lockedSpan || GRIP_MIN_SPAN, this.span * GRIP_SPAN_DECAY);
     this.span = clamp(this.span, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
     const effScale = this.span * GRIP_HEADROOM;                 // 到你的舒適握壓就算 ~滿
     let rawLevel = clamp(posDelta / effScale);
     rawLevel = rawLevel <= GRIP_DEADZONE ? 0 : clamp((rawLevel - GRIP_DEADZONE) / (1 - GRIP_DEADZONE));
     const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA）
-    // baseline 三態（以「握＝正」的 dev 判斷，與方向無關）：
-    //   非握壓方向（dev<0，多半是放開/回到靜止）→ 快速追回靜止基線，下一握乾淨起算；
-    //   閒置（shaped<0.06）→ 吸收感測器漂移，讓漂移不累積成假握壓（arm/答題門檻不被誤觸）；
-    //   握持中（shaped≥0.06）→ 近乎凍結，穩定用力時水位不會一直下沉。
-    if(dev < 0) this.baseline += (this.smRaw - this.baseline) * 0.3;
+    // baseline 更新：
+    //  未鎖定（校正中）→ 與極性學習「解耦」：只在幾乎沒動時慢吸漂移、偏離大時近凍結。
+    //    之前 dev<0 就以 0.3 快追會把「下降型球」握壓的證據整個吸掉（rawDev 積不起來→downMax 長不大→sign 永遠翻不到 −1）。
+    //  鎖定後 → 三態（放開快歸零／閒置吸漂移／握持凍結），此時 sign 已定、dev 方向可信。
+    if(!this.locked){
+      const k = Math.abs(rawDev) < GRIP_POLARITY_MARGIN ? 0.04 : 0.005;
+      this.baseline += (this.smRaw - this.baseline) * k;
+    }
+    else if(dev < 0) this.baseline += (this.smRaw - this.baseline) * 0.3;
     else if(shaped < 0.06) this.baseline += (this.smRaw - this.baseline) * 0.05;
-    else this.baseline += (this.smRaw - this.baseline) * 0.0005;
+    else this.baseline += (this.smRaw - this.baseline) * 0.00005;  // 握持真凍結：0.0005 在 60–100Hz 下 7 秒會吸掉 ~19% 握壓＝4-7-8 憋氣水位下沉
     this.level += (shaped - this.level) * 0.2;                  // 平滑
+    this.updateEdge(posDelta);
     return this.level;
+  }
+  // per-ball「握一拍」偵測（4-7-8）：rest floor 追蹤＋相對這顆球 span 的遲滯。
+  // 殘壓（放不乾淨）會在 ~1 秒內被 floor 吸收，下一拍仍然量得到「相對上升」——不要求 level 回到絕對 0。
+  updateEdge(posDelta){
+    const e = this.edge;
+    e.floor = posDelta < e.floor ? posDelta : e.floor + (posDelta - e.floor) * EDGE_FLOOR_RISE;
+    const onThresh = Math.max(this.span * EDGE_ON_FRAC, EDGE_ON_MIN_RAW);
+    const rise = posDelta - e.floor;
+    e.pulse = false;
+    if(e.armed){
+      if(rise >= onThresh){ e.pulse = true; e.armed = false; e.peak = posDelta; }
+    } else {
+      if(posDelta > e.peak) e.peak = posDelta;
+      if(posDelta - e.floor <= (e.peak - e.floor) * EDGE_REARM_FRAC || rise <= onThresh * 0.35){ e.armed = true; e.peak = 0; }
+    }
   }
 }
 
 function gripCalibSnapshot(slot, raw = null){
   const c = calib[slot];
   if(!c) return {};
-  const sgn = c.sign || (c.upMax >= c.downMax ? 1 : -1);
+  const sgn = c.sign || (c.provisionalSign ? c.provisionalSign() : 1);
   const learned = c.calibrationDelta ? c.calibrationDelta() : null;
   return {
     raw,
@@ -1009,6 +1046,9 @@ function gripCalibSnapshot(slot, raw = null){
     sign: sgn,
     signLocked: c.sign !== 0,
     span: Math.round(c.span || 0),
+    lockedSpan: Math.round(c.lockedSpan || 0),
+    edgeArmed: c.edge ? !!c.edge.armed : null,
+    edgeFloor: c.edge ? Math.round(c.edge.floor) : null,
     level: Number((state.grip[slot] || 0).toFixed(4)),
     restMedian: learned && learned.rest != null ? Math.round(learned.rest) : null,
     pressMedian: learned && learned.press != null ? Math.round(learned.press) : null,
@@ -2560,13 +2600,13 @@ function setGrip(slot, level){
   if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
   if(state.phase === "session" && state.guided.preset === "hold478"){
     const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數
-    // 簡單遲滯：握過 ON 數一拍、掉到 OFF 以下才重新武裝。底部死區保證放開＝0，能確實掉到 OFF 以下（不卡）。
+    // level 遲滯路徑（保留：鍵盤模擬與後援）。真球主路徑是 per-ball edge detector（見 onReport→trigger478Press），
+    // 兩路都經 trigger478Press 的 refractory 去重，殘壓讓 level 降不回 OFF 時也不會再卡拍。
     if(state.guided.manual478Pressed){
       if(maxLevel <= MANUAL_478_OFF) state.guided.manual478Pressed = false;
     } else if(maxLevel >= MANUAL_478_ON){
       state.guided.manual478Pressed = true;
-      requestAudioFadeIn();
-      advanceManual478();
+      trigger478Press("level");
     }
   }
   if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
@@ -2796,6 +2836,7 @@ function onReport(e, slot){
       requestAudioFadeIn();
     }
     setGrip(slot, level);
+    if(c.edge && c.edge.pulse) trigger478Press("edge");   // 真球 4-7-8 主路徑：per-ball 相對 rest floor 的「握一拍」
     gripLog("report", slot, {
       raw,
       reportId: e.reportId,
@@ -2921,6 +2962,18 @@ function playBowlForHands(){
   const dist = 4.4 - 2.6 * near;                              // 力道大＝近
   const intensity = clamp(0.42 + 0.55 * near);
   engine.singingBowl(az, dist, intensity);
+}
+
+// 4-7-8「握一拍」統一入口：edge 路徑（真球，onReport）與 level 路徑（鍵盤模擬/後援，setGrip）
+// 都走這裡，用 refractory 對「同一握」去重（否則一次握壓會被數成兩拍）。
+function trigger478Press(source){
+  if(state.phase !== "session" || state.guided.preset !== "hold478") return;
+  const now = performance.now();
+  if(now - (state.guided.last478TriggerAt || 0) < MANUAL_478_REFRACTORY_MS) return;
+  state.guided.last478TriggerAt = now;
+  gripLog("478:press", 0, { source });
+  requestAudioFadeIn();
+  advanceManual478();
 }
 
 function advanceManual478(){

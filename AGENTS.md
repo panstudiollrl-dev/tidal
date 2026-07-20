@@ -70,6 +70,17 @@
 
 ## 交接紀錄
 
+### 2026-07-20 (e) — Claude｜修 GripCalibrator 四個機械性 bug（sign margin / baseline 解耦 / span 下限 / 478 edge detector）＋log 分析器
+- **根因分析（讀完 (d) 的程式後找到，均與 Pan 症狀對得上）**：
+  1. 未鎖定 sign 用 `upMax >= downMax ? 1 : -1` **沒有 margin**——靜止雜訊下 upMax≈downMax，sign ±1 亂跳→漂移被當握壓、水位偶爾倒反（FIX_BRIEF §2.2 的 margin 規則在 7/20 回撈時遺失了）。
+  2. 未鎖定時 baseline 在 `dev<0` 以 0.3 快追——握「下降型」球時 rawDev 被吸掉、downMax 長不大→**sign 永遠翻不到 −1**（極性學習與 baseline 耦合）。
+  3. 鎖定後 span 每筆 report `*0.99985` 衰減、無下限——50–100Hz 下 **1–2 分鐘腰斬**、崩到 MIN_SPAN 250→「同一顆球剛校完正常、幾分鐘後超敏感」的主因（9d79ca2 手感好是因為地板 520 高，蓋住了這條）。
+  4. 4-7-8 用全域 level 門檻（ON 0.20/OFF 0.09）——殘壓讓 level 降不回 OFF→不 re-arm→**卡在 4**。
+- **修法（`web/index.html`）**：①`provisionalSign()`：預設 +1，只有 `downMax > upMax+GRIP_SIGN_MARGIN(60)` 才 −1；②未鎖定時 baseline 只在 `|rawDev|<45` 慢吸（0.04）、偏離大近凍結（0.005），鎖定後才用三態；③`lock()` 記 `lockedSpan`，之後 span 衰減下限＝lockedSpan 不再崩回 250；鎖定後慢擴張 0.02→0.002（原值 1 秒內追掉峰值→「更用力反而不滿」）；握持凍結 0.0005→0.00005（原值 7 秒吸掉 ~19% 握壓＝憋氣水位下沉）；④新增 per-ball `updateEdge()`（rest floor 追蹤＋相對 span 遲滯，殘壓 ~1s 被 floor 吸收，**不要求 level 回到絕對 0**），onReport 觸發 `trigger478Press("edge")`；原 level 遲滯路徑保留給鍵盤模擬，兩路經 `trigger478Press` 的 380ms refractory 去重。log snapshot 加 `lockedSpan/edgeArmed/edgeFloor`。
+- **驗證**：node --check 過；node 模擬 18 項全過（上升/下降球、靜止 10s sign 零翻轉、7s 握持跌幅 <2%、靜置 3min span 不崩、+24raw/s 漂移 60s level=0、478 殘壓 35–40% 連四拍全數到、8s 長握只 1 拍、弱球 +280 有感）；jsdom 載入 0 錯誤。**尚未真球測——請 Pan 跑一輪，按 L 下載 log。**
+- **新工具**：`tools/analyze_grip_log.py <log.json>`——自動判讀每球極性/sign 是否相符、span 是否崩、殘壓是否高於 478 門檻、478 拍距，並畫 raw/baseline/delta/span/level 時序圖。之後所有調參以這個為準，不憑感覺。
+- 給下一位：英文版 `web/en/index.html` 仍未同步（依 (c) 的決定，等中文真球穩定）。commit 前一版是 Codex 7/20 working state 的 checkpoint（`aa4aef3`），要回滾直接 reset 到它。
+
 ### 2026-07-20 (d) — Codex｜目前版交接：4-7-8 卡住、校正不穩、已加真球操作 log
 - 做了什麼：依 Pan 要求先停止繼續硬調握力校正。`web/index.html` 目前在 `GripCalibrator` 加了校正觀察資料：左右手 cue 期間分別收集每顆球的 rest/press raw median，用 `press-rest` 判斷該球 polarity；另新增握力球操作 log ring buffer（`state.gripLog`），每筆 `inputreport` 會記 raw、smRaw、baseline、delta、sign、span、level、當前 phase/arrival step、handCue 狀態、handMap。按 **L** 下載 `tidal_grip_operation_log.json`；按 **D** 看診斷面板；按 **R** 重新配對。log 也會寫入 `localStorage` key `tidal_grip_operation_log_v1`。已同步更新 `web/README.md`、`GRIPBALL_PROTOCOL.md`、`RESEARCH.md`。
 - 現在能跑到哪 / 怎麼驗證：`web/index.html` script 語法 OK、`git diff --check` OK、localhost `http://localhost:8001/web/index.html` 回 200。Chrome 控制工具一度斷線，未能由 Codex 自動 reload；Pan 需手動重新整理頁面後再測。測試時請先按 D 觀察兩顆球：握下去 `delta` 應為正、`level` 應上升；操作一輪後按 L 下載 log。
