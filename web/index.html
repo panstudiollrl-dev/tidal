@@ -943,6 +943,7 @@ class GripCalibrator {
   constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; this.locked = false;
     this.sign = 0; this.upMax = 0; this.downMax = 0; this.restSamples = []; this.pressSamples = [];
     this.lockedSpan = 0;                                            // 校正學到的滿刻度＝session 中 span 衰減的下限（不再崩回 MIN_SPAN）
+    this.restRef = null;                                            // 「拿著不握」的 raw 參考位（校正 rest 中位數；放手時 baseline 的回歸點）
     this.edge = { armed: true, floor: 0, peak: 0, pulse: false }; } // 4-7-8 用的 per-ball「握一拍」偵測
   // 未鎖定時的暫定方向：預設 +1，只有下降證據明顯壓過上升（帶 margin）才 −1（FIX_BRIEF §2.2）。
   provisionalSign(){
@@ -976,10 +977,17 @@ class GripCalibrator {
     if(learned && Math.abs(learned.delta) >= GRIP_POLARITY_MARGIN){
       this.sign = learned.delta >= 0 ? 1 : -1;
       this.baseline = learned.rest;
-      this.span = clamp(Math.max(Math.abs(learned.delta), this.span), GRIP_MIN_SPAN, GRIP_MAX_SPAN);
+      // 滿刻度＝三握「中位數」，不再跟校正期間的瞬間最大值取 max：
+      // 真球 log（2026-07-20）：Ball1 中位數 581 卻鎖成尖峰 693、Ball2 中位數 620 鎖成 1482
+      // → 舒適握只到一半＝「遲鈍」。中位數才是這隻手的舒適握壓。
+      this.span = clamp(Math.abs(learned.delta), GRIP_MIN_SPAN, GRIP_MAX_SPAN);
+      // 「拿著不握」的參考位：放手時 baseline 只追回到這裡，不追到「完全放開/放桌上」的地板。
+      // 真球 log：Ball2 完全放開比拿著低 1860 raw，baseline 追到底之後光拿起來就 +1860＝一拿就全滿。
+      this.restRef = learned.rest;
     } else if(this.sign === 0) {
       this.sign = this.provisionalSign();
     }
+    if(this.restRef == null) this.restRef = this.baseline;
     this.lockedSpan = this.span;   // 之後 span 只會在這個值以上（衰減不再吃回地板→session 中途不會越來越敏感）
     this.locked = true;
   }
@@ -1009,7 +1017,19 @@ class GripCalibrator {
       const k = Math.abs(rawDev) < GRIP_POLARITY_MARGIN ? 0.04 : 0.005;
       this.baseline += (this.smRaw - this.baseline) * k;
     }
-    else if(dev < 0) this.baseline += (this.smRaw - this.baseline) * 0.3;
+    else if(dev < 0){
+      // 放手：快回歸，但只回到「拿著不握」的 restRef 附近，不追到「完全放開/放桌上」的地板。
+      // 否則下次拿起球，光是手掌貼上就是一大段假握壓（真球 log：Ball2 差 1860 raw＝一拿就全滿）。
+      let target = this.smRaw;
+      if(this.restRef != null){
+        const slack = this.span * 0.1;   // 留 10% span 餘裕：拿起後殘值落在 deadzone 內，由閒置吸收歸零
+        target = this.sign >= 0 ? Math.max(target, this.restRef - slack) : Math.min(target, this.restRef + slack);
+      }
+      this.baseline += (target - this.baseline) * 0.3;
+      // restRef 慢速跟漂移：只在 smRaw 回到 restRef 附近時更新（手張開/放桌上時凍結）
+      if(this.restRef != null && Math.abs(this.smRaw - this.restRef) < GRIP_POLARITY_MARGIN)
+        this.restRef += (this.smRaw - this.restRef) * 0.02;
+    }
     else if(shaped < 0.06) this.baseline += (this.smRaw - this.baseline) * 0.05;
     else this.baseline += (this.smRaw - this.baseline) * 0.00005;  // 握持真凍結：0.0005 在 60–100Hz 下 7 秒會吸掉 ~19% 握壓＝4-7-8 憋氣水位下沉
     this.level += (shaped - this.level) * 0.2;                  // 平滑
@@ -1047,6 +1067,7 @@ function gripCalibSnapshot(slot, raw = null){
     signLocked: c.sign !== 0,
     span: Math.round(c.span || 0),
     lockedSpan: Math.round(c.lockedSpan || 0),
+    restRef: c.restRef == null ? null : Math.round(c.restRef),
     edgeArmed: c.edge ? !!c.edge.armed : null,
     edgeFloor: c.edge ? Math.round(c.edge.floor) : null,
     level: Number((state.grip[slot] || 0).toFixed(4)),
@@ -1977,6 +1998,7 @@ function updateConnectScene(){
 
 function maybeAdvanceFromConnect(){
   if(state.arrival.step !== "connect") return;
+  if(state.arrival.transitionTo) return;   // 轉場中（step 還沒切過去）別重複 beginHandCue——真球 log 看到 0.7s 內連打 47 次
   if(connectedCount() >= 2 && readyCount() >= 2) beginHandCue("left");
   else updateConnectScene();
 }

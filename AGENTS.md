@@ -70,6 +70,15 @@
 
 ## 交接紀錄
 
+### 2026-07-20 (f) — Claude｜第一份真球 log 分析＋修「一顆一拿就滿、一顆很用力才一半」
+- **Pan 真球 log（77s，`tools/analyze_grip_log.py` 判讀）**：兩顆球極性都是上升型、sign 判對、校正有完成。問題在別處：
+  1. **敏感球（Ball2）＝放手偏移**：它有三個 raw 狀態——完全放開 ≈32917、拿著不握 ≈34777（差 **1860**）、握 35400+。baseline 在 dev<0 時快追到「完全放開」的地板 → 拿起來光手掌貼上就 +1860 ≫ 滿刻度＝一拿就全滿。Ball1 兩狀態只差 46 所以沒事。這是球體個體差異，任何寫死的常數都救不了。
+  2. **遲鈍球（Ball1）＝span 被尖峰灌水**：lock 用「校正期間瞬間最大值」（Ball1 中位數 581 卻鎖 693；Ball2 中位數 620 鎖 1482=MAX 蓋頂）→ 舒適握只到一半。
+  3. 進校正的 720ms 轉場中 `maybeAdvanceFromConnect` 沒被擋 → `handCue:begin` 連打 47 次（有害性低但反覆重置 cue state）。
+- **修法**：①lock() 記 `restRef`（校正 rest 中位數＝「拿著不握」參考位）；鎖定後 dev<0 的快歸零只追到 `restRef ± 0.1*span`，不追到完全放開的地板；restRef 在 smRaw 回到附近時以 0.02 慢速跟漂移（手張開時凍結）。②lock() 的 span 改用 press-rest **中位數**（不再與 running-max 取 max）。③`maybeAdvanceFromConnect` 加 `transitionTo` guard。snapshot 加 `restRef` 欄位。
+- **驗證**：原 18 項模擬＋7 項「依 log 參數重建兩顆真球」的回歸全過：Ball2 放下再拿起 level 0.000（原本全滿）、舒適握 0.76、猛握滿；Ball1 span 鎖 580（不再 693）、舒適握 0.76（原本 ~0.5）、猛握 +1057 → 滿。node --check、jsdom 0 錯誤。
+- 給下一位：真球 log 在 Drive 根目錄 `tidal_grip_operation_log.json`（此次分析的原始數據）。若 Pan 還覺得手感不對，先重跑 analyze_grip_log.py 看 restRef/span 欄位，別動常數。
+
 ### 2026-07-20 (e) — Claude｜修 GripCalibrator 四個機械性 bug（sign margin / baseline 解耦 / span 下限 / 478 edge detector）＋log 分析器
 - **根因分析（讀完 (d) 的程式後找到，均與 Pan 症狀對得上）**：
   1. 未鎖定 sign 用 `upMax >= downMax ? 1 : -1` **沒有 margin**——靜止雜訊下 upMax≈downMax，sign ±1 亂跳→漂移被當握壓、水位偶爾倒反（FIX_BRIEF §2.2 的 margin 規則在 7/20 回撈時遺失了）。
