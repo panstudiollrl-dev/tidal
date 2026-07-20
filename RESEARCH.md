@@ -105,6 +105,34 @@ Pan 指定閱讀 Zone Sound Creative 的〈在舊港島練習節奏分析：從 
 - Hildt, “Affective Brain-Computer Music Interfaces—Drivers and Implications”：<https://www.frontiersin.org/journals/human-neuroscience/articles/10.3389/fnhum.2021.711407/full>
 - “Music in the loop: a systematic review of current neurofeedback methodologies using music”：<https://www.frontiersin.org/journals/neuroscience/articles/10.3389/fnins.2025.1515377/full>
 
+## 8. 音樂研究目前寫到哪（給接手者，Codex 2026-07-20）
+
+Pan 問「音樂研究的部分有沒有寫好」：目前不是單一章節完成，而是分散在數個檔案。以下是可交接狀態。
+
+**已整理到可用的部分**
+- `RESEARCH.md` 本檔：程序式海浪聲音技術路線，含 Andy Farnell《Designing Sound》的水/海浪合成思路、PannerNode / ConvolverNode / MeshRIR / ambisonics 選型，以及 BCMI / music neurofeedback / rhythmanalysis 的入口文獻。
+- `BREATHING.md`：把呼吸法視為「有時間結構的音樂簽名」，整理共振呼吸、4-7-8、box breathing、Nadi Shodhana、Ujjayi、Bhramari、Sitali、Bhastrika/Kapalabhati 等呼吸法如何對應聲景、相位、空間與握力耦合。這是目前最接近「互動音樂設計規格」的文件。
+- `RHYTHMANALYSIS.md`：以 Lefebvre 的 rhythmanalysis 把 Tidal 從「狀態偵測後播放音樂」改寫成「身體/握力/聲場/EEG 的多重節奏調和」。同時記錄 soundscape、soundwalking、quantified self sonification、BCMI 的文獻線索。
+- `AESTHETIC.md`：整理 Berman 環境神經科學、sound object recognition、fractal fluency 與 Endel 對照，說明為什麼 Tidal 要是一片「認得出來的海」，而不是抽象 pad 或純五聲音樂生成。
+- `READING.md`：握力/健康、節奏/entrainment、呼吸與身心狀態的讀書地圖，也補了頌缽聲學與非線性握力 mapping 的依據。
+
+**目前聲音研究的產品結論**
+- 第一版聲音不應追求自由生成音樂，而應做一片「可被身體塑形、但永遠成立」的程序式海。這來自 Farnell 的 procedural audio 思路，也符合兩人小團隊的維護成本。
+- 海浪要保留可辨識的 sound object recognition：使用者要聽得出這是海、石頭、浪、泡沫，而不是抽象噪音床。這是 Tidal 和 Endel 類產品的主要差異。
+- 呼吸引導不是節拍器，而是聲景相位。4-7-8 可以有清楚數字與頌缽確認，但聲音整體仍不應變成機械 click track。
+- 握力不只是控制器，也是一個節奏樂器與身體紀錄工具。它應同時記錄 raw/level/curve/hold/release pattern，讓之後可以回看「身體如何進入聲音」。
+- EEG 若接入，應先作低權重、慢變、record-only 或 gentle modulation，不要直接把 EEG state 轉成強控制或診斷語言。
+
+**還沒有完成的部分**
+- 尚未做「著名海岸 field recording」的系統性資料庫：例如各海岸錄音來源、授權、頻譜、事件密度、浪週期、空間感、可轉成哪些合成參數。這是下一個很有價值的研究任務。
+- 尚未把 Pan 上傳的所有海潮/波光 `.aif` 音檔整理成可重複的分析表。AGENTS 內有 2026-07-16 的 0004/波光分析摘要，但還需要把 audio feature extraction 方法、參數與結果集中到一份文件。
+- 尚未完成互動冥想 / biofeedback artwork 的作品譜系整理。已有 George Khut BrightHearts、Ethereal Phenomena、BCMI/music neurofeedback 等線索，但還需要整理「作品如何使用呼吸/心跳/觸覺/握力/聲音」與「Tidal 可借鑑什麼」。
+- 尚未把 4-7-8 的頌缽聲、波光合成、拍石聲、低頻包覆床做成獨立聲音規格表。現在主要仍埋在 `web/index.html` 和 AGENTS 交接紀錄。
+
+**接手建議**
+- 若 Pan 下一步是給美國同事看，請先穩定握力 log / 4-7-8，再整理一頁式英文 research brief。
+- 若下一步是請 Claude 接手聲音研究，請先讀本檔、`BREATHING.md`、`AESTHETIC.md`、`RHYTHMANALYSIS.md`，再做「海岸 field recording 分析表」與「互動冥想作品譜系」。
+
 ## 參考連結彙整
 
 - Designing Sound（MIT Press）：<https://mitpress.mit.edu/9780262014410/designing-sound/>

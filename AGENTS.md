@@ -28,7 +28,8 @@
 5. **平滑，不跳變**。握力 level 與所有音訊參數都要時間平滑（Web Audio 用 `setTargetAtTime`；不要逐樣本硬跳）。避免破音與突兀。
 6. **不診斷、不宣稱療效**。UI 文案與註解都用 wellness / supportive 語氣。EEG／生理訊號若接入，僅為探索性量測，不解讀為「已放鬆」的證明。
 7. **隱私與同意**：任何 session 紀錄（CSV 等）只存本機，不上傳；欄位維持匿名（serial / 時間 / 評分），不加可識別個資。
-8. **節奏彈性優先於強制同步**。Tidal 的新概念框架是 rhythmanalysis / 節奏調和：幫助使用者恢復可呼吸、可停留、可塑形的節奏彈性。不要做固定節拍催促、分數化壓力、或把 EEG/握力解讀成單一「正確狀態」。
+8. **節奏彈性優先於強制同步**。Tidal 的新概念框架是 rhythmanalysis / 節奏調和：幫助使用者恢復能呼吸、能安住在當下、能用雙手塑形的節奏。不要做固定節拍催促、分數化壓力、或把 EEG/握力解讀成單一「正確狀態」。
+9. **中文介面要說人能懂的話**。`arrival` 可以保留為內部工程流程名稱，但中文使用者不會自然理解「抵達」在這裡的意思。介面和對外文案應使用「正式開始前，練習自我覺察」、「聽見呼吸」、「用握力表達緊張的程度」、「小小回顧」等直接描述使用者正在做什麼的語言；避免翻譯腔，例如「可停留」應改成「身心能安住在當下」或「呼吸變得比較順」。
 
 如果某個需求與以上衝突，**停下來、在交接筆記裡提出，讓 Pan 決定**，不要自行取捨。
 
@@ -68,6 +69,30 @@
 ---
 
 ## 交接紀錄
+
+### 2026-07-20 (d) — Codex｜目前版交接：4-7-8 卡住、校正不穩、已加真球操作 log
+- 做了什麼：依 Pan 要求先停止繼續硬調握力校正。`web/index.html` 目前在 `GripCalibrator` 加了校正觀察資料：左右手 cue 期間分別收集每顆球的 rest/press raw median，用 `press-rest` 判斷該球 polarity；另新增握力球操作 log ring buffer（`state.gripLog`），每筆 `inputreport` 會記 raw、smRaw、baseline、delta、sign、span、level、當前 phase/arrival step、handCue 狀態、handMap。按 **L** 下載 `tidal_grip_operation_log.json`；按 **D** 看診斷面板；按 **R** 重新配對。log 也會寫入 `localStorage` key `tidal_grip_operation_log_v1`。已同步更新 `web/README.md`、`GRIPBALL_PROTOCOL.md`、`RESEARCH.md`。
+- 現在能跑到哪 / 怎麼驗證：`web/index.html` script 語法 OK、`git diff --check` OK、localhost `http://localhost:8001/web/index.html` 回 200。Chrome 控制工具一度斷線，未能由 Codex 自動 reload；Pan 需手動重新整理頁面後再測。測試時請先按 D 觀察兩顆球：握下去 `delta` 應為正、`level` 應上升；操作一輪後按 L 下載 log。
+- 未完成 / 卡住：Pan 最新回饋是 **4-7-8 卡住**，校正效果不大，數字有時倒過來，有時握力球非常敏感、有時又正常。這表示目前 per-ball polarity / baseline / span 仍未可靠；不要把這版視為穩定手感。4-7-8 手動握拍依賴 `MANUAL_478_ON/OFF` 與 `state.guided.manual478Pressed` re-arm，若某顆球低端漂移或 sign 反，會卡住或誤判。
+- 給下一位：請先用新 log 分析最後一次真球操作，不要再憑感覺調常數。優先判讀：① 哪顆球握下去 raw 是上升或下降；② `sign` 是否與 raw 方向相符；③ 放鬆時 `level` 是否仍高於 `MANUAL_478_OFF` / `ARRIVAL_PRESS_OFF`；④ `span` 是否太小導致輕碰滿水，或太大導致很用力才有反應。若要修，建議把 4-7-8 的「握一下」改成 per-ball relative edge detector（以最近 rest floor + 個人 span 的短窗變化判斷），不要只看全域 level 門檻。
+
+### 2026-07-20 (c) — Codex｜依 Pan 要求回撈上週三到週四中午較好的握力校正/控制版本
+- 做了什麼：Pan 明確回饋 2026-07-20 這串即時調教「都很差」，要求回去撈上週三到週四中午的 commit。已將 `web/index.html` 回復到 `95c5137`（Thu Jul 16 09:42:54 2026：波光 shimmer + breath awareness sea rises/recedes with grip），也就是週五換球/極性/低端校正一連串混亂前、週四早上最後一個較完整版本。
+- 現在能跑到哪 / 怎麼驗證：`web/index.html` script 語法 OK、`git diff --check` OK、localhost `http://localhost:8001/web/index.html` 回 200。此版握力手感回到 `GRIP_MIN_SPAN=300`、`GRIP_HEADROOM=1.0`、`GRIP_GAMMA=0.55` 的早期曲線，校正/呼吸反應應比 7/20 即時調教自然。
+- 未完成 / 卡住：這次只回復 `web/index.html`，文件中部分 7/20 調教紀錄仍保留作為失敗路徑紀錄；若 Pan 確認 `95c5137` 手感較好，再決定是否只小幅補「已授權兩球自動接回」或「反相球支援」，不要再把 7/20 那套 per-ball span 調教直接搬回。
+- 給下一位：若要再加新球 polarity，務必以 `95c5137` 為基底，小步加、真球測；不要從 7/20 已污染的版本繼續調。
+
+### 2026-07-20 (b) — Codex｜修「有一顆連上但校正階段完全沒反應」的連線可觀測性與喚醒
+- 做了什麼：針對 Pan 真球回報「有一顆連上，但校正階段完全沒反應」，補三個小修：① `registerDevice()` 先綁 `inputreport` listener 再送 mode command，對齊 `Gripball/nature_loop_web.html`；② listener 來源用 `e.device || e.target || dev`，避免某些 WebHID 事件來源差異讓 report 進來卻找不到 slot；③ 新連線後若尚未 ready，於 320/1100/2400ms 補送 mode command。另把 watchdog 改成只標記等待與重送 mode，不再自動 `forgetBallSlot()` 踢掉 open 但暫時沒回報的真球。
+- 診斷/操作：補回 **D** 診斷面板，顯示每顆球 `open/ready/age/raw/base/d/sign/span/lvl`；補回 **R** 手動重新配對，會撤銷目前 MB01 授權並要求重新選球。這次 R 是人工逃生口，不是 watchdog 自動循環。
+- 驗證：`web/index.html` script 語法 OK、`git diff --check` OK、up-going/down-going calibrator node 模擬 OK。尚待 Pan 真球看 D 面板：若該球 `ready:N` 或 `age` 持續增加，代表沒收到 GRIP RAW；若 `raw` 有變但 `lvl` 不動，才是校正/映射問題。
+- 給下一位：遇到「連上但沒反應」先看 D 面板，不要先調門檻。沒有 raw 就修 WebHID/mode；有 raw 無 lvl 才修 calibrator。
+
+### 2026-07-20 — Codex｜重讀 md，回到換球前穩定手感作為基底，再補新球 polarity / 音訊喚醒 / 4-7-8 卡住
+- 做了什麼：依 Pan 判斷「後面的版本都很亂，換握力球之前比較好」，`web/index.html` 以 `9d79ca2` 系列手感為基礎，不沿用 2026-07-17 後段的激進 span lock / watchdog forget 版本。保留必要修補：`GripCalibrator` 加 per-ball polarity 偵測（預設 raw 上升＝握，只有下降幅度明顯大於上升才判 -1），左右手 cue 全部完成後 `lock()` 方向；`syncBalls()` 只在 `open()` 失敗時撤銷舊授權，`watchHidLiveness()` 不再反覆 `forget()` 真球；首次 DOM 手勢先喚醒 AudioContext，真握力輸入再 fade in；4-7-8 使用較低門檻與 residual-pressure re-arm，避免殘壓回不乾淨時卡在 4。
+- 現在能跑到哪 / 怎麼驗證：已跑 `web/index.html` script 語法、`git diff --check`、Node 模擬 up-going / down-going 兩種球（握下去 level 上升、放開回接近 0）、4-7-8 殘壓連續四拍模擬，皆通過。尚未用 Pan 的真球端到端實測聲音與流程。
+- 未完成 / 卡住：英文版 `web/en/index.html` 這輪先未同步，因目前中文主線還在救握力流程；確認中文真球穩定後再同步英文版。D 診斷面板與 R 重新配對鍵沒有從較晚版本帶回，若真機仍難排查，可小步補回但不要帶回 watchdog 反覆撤授權那段。
+- 給下一位的建議或待 Pan 決策的問題：不要再直接套用 2026-07-17 後段版本；若要重做 per-ball estimator，先用小型模擬覆蓋上升/下降型、殘壓、漂移、連續握持，再請 Pan 真球確認。文件已同步 `GRIPBALL_PROTOCOL.md`、`web/README.md`，以目前程式為準。
 
 ### 2026-07-17 (e) — Claude｜修「換球後水位倒反」＝握壓方向 polarity 自動偵測
 - **症狀（Pan）**：換球後水位倒過來——沒握水位高、握了反而低。換球前很好。

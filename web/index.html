@@ -806,6 +806,7 @@ const GRIP_MIN_SPAN = 250;         // 滿刻度最小跨距（防雜訊放大）
 const GRIP_MAX_SPAN = 1500;        // 滿刻度上限（避免異常大值）
 const GRIP_HEADROOM = 1.35;        // 留一點餘裕：校正時的舒適握壓 → ~0.74 水位；更用力才接近滿。
 const GRIP_SPAN_DECAY = 0.99985;   // 慢遺忘/重新適應（每筆 report 乘一次）；鎖定後只慢慢擴張，不被單一尖峰改掉尺標
+const GRIP_POLARITY_MARGIN = 45;   // 校正時 press-rest 至少差這麼多 raw，才鎖定方向；避免噪音把球判反。
 // 握力→水位的「自然對應曲線」：不是線性。依 Stevens 冪定律（S=k·Iⁿ；握力是 Stevens 1960 的經典連續量），
 // 用 pow(level, GRIP_GAMMA) 做知覺補償。GRIP_GAMMA<1＝壓縮曲線，低-中握就有明顯反應、末段趨緩，握起來最自然
 // （等同 Max/MSP `scale` 物件第 5 參數 exponent 的作用——把線性輸入彎成知覺線性）。0.55 比 0.75 更靈敏。
@@ -839,6 +840,8 @@ const HAND_CUE_RELEASE_MS = 650;
 const HID_STALE_MS = 2500;
 const HID_MODE_RESEND_MS = 1400;
 const HID_FORGET_STALE_MS = 6500;
+const GRIP_LOG_MAX = 6000;          // 約數分鐘真球 raw 操作紀錄；存在 localStorage 供回看除錯。
+const GRIP_LOG_STORAGE_KEY = "tidal_grip_operation_log_v1";
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
@@ -923,14 +926,47 @@ const state = {
     },
     report: null,
   },
+  gripLog: [],
+  lastGripLogPersistAt: 0,
 };
 
 class GripCalibrator {
   constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; this.locked = false;
-    this.sign = 0; this.upMax = 0; this.downMax = 0; }
+    this.sign = 0; this.upMax = 0; this.downMax = 0; this.restSamples = []; this.pressSamples = []; }
   // 校正結束後鎖定：滿刻度＝這顆球在三握校正時學到的舒適握壓（每顆球各自）＋鎖定握壓「方向」（polarity）。
   // 解兩手不對稱、也解「換球後水位倒過來」——有些球握下去 raw 上升、有些下降，之前寫死「上升＝握」就會倒反（Pan 2026-07-17）。
-  lock(){ this.locked = true; if(this.sign === 0) this.sign = this.upMax >= this.downMax ? 1 : -1; }
+  median(values){
+    if(!values.length) return null;
+    const v = values.slice().sort((a, b) => a - b);
+    return v[Math.floor(v.length / 2)];
+  }
+  observeCalibration(cueOn){
+    if(this.smRaw == null) return;
+    if(cueOn){
+      const rest = this.median(this.restSamples);
+      if(rest != null && Math.abs(this.smRaw - rest) < GRIP_POLARITY_MARGIN * 0.55) return;
+    }
+    const bucket = cueOn ? this.pressSamples : this.restSamples;
+    bucket.push(this.smRaw);
+    if(bucket.length > 240) bucket.shift();
+  }
+  calibrationDelta(){
+    const rest = this.median(this.restSamples);
+    const press = this.median(this.pressSamples);
+    if(rest == null || press == null) return null;
+    return { rest, press, delta: press - rest };
+  }
+  lock(){
+    const learned = this.calibrationDelta();
+    if(learned && Math.abs(learned.delta) >= GRIP_POLARITY_MARGIN){
+      this.sign = learned.delta >= 0 ? 1 : -1;
+      this.baseline = learned.rest;
+      this.span = clamp(Math.max(Math.abs(learned.delta), this.span), GRIP_MIN_SPAN, GRIP_MAX_SPAN);
+    } else if(this.sign === 0) {
+      this.sign = this.upMax >= this.downMax ? 1 : -1;
+    }
+    this.locked = true;
+  }
   update(raw){
     if(this.baseline === null){ this.baseline = raw; this.smRaw = raw; this.level = 0; return 0; }
     this.smRaw += (raw - this.smRaw) * 0.3;                     // 輕度平滑，抗單筆雜訊
@@ -959,6 +995,71 @@ class GripCalibrator {
     return this.level;
   }
 }
+
+function gripCalibSnapshot(slot, raw = null){
+  const c = calib[slot];
+  if(!c) return {};
+  const sgn = c.sign || (c.upMax >= c.downMax ? 1 : -1);
+  const learned = c.calibrationDelta ? c.calibrationDelta() : null;
+  return {
+    raw,
+    smRaw: c.smRaw == null ? null : Math.round(c.smRaw),
+    baseline: c.baseline == null ? null : Math.round(c.baseline),
+    delta: c.baseline == null || c.smRaw == null ? null : Math.round((c.smRaw - c.baseline) * sgn),
+    sign: sgn,
+    signLocked: c.sign !== 0,
+    span: Math.round(c.span || 0),
+    level: Number((state.grip[slot] || 0).toFixed(4)),
+    restMedian: learned && learned.rest != null ? Math.round(learned.rest) : null,
+    pressMedian: learned && learned.press != null ? Math.round(learned.press) : null,
+    pressMinusRest: learned && learned.delta != null ? Math.round(learned.delta) : null,
+  };
+}
+
+function gripLog(event, slot = 0, extra = {}){
+  const now = performance.now();
+  const entry = {
+    at: new Date().toISOString(),
+    tMs: Math.round(now),
+    event,
+    slot,
+    phase: state.phase,
+    step: state.arrival.step,
+    handCueHand: state.arrival.handCue.hand,
+    handCueRep: state.arrival.handCue.rep,
+    handCueOn: !!state.arrival.handCue.cueOn,
+    handMapLeft: state.handMap.left,
+    handMapRight: state.handMap.right,
+    ball1: gripCalibSnapshot(1),
+    ball2: gripCalibSnapshot(2),
+    ...extra,
+  };
+  state.gripLog.push(entry);
+  if(state.gripLog.length > GRIP_LOG_MAX) state.gripLog.splice(0, state.gripLog.length - GRIP_LOG_MAX);
+  if(now - state.lastGripLogPersistAt > 900 || event !== "report"){
+    persistGripLog();
+  }
+}
+
+function persistGripLog(){
+  state.lastGripLogPersistAt = performance.now();
+  try{
+    localStorage.setItem(GRIP_LOG_STORAGE_KEY, JSON.stringify(state.gripLog.slice(-GRIP_LOG_MAX)));
+  }catch(_err){ /* storage may be unavailable; keep in memory for this run */ }
+}
+
+function downloadGripLog(){
+  persistGripLog();
+  const blob = new Blob([JSON.stringify(state.gripLog, null, 2)], { type: "application/json;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "tidal_grip_operation_log.json";
+  a.click();
+  log("已下載握力球操作 log。");
+}
+
+window.tidalGripLog = () => state.gripLog.slice();
+window.tidalLastGripLog = (n = 80) => state.gripLog.slice(-n);
 
 class OceanEngine {
   constructor(ctx){
@@ -1842,6 +1943,7 @@ function maybeAdvanceFromConnect(){
 
 function beginHandCue(hand){
   const cue = state.arrival.handCue;
+  gripLog("handCue:begin", 0, { hand });
   cue.hand = hand;
   cue.cueOn = false;
   cue.rep = 0;
@@ -2167,6 +2269,7 @@ function updateHandCue(now){
   const cue = state.arrival.handCue;
   const bothReleased = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
   if(cue.waitingRelease){
+    [1, 2].forEach(slot => calib[slot]?.observeCalibration(false));
     cue.cueOn = false;
     cue.fill *= 0.82;
     document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
@@ -2200,14 +2303,17 @@ function updateHandCue(now){
   const rep = Math.floor(cueElapsed / cycle);
   const doneAt = HAND_CUE_READY_MS + HAND_CUE_REPS * cycle;
   if(elapsed >= doneAt){
+    gripLog("handCue:finish", 0, { hand: cue.hand });
     finishHandCue();
     return;
   }
   const inOn = (cueElapsed % cycle) < HAND_CUE_ON_MS;
   cue.rep = rep;
   cue.cueOn = inOn;
+  [1, 2].forEach(slot => calib[slot]?.observeCalibration(inOn));
   if(inOn && cue.lastRep !== rep){
     cue.lastRep = rep;
+    gripLog("handCue:on", 0, { hand: cue.hand, rep });
     cue.successThisRep = false;
     cue.armed = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
     $("guideOrb").classList.remove("cue-success");
@@ -2248,6 +2354,7 @@ function finishHandCue(){
     // 校正完成 → 鎖定兩顆球各自的滿刻度（滿＝剛才三握的舒適握壓）。之後只慢慢擴張，不即時追峰值。
     if(calib[1]) calib[1].lock();
     if(calib[2]) calib[2].lock();
+    gripLog("handCue:locked", 0, { leftSlot: state.handMap.left, rightSlot: state.handMap.right });
     beginPrelude();
   }
 }
@@ -2543,6 +2650,7 @@ function forgetBallSlot(slot, reason = "stale"){
   $("s" + slot).textContent = "未連接";
   updateHidStatus();
   if(state.arrival.step === "connect") updateConnectScene();
+  gripLog("device:forget", slot, { reason, name });
   log(`${name} 已從 Ball ${slot} 移除（${reason}）。`);
 }
 
@@ -2605,6 +2713,11 @@ async function registerDevice(dev, slot){
   $("s" + slot).textContent = gripBallName(dev) || ("Ball " + slot);
   updateHidStatus();
   maybeAdvanceFromConnect();
+  gripLog("device:connected", slot, {
+    name: gripBallName(dev),
+    vendorId: dev.vendorId,
+    productId: dev.productId,
+  });
   log(`Ball ${slot} 已連接（${gripBallName(dev)} · ${dev.vendorId.toString(16).padStart(4, "0")}:${dev.productId.toString(16).padStart(4, "0")}）。`);
 }
 
@@ -2683,6 +2796,13 @@ function onReport(e, slot){
       requestAudioFadeIn();
     }
     setGrip(slot, level);
+    gripLog("report", slot, {
+      raw,
+      reportId: e.reportId,
+      connected: !!state.connected[slot],
+      ready: !!state.ready[slot],
+      audioFadedIn: !!state.audioFadedIn,
+    });
   } else if(e.reportId === 3 && dv.byteLength >= 16){
     const ax = dv.getFloat32(4, true);
     const ay = dv.getFloat32(8, true);
@@ -3608,6 +3728,9 @@ addEventListener("keydown", (e) => {
   if((e.key === "d" || e.key === "D") && !e.repeat && !e.metaKey && !e.ctrlKey){
     const el = $("diag"); if(el) el.style.display = el.style.display === "none" ? "block" : "none";
   }
+  if((e.key === "l" || e.key === "L") && !e.repeat && !e.metaKey && !e.ctrlKey){
+    downloadGripLog();
+  }
   if((e.key === "r" || e.key === "R") && !e.repeat && !e.metaKey && !e.ctrlKey){
     repairBalls();
   }
@@ -3648,7 +3771,7 @@ function updateDiag(){
     fmt(1),
     fmt(2),
     `handMap L:${state.handMap.left ?? "-"}  R:${state.handMap.right ?? "-"}  granted:${state.grantedCount ?? "?"}`,
-    `[D] toggle   [R] re-pair balls`,
+    `log:${state.gripLog.length} rows  [D] toggle   [L] download log   [R] re-pair balls`,
   ].join("\n");
 }
 setInterval(updateDiag, 120);
