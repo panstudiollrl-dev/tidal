@@ -807,6 +807,11 @@ const GRIP_MAX_SPAN = 1500;        // 滿刻度上限（避免異常大值）
 const GRIP_HEADROOM = 1.35;        // 留一點餘裕：校正時的舒適握壓 → ~0.74 水位；更用力才接近滿。
 const GRIP_SPAN_DECAY = 0.99985;   // 慢遺忘/重新適應（每筆 report 乘一次）；鎖定後只慢慢擴張，不被單一尖峰改掉尺標
 const GRIP_POLARITY_MARGIN = 45;   // 校正時 press-rest 至少差這麼多 raw，才鎖定方向；避免噪音把球判反。
+const GRIP_MIN_SPAN_LOCKED = 140;  // 校正完成後的 span 地板：低於未校正的 250。很硬的球（真球 log 2026-07-20(2)：
+                                   // Ball1 舒適握峰值只有 ~120-270 raw）在 250 地板下永遠「要滿用力」；校正過就信校正。
+const GRIP_PEAK_TO_SPAN = 0.75;    // 滿刻度＝三握「峰值中位數」×這個比例（持續握力 ≈ 峰值的 3/4，舒適握落 ~0.75 水位）
+const GRIP_LEVEL_ATTACK = 0.14;    // 水位平滑：起（握）快一點
+const GRIP_LEVEL_RELEASE = 0.05;   // 水位平滑：落（放）慢一點——解「大起大落」，浪退本來就比湧慢
 const GRIP_SIGN_MARGIN = 60;       // 未鎖定時的暫定方向：預設 +1（MB01 常態＝握下去 raw 上升）；
                                    // 只有 downMax 比 upMax 多超過這個量（且本身夠大）才暫判 −1。
                                    // 沒有 margin 的 upMax>=downMax 在靜止雜訊下會 ±1 亂跳（漂移被當握壓／水位偶爾倒反）。
@@ -942,6 +947,8 @@ const state = {
 class GripCalibrator {
   constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; this.locked = false;
     this.sign = 0; this.upMax = 0; this.downMax = 0; this.restSamples = []; this.pressSamples = [];
+    this.pressPeaks = { left: [], right: [] };                      // 每隻手、每一次 cue 握的「峰值」（相對 rest 中位數，帶正負）
+    this.curPeak = null; this.lastCueHand = null;                   // 進行中的這一握目前峰值；剛剛是哪隻手的 cue
     this.lockedSpan = 0;                                            // 校正學到的滿刻度＝session 中 span 衰減的下限（不再崩回 MIN_SPAN）
     this.restRef = null;                                            // 「拿著不握」的 raw 參考位（校正 rest 中位數；放手時 baseline 的回歸點）
     this.edge = { armed: true, floor: 0, peak: 0, pulse: false }; } // 4-7-8 用的 per-ball「握一拍」偵測
@@ -956,11 +963,26 @@ class GripCalibrator {
     const v = values.slice().sort((a, b) => a - b);
     return v[Math.floor(v.length / 2)];
   }
-  observeCalibration(cueOn){
+  observeCalibration(cueOn, hand){
     if(this.smRaw == null) return;
+    const h = hand === "right" ? "right" : "left";
     if(cueOn){
+      this.lastCueHand = h;
       const rest = this.median(this.restSamples);
+      if(rest != null){
+        // 這一握的峰值（帶正負）——之後 lock 用「自己那隻手的峰值中位數」定 span。
+        // 不能用整段 cueOn 的中位數：反應延遲會把中位數稀釋（真球 log：實際峰值 267/1148，混合中位數只剩 87/131 → 全鎖地板 250）。
+        const dev = this.smRaw - rest;
+        if(Math.abs(dev) >= GRIP_POLARITY_MARGIN * 0.55 && (this.curPeak == null || Math.abs(dev) > Math.abs(this.curPeak)))
+          this.curPeak = dev;
+      }
       if(rest != null && Math.abs(this.smRaw - rest) < GRIP_POLARITY_MARGIN * 0.55) return;
+    } else if(this.curPeak != null){
+      // 這一握結束：把峰值歸檔到「剛剛那隻手」的桶（每手最多留 8 筆）
+      const bucketP = this.pressPeaks[this.lastCueHand || h];
+      bucketP.push(this.curPeak);
+      if(bucketP.length > 8) bucketP.shift();
+      this.curPeak = null;
     }
     const bucket = cueOn ? this.pressSamples : this.restSamples;
     bucket.push(this.smRaw);
@@ -972,7 +994,29 @@ class GripCalibrator {
     if(rest == null || press == null) return null;
     return { rest, press, delta: press - rest };
   }
+  // 兩隻手 cue 的峰值中位數，取「反應大的那隻」＝這顆球自己的手（另一手 cue 時這顆球是放著的）
+  bestHandPeak(){
+    const med = arr => arr.length ? this.median(arr.map(Math.abs)) * Math.sign(this.median(arr)) : null;
+    const L = med(this.pressPeaks.left), R = med(this.pressPeaks.right);
+    if(L == null && R == null) return null;
+    if(L == null) return R;
+    if(R == null) return L;
+    return Math.abs(L) >= Math.abs(R) ? L : R;
+  }
   lock(){
+    const rest = this.median(this.restSamples);
+    const peak = this.bestHandPeak();
+    if(rest != null && peak != null && Math.abs(peak) >= GRIP_POLARITY_MARGIN){
+      // 主路徑：滿刻度＝自己那隻手三握峰值中位數 × GRIP_PEAK_TO_SPAN（持續握力比峰值低）。
+      // 地板用校正後專屬的 GRIP_MIN_SPAN_LOCKED——很硬的球（峰值 ~180）在 250 地板下永遠遲鈍。
+      this.sign = peak >= 0 ? 1 : -1;
+      this.baseline = rest;
+      this.restRef = rest;
+      this.span = clamp(Math.abs(peak) * GRIP_PEAK_TO_SPAN, GRIP_MIN_SPAN_LOCKED, GRIP_MAX_SPAN);
+      this.lockedSpan = this.span;
+      this.locked = true;
+      return;
+    }
     const learned = this.calibrationDelta();
     if(learned && Math.abs(learned.delta) >= GRIP_POLARITY_MARGIN){
       this.sign = learned.delta >= 0 ? 1 : -1;
@@ -1004,7 +1048,7 @@ class GripCalibrator {
     if(!this.locked) this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
     else if(posDelta > this.span) this.span += (posDelta - this.span) * 0.002;  // 慢擴張：一次用力先到滿，不立刻改掉尺標（0.02 在 60Hz 下 1 秒內就追掉峰值→「更用力反而不滿」）
     else this.span = Math.max(this.lockedSpan || GRIP_MIN_SPAN, this.span * GRIP_SPAN_DECAY);
-    this.span = clamp(this.span, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
+    this.span = clamp(this.span, this.locked ? GRIP_MIN_SPAN_LOCKED : GRIP_MIN_SPAN, GRIP_MAX_SPAN);   // 校正過的球允許較低地板（硬球）
     const effScale = this.span * GRIP_HEADROOM;                 // 到你的舒適握壓就算 ~滿
     let rawLevel = clamp(posDelta / effScale);
     rawLevel = rawLevel <= GRIP_DEADZONE ? 0 : clamp((rawLevel - GRIP_DEADZONE) / (1 - GRIP_DEADZONE));
@@ -1032,7 +1076,8 @@ class GripCalibrator {
     }
     else if(shaped < 0.06) this.baseline += (this.smRaw - this.baseline) * 0.05;
     else this.baseline += (this.smRaw - this.baseline) * 0.00005;  // 握持真凍結：0.0005 在 60–100Hz 下 7 秒會吸掉 ~19% 握壓＝4-7-8 憋氣水位下沉
-    this.level += (shaped - this.level) * 0.2;                  // 平滑
+    // 快起慢落：握＝水湧上來（~0.2s 有感），放＝浪慢慢退（~0.6s）——解「大起大落」，也吃掉手抖的高頻抖動
+    this.level += (shaped - this.level) * (shaped > this.level ? GRIP_LEVEL_ATTACK : GRIP_LEVEL_RELEASE);
     this.updateEdge(posDelta);
     return this.level;
   }
@@ -1068,6 +1113,8 @@ function gripCalibSnapshot(slot, raw = null){
     span: Math.round(c.span || 0),
     lockedSpan: Math.round(c.lockedSpan || 0),
     restRef: c.restRef == null ? null : Math.round(c.restRef),
+    peakLeft: c.pressPeaks && c.pressPeaks.left.length ? Math.round(c.median(c.pressPeaks.left)) : null,
+    peakRight: c.pressPeaks && c.pressPeaks.right.length ? Math.round(c.median(c.pressPeaks.right)) : null,
     edgeArmed: c.edge ? !!c.edge.armed : null,
     edgeFloor: c.edge ? Math.round(c.edge.floor) : null,
     level: Number((state.grip[slot] || 0).toFixed(4)),
@@ -2331,7 +2378,7 @@ function updateHandCue(now){
   const cue = state.arrival.handCue;
   const bothReleased = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
   if(cue.waitingRelease){
-    [1, 2].forEach(slot => calib[slot]?.observeCalibration(false));
+    [1, 2].forEach(slot => calib[slot]?.observeCalibration(false, cue.hand));
     cue.cueOn = false;
     cue.fill *= 0.82;
     document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
@@ -2372,7 +2419,7 @@ function updateHandCue(now){
   const inOn = (cueElapsed % cycle) < HAND_CUE_ON_MS;
   cue.rep = rep;
   cue.cueOn = inOn;
-  [1, 2].forEach(slot => calib[slot]?.observeCalibration(inOn));
+  [1, 2].forEach(slot => calib[slot]?.observeCalibration(inOn, cue.hand));
   if(inOn && cue.lastRep !== rep){
     cue.lastRep = rep;
     gripLog("handCue:on", 0, { hand: cue.hand, rep });
