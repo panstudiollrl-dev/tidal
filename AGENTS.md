@@ -70,6 +70,13 @@
 
 ## 交接紀錄
 
+### 2026-07-20 (h) — Claude｜換手支援：edge-pulse 驅動的雙向 span 適應
+- **需求（Pan）**：常常左右手互換球。sign/restRef/baseline 是球的物理特性、換手不受影響；但 span 是「球×校正那隻手」的，原本只會慢擴張、不會縮＝弱手拿到強校正的球會一直遲鈍。
+- **設計**：把 4-7-8 的「握一拍」偵測拿來當力量探針。每個 pulse 結束記峰值 rise（相對**起握當下**的 rest floor，避免長握時 floor 爬上來低估）；最近 3-5 筆的中位數 ×`GRIP_PEAK_TO_SPAN` 當新滿刻度 target，`lockedSpan` 以 `GRIP_SPAN_ADAPT_RATE(0.45)`/pulse 收斂（~5-6 握到位），span 在 pulse 結束（手已放開）時直接重標定。範圍鎖 `calibSpan × [0.4, 2.5]`。
+- **安全閥**：①輕拿/放鬆緩握不產生 pulse → 不誤調；②`GRIP_ADAPT_REFRACTORY=25` 筆 report（33Hz≈0.76s）內的連續 pulse 不餵適應 → 2-4Hz 手抖不會拉低 span；③中位數擋單次亂握；④有界。
+- **驗證**：30 項模擬全過，新增：換弱手 6 握 span 563→256、弱手 +200 → 0.64；換回強手 6 握 → 531；輕拿 20s span 不動；手抖 ±15% level 波動 0.05。node --check、jsdom 0 錯誤。
+- 給下一位：snapshot 新欄位 `calibSpan`（校正錨點）；`lockedSpan` 現在是「目前這隻手」的活值，兩者差距大＝最近換過手，log 可直接看出。
+
 ### 2026-07-20 (g) — Claude｜第二份真球 log：修「還是要滿用力」＋「水位大起大落」
 - **Pan 回饋**：比之前好非常多，但①還是要滿用力、②水位大起大落。第二份 log（91s，覆蓋第一份）判讀：
   1. **校正中位數被跨手污染拉垮**：observeCalibration 對兩顆球在「兩隻手」的 cue 期間都收 press 樣本＋整段 cueOn 中位數被反應延遲稀釋 → Ball1 pMinusR=87、Ball2=131（實際自己手的峰值 267/1148）→ 兩球都鎖地板 250。Ball2（真實力道 ~700-1150）套 250 span＝一觸即發＝**大起大落**。

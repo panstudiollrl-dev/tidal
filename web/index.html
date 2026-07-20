@@ -812,6 +812,12 @@ const GRIP_MIN_SPAN_LOCKED = 140;  // 校正完成後的 span 地板：低於未
 const GRIP_PEAK_TO_SPAN = 0.75;    // 滿刻度＝三握「峰值中位數」×這個比例（持續握力 ≈ 峰值的 3/4，舒適握落 ~0.75 水位）
 const GRIP_LEVEL_ATTACK = 0.14;    // 水位平滑：起（握）快一點
 const GRIP_LEVEL_RELEASE = 0.05;   // 水位平滑：落（放）慢一點——解「大起大落」，浪退本來就比湧慢
+// 換手支援（Pan 常左右手互換球）：sign/restRef 是球的物理特性、換手不受影響；span 是「球×手」的，
+// 校正後用「握一拍」(edge pulse) 當探針雙向慢適應——只有刻意握一下才調整，輕拿/放鬆緩握不觸發。
+const GRIP_SPAN_ADAPT_LO = 0.4;    // lockedSpan 適應下限（×校正原值）
+const GRIP_SPAN_ADAPT_HI = 2.5;    // lockedSpan 適應上限（×校正原值）
+const GRIP_SPAN_ADAPT_RATE = 0.45; // 每個合格 pulse 往 target 收斂的比率（~5-6 握到位；有 3-5 筆中位數擋單次亂握）
+const GRIP_ADAPT_REFRACTORY = 25;  // pulse 間隔至少這麼多筆 report（33Hz≈0.76s）才算「刻意握一下」→ 手抖(2-4Hz)不會觸發適應
 const GRIP_SIGN_MARGIN = 60;       // 未鎖定時的暫定方向：預設 +1（MB01 常態＝握下去 raw 上升）；
                                    // 只有 downMax 比 upMax 多超過這個量（且本身夠大）才暫判 −1。
                                    // 沒有 margin 的 upMax>=downMax 在靜止雜訊下會 ±1 亂跳（漂移被當握壓／水位偶爾倒反）。
@@ -949,7 +955,10 @@ class GripCalibrator {
     this.sign = 0; this.upMax = 0; this.downMax = 0; this.restSamples = []; this.pressSamples = [];
     this.pressPeaks = { left: [], right: [] };                      // 每隻手、每一次 cue 握的「峰值」（相對 rest 中位數，帶正負）
     this.curPeak = null; this.lastCueHand = null;                   // 進行中的這一握目前峰值；剛剛是哪隻手的 cue
-    this.lockedSpan = 0;                                            // 校正學到的滿刻度＝session 中 span 衰減的下限（不再崩回 MIN_SPAN）
+    this.lockedSpan = 0;                                            // 「目前這隻手」的滿刻度參考＝span 衰減的下限（可隨換手慢適應）
+    this.calibSpan = 0;                                             // 校正原值（不變）＝lockedSpan 適應範圍的錨點
+    this.pulseRises = [];                                           // 最近幾次「握一拍」的峰值 rise（換手偵測探針）
+    this.reportTick = 0; this.lastPulseTick = -9999;                // pulse 間隔計數（refractory 用，擋手抖）
     this.restRef = null;                                            // 「拿著不握」的 raw 參考位（校正 rest 中位數；放手時 baseline 的回歸點）
     this.edge = { armed: true, floor: 0, peak: 0, pulse: false }; } // 4-7-8 用的 per-ball「握一拍」偵測
   // 未鎖定時的暫定方向：預設 +1，只有下降證據明顯壓過上升（帶 margin）才 −1（FIX_BRIEF §2.2）。
@@ -1014,6 +1023,7 @@ class GripCalibrator {
       this.restRef = rest;
       this.span = clamp(Math.abs(peak) * GRIP_PEAK_TO_SPAN, GRIP_MIN_SPAN_LOCKED, GRIP_MAX_SPAN);
       this.lockedSpan = this.span;
+      this.calibSpan = this.span;
       this.locked = true;
       return;
     }
@@ -1033,9 +1043,11 @@ class GripCalibrator {
     }
     if(this.restRef == null) this.restRef = this.baseline;
     this.lockedSpan = this.span;   // 之後 span 只會在這個值以上（衰減不再吃回地板→session 中途不會越來越敏感）
+    this.calibSpan = this.span;
     this.locked = true;
   }
   update(raw){
+    this.reportTick++;
     if(this.baseline === null){ this.baseline = raw; this.smRaw = raw; this.level = 0; return 0; }
     this.smRaw += (raw - this.smRaw) * 0.3;                     // 輕度平滑，抗單筆雜訊
     const rawDev = this.smRaw - this.baseline;                  // 帶正負：離開靜止基線的方向與幅度
@@ -1090,11 +1102,31 @@ class GripCalibrator {
     const rise = posDelta - e.floor;
     e.pulse = false;
     if(e.armed){
-      if(rise >= onThresh){ e.pulse = true; e.armed = false; e.peak = posDelta; }
+      if(rise >= onThresh){ e.pulse = true; e.armed = false; e.peak = posDelta; e.floorAtFire = e.floor; }
     } else {
       if(posDelta > e.peak) e.peak = posDelta;
-      if(posDelta - e.floor <= (e.peak - e.floor) * EDGE_REARM_FRAC || rise <= onThresh * 0.35){ e.armed = true; e.peak = 0; }
+      if(posDelta - e.floor <= (e.peak - e.floor) * EDGE_REARM_FRAC || rise <= onThresh * 0.35){
+        // 這一握結束：峰值 rise（相對「起握當下」的 floor，不然長握時 floor 爬上來會低估）＝這隻手的力量探針。
+        // refractory：距上一個 pulse 太近（手抖 2-4Hz）不算刻意握，不餵進適應。
+        if(this.reportTick - this.lastPulseTick >= GRIP_ADAPT_REFRACTORY)
+          this.adaptSpanFromPulse(e.peak - (e.floorAtFire != null ? e.floorAtFire : e.floor));
+        this.lastPulseTick = this.reportTick;
+        e.armed = true; e.peak = 0; e.floorAtFire = null;
+      }
     }
+  }
+  // 換手雙向適應：連續幾次「刻意握一下」的峰值中位數 ×0.75 當新的滿刻度 target，慢慢收斂。
+  // 輕拿/放鬆緩握不會產生 pulse → 不會誤調；範圍鎖在校正原值的 0.4–2.5 倍，不會跑飛。
+  adaptSpanFromPulse(riseMagnitude){
+    if(!this.locked || !this.calibSpan || !(riseMagnitude > 0)) return;
+    this.pulseRises.push(riseMagnitude);
+    if(this.pulseRises.length > 5) this.pulseRises.shift();
+    if(this.pulseRises.length < 3) return;
+    const target = clamp(this.median(this.pulseRises) * GRIP_PEAK_TO_SPAN,
+                         Math.max(GRIP_MIN_SPAN_LOCKED, this.calibSpan * GRIP_SPAN_ADAPT_LO),
+                         Math.min(GRIP_MAX_SPAN, this.calibSpan * GRIP_SPAN_ADAPT_HI));
+    this.lockedSpan += (target - this.lockedSpan) * GRIP_SPAN_ADAPT_RATE;
+    this.span = this.lockedSpan;   // pulse 剛結束＝手已放開，重標定此刻不會造成可見跳動
   }
 }
 
@@ -1112,6 +1144,7 @@ function gripCalibSnapshot(slot, raw = null){
     signLocked: c.sign !== 0,
     span: Math.round(c.span || 0),
     lockedSpan: Math.round(c.lockedSpan || 0),
+    calibSpan: Math.round(c.calibSpan || 0),
     restRef: c.restRef == null ? null : Math.round(c.restRef),
     peakLeft: c.pressPeaks && c.pressPeaks.left.length ? Math.round(c.median(c.pressPeaks.left)) : null,
     peakRight: c.pressPeaks && c.pressPeaks.right.length ? Math.round(c.median(c.pressPeaks.right)) : null,
