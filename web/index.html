@@ -2705,15 +2705,12 @@ function setGrip(slot, level){
   const pressEdge = previous < ARRIVAL_PRESS_ON && level >= ARRIVAL_PRESS_ON;
   if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
   if(state.phase === "session" && state.guided.preset === "hold478"){
-    const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數
-    // level 遲滯路徑（保留：鍵盤模擬與後援）。真球主路徑是 per-ball edge detector（見 onReport→trigger478Press），
-    // 兩路都經 trigger478Press 的 refractory 去重，殘壓讓 level 降不回 OFF 時也不會再卡拍。
-    if(state.guided.manual478Pressed){
-      if(maxLevel <= MANUAL_478_OFF) state.guided.manual478Pressed = false;
-    } else if(maxLevel >= MANUAL_478_ON){
-      state.guided.manual478Pressed = true;
-      trigger478Press("level");
-    }
+    // per-ball「必須先放開才數下一拍」：這顆球 level 掉到 OFF 以下＝放開了→武裝；
+    // 卡在高位的球（restRef 鎖錯→拿著就滿）永遠回不到 OFF→數一次後就不再 rearm，不會自己連跳倒數（Pan 2026-07-20 影片）。
+    // 真球數拍主路徑是 edge onset（onReport→trigger478Press("edge",slot)）；這裡的 level 上緣是鍵盤模擬/後援。
+    const arm = state.guided.beat478Armed || (state.guided.beat478Armed = { 1: false, 2: false });
+    if(level <= MANUAL_478_OFF) arm[slot] = true;
+    else if(level >= MANUAL_478_ON && arm[slot]) trigger478Press("level", slot);
   }
   if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
     cue.scores[slot] += level;          // 記哪隻手在響應（左右手指派用）
@@ -2942,7 +2939,7 @@ function onReport(e, slot){
       requestAudioFadeIn();
     }
     setGrip(slot, level);
-    if(c.edge && c.edge.pulse) trigger478Press("edge");   // 真球 4-7-8 主路徑：per-ball 相對 rest floor 的「握一拍」
+    if(c.edge && c.edge.pulse) trigger478Press("edge", slot);   // 真球 4-7-8 主路徑：per-ball 相對 rest floor 的「握一拍」
     gripLog("report", slot, {
       raw,
       reportId: e.reportId,
@@ -3048,6 +3045,11 @@ function resetManual478(){
   state.guided.manual478Pressed = true;
   state.guided.manual478Peak = 1;
   state.guided.manual478LastPressAt = 0;
+  // per-ball 數拍武裝：依當下 level，已放開的球先武裝、還握著的要放開才武裝（進場那一握不算拍）。
+  state.guided.beat478Armed = {
+    1: (state.grip[1] || 0) <= MANUAL_478_OFF,
+    2: (state.grip[2] || 0) <= MANUAL_478_OFF,
+  };
 }
 
 function manual478State(){
@@ -3072,12 +3074,15 @@ function playBowlForHands(){
 
 // 4-7-8「握一拍」統一入口：edge 路徑（真球，onReport）與 level 路徑（鍵盤模擬/後援，setGrip）
 // 都走這裡，用 refractory 對「同一握」去重（否則一次握壓會被數成兩拍）。
-function trigger478Press(source){
+function trigger478Press(source, slot = 0){
   if(state.phase !== "session" || state.guided.preset !== "hold478") return;
+  const arm = state.guided.beat478Armed;
+  if(slot && (!arm || !arm[slot])) return;   // 這顆球還沒放開過（或卡在高位）→ 不數，擋 phantom 連跳
   const now = performance.now();
   if(now - (state.guided.last478TriggerAt || 0) < MANUAL_478_REFRACTORY_MS) return;
   state.guided.last478TriggerAt = now;
-  gripLog("478:press", 0, { source });
+  if(slot && arm) arm[slot] = false;         // 數完這拍→這顆球要再放開才數下一拍
+  gripLog("478:press", slot, { source });
   requestAudioFadeIn();
   advanceManual478();
 }

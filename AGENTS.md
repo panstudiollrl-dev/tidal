@@ -70,6 +70,13 @@
 
 ## 交接紀錄
 
+### 2026-07-20 (j) — Claude｜修「4-7-8 沒握卻自己倒數」＋記錄浪聲/視覺參考影片
+- **Pan 回饋（含影片 IMG_9338.MOV）**：進 4-7-8 後沒握，程式自己一直倒數。
+- **root cause（第三份 log 判讀）**：Ball2 的 `restRef` 鎖在 33979（校正 rest 中位被「放桌上/完全放開」值拉低），但「拿在手裡不握」是 ~34700 → 光拿著 delta≈+720、level 釘在 ~1.0；edge detector 在這個高位平台上因手抖/雜訊反覆越過門檻＝每 ~0.5s 自己觸發一拍（log 中 15 個 478:press 全 source=edge、間隔 ~0.5s、期間 grip 未真正握）。
+- **修法（targeted，不動 calibrator，避免破壞前面已 OK 的步驟）**：4-7-8 數拍改 **per-ball「必須先放開才數下一拍」**——`state.guided.beat478Armed{1,2}`，該球 level ≤ `MANUAL_478_OFF` 才武裝，數一拍後撤武裝。卡在高位的球（level 回不到 OFF）數一次後就不再 rearm → 不再 runaway；另一隻真正握放的手照數（4-7-8 本來就任一手可數）。edge 與 level 兩路都經此閘＋380ms refractory。進場依當下 level 初始化武裝（進場那一握不算拍）。
+- **驗證**：jsdom 實地驅動頁面：phantom 球連打 40 次 → 最多 1 拍（不 runaway）、真實 tap 5 次 → 5 拍、不放開連握 → 1 拍；30 項 calibrator 模擬全過；jsdom init 0 錯誤。
+- **未解 / 待 Pan 決策**：① Ball2 phantom 的**根因**（restRef 鎖到 open 值）還在——自由 session 的海面會把 Ball2 當成握著（海位偏高）。徹底解需要「持續握 >N 秒＝其實是新的靜止姿勢→慢慢吸收 baseline」，但這會和「刻意長握維持海面」相衝（就是先前修好的『握持不下沉』），需 Pan 定調要不要犧牲長握穩定度。目前 arm-gate 已讓 478 可用（用另一手數），故列為 follow-up。② **浪聲/視覺參考**：Pan 給了 IMG_9338.MOV（湧浪打到岸邊的感覺）當海面美學目標，待做一輪 frame + 音訊頻譜分析後 retune 海浪合成（見 RESEARCH §海岸 field recording 分析表 TODO）。
+
 ### 2026-07-20 (i) — Claude｜修「表達緊張」放手歸零＋下一幕文字提早出現
 - **Pan 回饋**：表達緊張程度那段，「可以放開」出現後一放手水位就歸零（看不見自己選了什麼），而且下一段「符合程度」的字在**還沒換幕**時就跳出來。
 - **根因**：`finishArrival()` 在放手當下同步執行：把球上文字設成下一幕的「握出有多貼近」＋ `--cue-fill=0`＋`orbFill=0`，但 `showArrivalStep("report")` 的換幕動畫要 720ms 才真正切 step——所以舊畫面上出現新幕的字、水位被硬歸零。
