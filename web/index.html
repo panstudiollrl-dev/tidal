@@ -1108,7 +1108,9 @@ class GripCalibrator {
       if(posDelta - e.floor <= (e.peak - e.floor) * EDGE_REARM_FRAC || rise <= onThresh * 0.35){
         // 這一握結束：峰值 rise（相對「起握當下」的 floor，不然長握時 floor 爬上來會低估）＝這隻手的力量探針。
         // refractory：距上一個 pulse 太近（手抖 2-4Hz）不算刻意握，不餵進適應。
-        if(this.reportTick - this.lastPulseTick >= GRIP_ADAPT_REFRACTORY)
+        // 4-7-8 進行中不吃：那些是刻意節拍，不是重新校準；否則每拍都改 span→越點越敏感→殘餘水位升→478 re-arm 卡住。
+        const in478 = typeof state !== "undefined" && state.phase === "session" && state.guided.preset === "hold478";
+        if(!in478 && this.reportTick - this.lastPulseTick >= GRIP_ADAPT_REFRACTORY)
           this.adaptSpanFromPulse(e.peak - (e.floorAtFire != null ? e.floorAtFire : e.floor));
         this.lastPulseTick = this.reportTick;
         e.armed = true; e.peak = 0; e.floorAtFire = null;
@@ -2709,7 +2711,11 @@ function setGrip(slot, level){
     // 卡在高位的球（restRef 鎖錯→拿著就滿）永遠回不到 OFF→數一次後就不再 rearm，不會自己連跳倒數（Pan 2026-07-20 影片）。
     // 真球數拍主路徑是 edge onset（onReport→trigger478Press("edge",slot)）；這裡的 level 上緣是鍵盤模擬/後援。
     const arm = state.guided.beat478Armed || (state.guided.beat478Armed = { 1: false, 2: false });
-    if(level <= MANUAL_478_OFF) arm[slot] = true;
+    const peaks = state.guided.beat478Peak || (state.guided.beat478Peak = { 1: 0, 2: 0 });
+    // 相對放開：掉到「這拍握力峰值的一半」以下就算放開（下限 OFF）。敏感球/殘壓高也 re-arm 得了（解「卡在中間」）；
+    // 卡在高位的 phantom 球峰值≈1、門檻≈0.5，永遠掉不下去→仍不會 runaway。
+    const rearmAt = Math.max(MANUAL_478_OFF, (peaks[slot] || 0) * 0.5);
+    if(level <= rearmAt) arm[slot] = true;
     else if(level >= MANUAL_478_ON && arm[slot]) trigger478Press("level", slot);
   }
   if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
@@ -3050,6 +3056,7 @@ function resetManual478(){
     1: (state.grip[1] || 0) <= MANUAL_478_OFF,
     2: (state.grip[2] || 0) <= MANUAL_478_OFF,
   };
+  state.guided.beat478Peak = { 1: 0, 2: 0 };
 }
 
 function manual478State(){
@@ -3081,7 +3088,11 @@ function trigger478Press(source, slot = 0){
   const now = performance.now();
   if(now - (state.guided.last478TriggerAt || 0) < MANUAL_478_REFRACTORY_MS) return;
   state.guided.last478TriggerAt = now;
-  if(slot && arm) arm[slot] = false;         // 數完這拍→這顆球要再放開才數下一拍
+  if(slot && arm){
+    arm[slot] = false;                       // 數完這拍→這顆球要再放開才數下一拍
+    const peaks = state.guided.beat478Peak || (state.guided.beat478Peak = { 1: 0, 2: 0 });
+    peaks[slot] = state.grip[slot] || 0;     // 記這拍的握力高度→re-arm 用「相對放開」而非絕對門檻
+  }
   gripLog("478:press", slot, { source });
   requestAudioFadeIn();
   advanceManual478();
