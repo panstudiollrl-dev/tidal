@@ -4124,6 +4124,38 @@ function drawSea(){
 
   const horizon = waterTop;   // 供下方 beat flash 等沿用
 
+  // 環境湧浪：不管有沒有握，都有一層層低平的浪從遠方連續滾向岸邊（參考 Pan 的 wave5 影片，2026-07-20）。
+  // 只是水面上的柔光橫線＝湧浪的稜線，由遠(小/淡/慢)推近(大/亮/快)；不改水色/天空/caustics（Pan：海的設計不要動）。
+  // 純加法、screen 疊加、有界；握力另外驅動的近岸浪花仍疊在最前景。
+  {
+    const bandN = 5;                                  // 同時在水面上的湧浪道數
+    const period = 2.1;                               // 每道浪之間約 2 秒（wave5 實測浪律 ~2s）
+    const seaH = H * 0.84 - waterTop;                 // 水域高度（到近岸浪花基線）
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.lineCap = "round";
+    for(let i = 0; i < bandN; i++){
+      // phase 0(遠)→1(近)，隨時間前進；每道浪錯開，形成連續行列
+      const phase = ((t / period) + i / bandN) % 1;
+      const yy = waterTop + seaH * (0.08 + 0.92 * (phase * phase));   // 透視：近岸間距變大
+      const near = phase;                                            // 越近越明顯
+      const amp = H * (0.0016 + 0.0042 * near);
+      const alpha = (0.05 + 0.16 * near) * (0.5 + 0.5 * tide) * Math.sin(Math.PI * phase);  // 遠淡近亮、進出淡入淡出
+      if(alpha <= 0.006) continue;
+      ctx.beginPath();
+      for(let x = -W * 0.02; x <= W * 1.02; x += W / 70){
+        const nx = x / W;
+        const y = yy + Math.sin(nx * (5 + i * 1.7) + t * (0.5 + 0.5 * near) + i) * amp
+                     + Math.sin(nx * 15 + t * 1.1 + i * 2) * amp * 0.35;   // 疊細波
+        if(x <= -W * 0.019) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = `rgba(246,252,248,${alpha.toFixed(3)})`;
+      ctx.lineWidth = H * (0.0016 + 0.0016 * near);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // 近岸浪花：握力產生一波一波浪包，經過延遲朝螢幕下方岸邊推進；放鬆後不再生新浪，舊浪自然退散。
   const shoreBase = H * 0.84;
   const waveRush = clamp(0.08 + 0.26 * tide + 0.14 * Math.max(__leftWave, __rightWave));
