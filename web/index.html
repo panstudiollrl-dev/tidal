@@ -827,7 +827,9 @@ const EDGE_ON_FRAC = 0.26;         // 一拍至少要相對 rest floor 上升 sp
 const EDGE_ON_MIN_RAW = 80;        // 且至少這麼多 raw（防 span 很小時輕碰成拍）
 const EDGE_REARM_FRAC = 0.45;      // 從峰值退回這個比例以下＝視為放開，重新武裝
 const EDGE_FLOOR_RISE = 0.02;      // rest floor 每筆 report 向上爬的比率：殘壓 ~1 秒內被吸收，下一拍照樣測得到
-const MANUAL_478_REFRACTORY_MS = 380;  // edge 路徑與 level 路徑對同一握的去重窗
+const MANUAL_478_REFRACTORY_MS = 650;  // onebang（Pan 2026-07-22，如 Max/MSP）：一拍之後關閘 650ms——
+                                       // 用力握的攻擊常有 過衝→微回落→坐穩 的彈跳，380ms 擋不住「4、3 緊貼著跳」；
+                                       // 正常數拍 ~1 拍/秒不受影響
 // 握力→水位的「自然對應曲線」：不是線性。依 Stevens 冪定律（S=k·Iⁿ；握力是 Stevens 1960 的經典連續量），
 // 用 pow(level, GRIP_GAMMA) 做知覺補償。GRIP_GAMMA<1＝壓縮曲線，低-中握就有明顯反應、末段趨緩，握起來最自然
 // （等同 Max/MSP `scale` 物件第 5 參數 exponent 的作用——把線性輸入彎成知覺線性）。0.55 比 0.75 更靈敏。
@@ -2853,9 +2855,10 @@ function setGrip(slot, level){
       // 峰值＝這拍之後「實際看到的最高水位」持續更新（edge 觸發在水位爬升前，觸發當下的值太低不能當峰值——
       // 那會讓門檻退回絕對 0.09，屏住呼吸整手緊繃時拍間水位掉不到 0.09＝卡死，Pan 2026-07-21）。
       peaks[slot] = Math.max(peaks[slot] || 0, level);
-      // 相對放開：掉到峰值一半以下、或從峰值回落 ≥0.25（緊繃著數拍也過得了）。
-      // phantom 平台＝恆定高水位、沒有明顯回落 → 兩個條件都進不來，仍不會自己倒數。
-      if(level <= Math.max(MANUAL_478_OFF, peaks[slot] * 0.5) || peaks[slot] - level >= 0.25){
+      // 相對放開：掉到峰值一半以下、或從峰值回落 ≥max(0.25, 峰值×0.35)——回落量隨峰值放大，
+      // 用力握的攻擊彈跳（1.0→0.72→坐穩）過不了，但緊繃數拍（0.8→0.45）仍然成立。
+      // phantom 平台＝恆定高水位、沒有明顯回落 → 條件進不來，仍不會自己倒數。
+      if(level <= Math.max(MANUAL_478_OFF, peaks[slot] * 0.5) || peaks[slot] - level >= Math.max(0.25, peaks[slot] * 0.35)){
         arm[slot] = true; peaks[slot] = 0;
       }
     } else if(level >= MANUAL_478_ON && previous < MANUAL_478_ON){
