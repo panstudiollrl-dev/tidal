@@ -2410,7 +2410,7 @@ function fixAgreementChoice(now = performance.now()){
   arrival.agreeFixedAt = now;
   if(arrival.report) arrival.report.agreement = a;
   document.documentElement.style.setProperty("--cue-fill", a.toFixed(3));
-  $("cueOrbPrompt").textContent = `${agreementLabel(a)} · 放下握力球`;
+  $("cueOrbPrompt").textContent = `${agreementLabel(a)} · 鬆開握力球`;
   log(`相符程度已固定：${Math.round(a * 100)}%。`);
 }
 
@@ -2490,7 +2490,7 @@ function updateArrival(){
       const a = clamp(arrival.agreement ?? arrival.agreePeak);
       arrival.orbFill = (arrival.orbFill || 0) + (a - (arrival.orbFill || 0)) * 0.25;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
-      $("cueOrbPrompt").textContent = `${agreementLabel(a)} · 放下握力球`;
+      $("cueOrbPrompt").textContent = `${agreementLabel(a)} · 鬆開握力球`;
       if(trustedHeld() <= AFTER_OFF && a <= 0.01 && now - arrival.agreeFixedAt >= AGREEMENT_AUTO_ADVANCE_MS){
         finalizeAgreement(now);
       }
@@ -2499,7 +2499,7 @@ function updateArrival(){
       if(held <= AFTER_OFF) arrival.agreeArmed = true;
       arrival.orbFill = (arrival.orbFill || 0) * 0.8;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
-      $("cueOrbPrompt").textContent = arrival.agreeArmed ? "握出有多貼近" : "放下握力球";
+      $("cueOrbPrompt").textContent = arrival.agreeArmed ? "握出有多貼近" : "鬆開握力球";
     } else {
       const held = trustedHeld();
       const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
@@ -2582,10 +2582,10 @@ function updateArrival(){
     }
     $("holdProgress").style.width = Math.round(clamp(elapsed / ARRIVAL_HOLD_SECONDS) * 100) + "%";
     $("holdHint").textContent = elapsed >= ARRIVAL_HOLD_SECONDS
-      ? "放下握力球。"
+      ? "鬆開握力球。"
       : "留在這個力道裡，請保持片刻。";
     $("guideOrb").classList.add("show-cue-text");
-    $("cueOrbPrompt").textContent = elapsed >= ARRIVAL_HOLD_SECONDS ? "放下握力球" : "保持一下";
+    $("cueOrbPrompt").textContent = elapsed >= ARRIVAL_HOLD_SECONDS ? "鬆開握力球" : "保持一下";
     if(elapsed >= ARRIVAL_HOLD_SECONDS){
       if(!arrival.holdDoneAt){ arrival.holdDoneAt = now; arrival.holdExpressed = level; }   // 記下表達的高度（放手後水位停在這）
       if(level <= ARRIVAL_PRESS_OFF){
@@ -2594,8 +2594,8 @@ function updateArrival(){
         $("cueOrbPrompt").textContent = "收到了";
       } else {
         arrival.holdReleaseAt = null;
-        $("holdHint").textContent = "放下握力球。";
-        $("cueOrbPrompt").textContent = "放下握力球";
+        $("holdHint").textContent = "鬆開握力球。";
+        $("cueOrbPrompt").textContent = "鬆開握力球";
       }
       // 放開後短暫確認就完成；即使沒偵測到放開，停留 ~3.5 秒也自動繼續（保險，不卡住）
       const releasedOk = arrival.holdReleaseAt && now - arrival.holdReleaseAt >= ARRIVAL_HOLD_RELEASE_DELAY_MS;
@@ -3750,7 +3750,7 @@ function afterSurveyStep(a, dt){
   if(a.fixed){
     a.orbFill += (a.fixedValue - a.orbFill) * 0.25;
     rs.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
-    $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · 放下握力球`;
+    $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · 鬆開握力球`;
     if(held <= AFTER_OFF && now - a.fixedAt >= AFTER_FIXED_RELEASE_MS){
       afterRecordAnswer(a, q, a.fixedValue);
     }
@@ -3798,7 +3798,7 @@ function afterFixAnswer(a, value){
   a.fixedValue = clamp(value);
   a.orbFill = clamp(value);
   document.documentElement.style.setProperty("--cue-fill", a.orbFill.toFixed(3));
-  $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · 放下握力球`;
+  $("afterOrbPrompt").textContent = `${afterAnswerLabel(a.fixedValue)} · 鬆開握力球`;
 }
 function afterRecordAnswer(a, q, value){
   a.answers[q.key] = Math.round(clamp(value) * 10);
