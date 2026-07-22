@@ -957,6 +957,7 @@ class GripCalibrator {
                                                                     // 混在一起會把 rest 中位拉低→「拿著就像握著」的 phantom 根因
     this.holdRun = 0;                                               // 連續「高水位且無握拍」的 report 數（phantom 自我修復用）
     this.recentRest = [];                                           // 最近的 rest 樣本（兩手皆收，~60 筆）：lock 時做「漂移修正」用
+    this.noiseEma = 20;                                             // 靜止雜訊估計（raw）：雜訊大的球「握一拍」門檻要更高，免得自己數拍
     this.pressPeaks = { left: [], right: [] };                      // 每隻手、每一次 cue 握的「峰值」（相對該手 rest 中位數，帶正負）
     this.curPeak = null; this.lastCueHand = null;                   // 進行中的這一握目前峰值；剛剛是哪隻手的 cue
     this.lockedSpan = 0;                                            // 「目前這隻手」的滿刻度參考＝span 衰減的下限（可隨換手慢適應）
@@ -1124,6 +1125,9 @@ class GripCalibrator {
     }
     else if(shaped < 0.06) this.baseline += (this.smRaw - this.baseline) * 0.05;
     else this.baseline += (this.smRaw - this.baseline) * 0.00005;  // 握持真凍結：0.0005 在 60–100Hz 下 7 秒會吸掉 ~19% 握壓＝4-7-8 憋氣水位下沉
+    // 靜止雜訊估計：只在真正安靜（deadzone 內）時更新——給 edge 門檻自適應用（真球 log 2026-07-22：
+    // 壞球雜訊大，58 拍裡混進 9 拍不是使用者握的）
+    if(shaped <= 0) this.noiseEma += (Math.abs(rawDev) - this.noiseEma) * 0.02;
     // 快起慢落：握＝水湧上來（~0.2s 有感），放＝浪慢慢退（~0.6s）——解「大起大落」，也吃掉手抖的高頻抖動
     this.level += (shaped - this.level) * (shaped > this.level ? GRIP_LEVEL_ATTACK : GRIP_LEVEL_RELEASE);
     // phantom 自我修復：長時間高水位、完全沒有任何「握一拍」＝多半是 rest 錨點錯（拿著被當成握著，Pan：不握水位還是高）。
@@ -1141,7 +1145,7 @@ class GripCalibrator {
   updateEdge(posDelta){
     const e = this.edge;
     e.floor = posDelta < e.floor ? posDelta : e.floor + (posDelta - e.floor) * EDGE_FLOOR_RISE;
-    const onThresh = Math.max(this.span * EDGE_ON_FRAC, EDGE_ON_MIN_RAW);
+    const onThresh = Math.max(this.span * EDGE_ON_FRAC, EDGE_ON_MIN_RAW, this.noiseEma * 5);   // 雜訊大的球要更明確的握才算拍
     const rise = posDelta - e.floor;
     e.pulse = false;
     if(e.armed){
@@ -2269,7 +2273,7 @@ function handleArrivalGrip(slot, level){
 // 再一次握壓或甩動即開始練習（Pan 2026-07-14）。
 function handleArrivalConfirmation(slot, level, now){
   const arrival = state.arrival;
-  const held = Math.max(state.grip[1], state.grip[2]);
+  const held = trustedHeld();   // 卡高位的球不能代表作答、也不能卡住「放開」判定
   if(arrival.reportSub === "agree"){
     if(arrival.agreeFixed){
       if(held <= AFTER_OFF && now - arrival.agreeFixedAt > 350) finalizeAgreement(now);
@@ -2301,8 +2305,9 @@ function handleArrivalConfirmation(slot, level, now){
     return;
   }
   if(arrival.reportSub === "suggest"){
-    if(now < arrival.suggestReadyAt) return;   // 緩衝：別讓定案那一握直接衝進 session
-    if(held >= AFTER_ON) reportAdvance();
+    // Pan 2026-07-22：「再握一下開始」過場沒有意義（還常被卡高位的球自動觸發跳過）——
+    // 顯示建議 ~2.5s 後直接進練習，讓 4-7-8 自己的「握一下開始」接手。
+    if(now >= arrival.suggestReadyAt + 2500) reportAdvance();
   }
 }
 
@@ -2344,8 +2349,7 @@ function finalizeAgreement(now = performance.now()){
   $("reportSuggest").style.display = "block";
   $("reportSuggest").innerHTML =
     `${ack}<br>接下來，我們一起試 <b>${rec.recommended_label || "海潮"}</b>。${rec.recommended_reason || ""}`;
-  $("cueOrbPrompt").textContent = "再握一下開始";
-  $("arrivalConfirmHint").textContent = "看中央球。無球測試時：空白鍵或方向鍵。";
+  $("arrivalConfirmHint").innerHTML = "&nbsp;";   // 不再要求「再握一下」——顯示建議片刻後自動開始
   log(`使用者符合度 ${Math.round(a * 100)}%。建議：${rec.recommended_label || "海潮"}。`);
 }
 
@@ -2404,17 +2408,17 @@ function updateArrival(){
       arrival.orbFill = (arrival.orbFill || 0) + (a - (arrival.orbFill || 0)) * 0.25;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
       $("cueOrbPrompt").textContent = `${agreementLabel(a)} · 可以放鬆`;
-      if((state.grip[1] || 0) <= AFTER_OFF && (state.grip[2] || 0) <= AFTER_OFF && a <= 0.01 && now - arrival.agreeFixedAt >= AGREEMENT_AUTO_ADVANCE_MS){
+      if(trustedHeld() <= AFTER_OFF && a <= 0.01 && now - arrival.agreeFixedAt >= AGREEMENT_AUTO_ADVANCE_MS){
         finalizeAgreement(now);
       }
     } else if(!arrival.agreeArmed){
-      const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
+      const held = trustedHeld();
       if(held <= AFTER_OFF) arrival.agreeArmed = true;
       arrival.orbFill = (arrival.orbFill || 0) * 0.8;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
       $("cueOrbPrompt").textContent = arrival.agreeArmed ? "握出有多貼近" : "先放開球";
     } else {
-      const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
+      const held = trustedHeld();
       const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
       arrival.orbFill = (arrival.orbFill || 0) + (shown - (arrival.orbFill || 0)) * 0.25;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
@@ -2810,9 +2814,23 @@ function requestAudioFadeIn(){
     .finally(() => { state.audioFadePending = false; });
 }
 
+// 「信任」的球才可以代表使用者回答問題：某顆球長時間降不回 AFTER_OFF（訊號卡高位，例如壞球 phantom），
+// 它做不到「放開→握」的表達，就別讓它觸發/卡住任何問答（Pan 2026-07-22：卡在『現在身體還緊繃嗎』＋過場自動跳）。
+// 一旦它降回低位就恢復信任。25s 窗口：正常作答節奏 <5s，不會誤傷。
+const gripTrust = { 1: 0, 2: 0 };
+function trustedHeld(){
+  const now = performance.now();
+  let h = 0;
+  for(const s of [1, 2]){
+    if(now - (gripTrust[s] || 0) <= 25000) h = Math.max(h, state.grip[s] || 0);
+  }
+  return clamp(h);
+}
+
 function setGrip(slot, level){
   const previous = state.grip[slot] || 0;
   state.grip[slot] = level;
+  if(level <= AFTER_OFF) gripTrust[slot] = performance.now();
   const cue = state.arrival.handCue;
   const pressEdge = previous < ARRIVAL_PRESS_ON && level >= ARRIVAL_PRESS_ON;
   if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
@@ -3638,7 +3656,7 @@ function afterSurveyStep(a, dt){
   const q = AFTER_QUESTIONS[a.i];
   $("afterOrb").classList.add("show-cue-text");
   if(!a.fading && !a.fixed) $("afterOrbPrompt").textContent = q.sub;   // 字幕在球上
-  const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
+  const held = trustedHeld();   // 卡高位的球（壞球 phantom）不能卡住問卷武裝、也不能代替使用者作答
   const now = performance.now();
   const rs = document.documentElement.style;
   if(!a.armed){ if(held <= AFTER_OFF) a.armed = true; a.orbFill *= 0.85; rs.setProperty("--cue-fill", a.orbFill.toFixed(3)); return; }

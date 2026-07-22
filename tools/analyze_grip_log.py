@@ -107,6 +107,32 @@ def main():
             if floor > MANUAL_478_OFF:
                 print("  ⚠ 放鬆時 level 降不回 OFF 門檻 → 舊 level 路徑會卡拍；新版 edge 路徑應可繞過——若仍卡，看 edgeFloor 是否有跟上")
 
+    # ── 球體品質判定（哪顆球該換）────────────────────────
+    print()
+    print("── 球體品質 ──")
+    hand_of = {}
+    if locked_ev:
+        e = locked_ev[-1]
+        hand_of = {e.get("leftSlot"): "左手", e.get("rightSlot"): "右手"}
+    import statistics
+    for slot, rows in balls.items():
+        lock_t = locked_ev[-1]["tMs"] if locked_ev else 0
+        post = [r for r in rows if r["t"] * 1000 >= lock_t]
+        rest_deltas = [abs(r["delta"] or 0) for r in post if (r["level"] or 0) < 0.03 and r["delta"] is not None]
+        noise = statistics.pstdev(rest_deltas) if len(rest_deltas) > 30 else None
+        amp = None
+        for r in reversed(rows):
+            if r.get("lockedSpan"):
+                amp = r["lockedSpan"] / 0.75   # 還原成峰值中位數
+                break
+        hand = hand_of.get(slot, "?")
+        if noise is not None and amp:
+            snr = amp / max(noise, 1)
+            verdict = "OK" if snr > 8 else ("勉強" if snr > 4 else "差——建議換掉這顆")
+            print(f"  Ball{slot}（{hand}）：握壓幅度 ~{amp:.0f} raw，靜止雜訊 σ≈{noise:.0f} → 訊噪比 {snr:.1f} ⇒ {verdict}")
+        else:
+            print(f"  Ball{slot}（{hand}）：樣本不足，無法判定")
+
     print()
     if locked_ev:
         e = locked_ev[-1]
