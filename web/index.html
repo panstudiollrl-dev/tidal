@@ -952,8 +952,12 @@ const state = {
 
 class GripCalibrator {
   constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; this.locked = false;
-    this.sign = 0; this.upMax = 0; this.downMax = 0; this.restSamples = []; this.pressSamples = [];
-    this.pressPeaks = { left: [], right: [] };                      // 每隻手、每一次 cue 握的「峰值」（相對 rest 中位數，帶正負）
+    this.sign = 0; this.upMax = 0; this.downMax = 0; this.pressSamples = [];
+    this.restSamples = { left: [], right: [] };                     // rest 也分手收：另一手 cue 時這顆球可能被放下（open 值），
+                                                                    // 混在一起會把 rest 中位拉低→「拿著就像握著」的 phantom 根因
+    this.holdRun = 0;                                               // 連續「高水位且無握拍」的 report 數（phantom 自我修復用）
+    this.recentRest = [];                                           // 最近的 rest 樣本（兩手皆收，~60 筆）：lock 時做「漂移修正」用
+    this.pressPeaks = { left: [], right: [] };                      // 每隻手、每一次 cue 握的「峰值」（相對該手 rest 中位數，帶正負）
     this.curPeak = null; this.lastCueHand = null;                   // 進行中的這一握目前峰值；剛剛是哪隻手的 cue
     this.lockedSpan = 0;                                            // 「目前這隻手」的滿刻度參考＝span 衰減的下限（可隨換手慢適應）
     this.calibSpan = 0;                                             // 校正原值（不變）＝lockedSpan 適應範圍的錨點
@@ -972,12 +976,18 @@ class GripCalibrator {
     const v = values.slice().sort((a, b) => a - b);
     return v[Math.floor(v.length / 2)];
   }
+  restMedianOf(hand){
+    const bucket = this.restSamples[hand === "right" ? "right" : "left"];
+    if(bucket.length >= 20) return this.median(bucket);
+    const merged = this.restSamples.left.concat(this.restSamples.right);   // 該手樣本太少→退回合併
+    return merged.length ? this.median(merged) : null;
+  }
   observeCalibration(cueOn, hand){
     if(this.smRaw == null) return;
     const h = hand === "right" ? "right" : "left";
     if(cueOn){
       this.lastCueHand = h;
-      const rest = this.median(this.restSamples);
+      const rest = this.restMedianOf(h);   // 相對「同一隻手」的 rest——另一手 cue 時球可能放著/放下，混用會判錯方向與大小
       if(rest != null){
         // 這一握的峰值（帶正負）——之後 lock 用「自己那隻手的峰值中位數」定 span。
         // 不能用整段 cueOn 的中位數：反應延遲會把中位數稀釋（真球 log：實際峰值 267/1148，混合中位數只剩 87/131 → 全鎖地板 250）。
@@ -993,12 +1003,14 @@ class GripCalibrator {
       if(bucketP.length > 8) bucketP.shift();
       this.curPeak = null;
     }
-    const bucket = cueOn ? this.pressSamples : this.restSamples;
+    const bucket = cueOn ? this.pressSamples : this.restSamples[h];
     bucket.push(this.smRaw);
     if(bucket.length > 240) bucket.shift();
+    if(!cueOn){ this.recentRest.push(this.smRaw); if(this.recentRest.length > 60) this.recentRest.shift(); }
   }
   calibrationDelta(){
-    const rest = this.median(this.restSamples);
+    const merged = this.restSamples.left.concat(this.restSamples.right);
+    const rest = merged.length ? this.median(merged) : null;
     const press = this.median(this.pressSamples);
     if(rest == null || press == null) return null;
     return { rest, press, delta: press - rest };
@@ -1008,19 +1020,30 @@ class GripCalibrator {
     const med = arr => arr.length ? this.median(arr.map(Math.abs)) * Math.sign(this.median(arr)) : null;
     const L = med(this.pressPeaks.left), R = med(this.pressPeaks.right);
     if(L == null && R == null) return null;
-    if(L == null) return R;
-    if(R == null) return L;
-    return Math.abs(L) >= Math.abs(R) ? L : R;
+    if(L == null) return { hand: "right", peak: R };
+    if(R == null) return { hand: "left", peak: L };
+    return Math.abs(L) >= Math.abs(R) ? { hand: "left", peak: L } : { hand: "right", peak: R };
   }
   lock(){
-    const rest = this.median(this.restSamples);
-    const peak = this.bestHandPeak();
+    const best = this.bestHandPeak();
+    const peak = best ? best.peak : null;
+    // rest 錨點＝「自己那隻手」cue-off 時的中位數（那時球確定在這隻手裡、拿著不握）——
+    // 不能用合併中位數：另一手 cue 期間球可能被放下（open 值差可達 1860 raw），會把錨點拉低＝拿著就滿（phantom 根因）。
+    const rest = best ? this.restMedianOf(best.hand) : null;
     if(rest != null && peak != null && Math.abs(peak) >= GRIP_POLARITY_MARGIN){
       // 主路徑：滿刻度＝自己那隻手三握峰值中位數 × GRIP_PEAK_TO_SPAN（持續握力比峰值低）。
       // 地板用校正後專屬的 GRIP_MIN_SPAN_LOCKED——很硬的球（峰值 ~180）在 250 地板下永遠遲鈍。
       this.sign = peak >= 0 ? 1 : -1;
-      this.baseline = rest;
-      this.restRef = rest;
+      // 錨點漂移修正：own-hand rest 可能是十幾秒前的（自己的手先校完），感測器漂移會讓錨點偏舊→一鎖完就假握壓。
+      // 用「最近的 rest」修正：往握壓方向的差＝漂移，全額跟；往放開方向最多跟 45 raw（避免跟到「放桌上」的 open 值）。
+      let anchor = rest;
+      const recent = this.recentRest.length >= 15 ? this.median(this.recentRest) : null;
+      if(recent != null){
+        const d = (recent - rest) * this.sign;
+        anchor = d > 0 ? recent : rest - this.sign * Math.min(-d, GRIP_POLARITY_MARGIN);
+      }
+      this.baseline = anchor;
+      this.restRef = anchor;
       this.span = clamp(Math.abs(peak) * GRIP_PEAK_TO_SPAN, GRIP_MIN_SPAN_LOCKED, GRIP_MAX_SPAN);
       this.lockedSpan = this.span;
       this.calibSpan = this.span;
@@ -1090,6 +1113,13 @@ class GripCalibrator {
     else this.baseline += (this.smRaw - this.baseline) * 0.00005;  // 握持真凍結：0.0005 在 60–100Hz 下 7 秒會吸掉 ~19% 握壓＝4-7-8 憋氣水位下沉
     // 快起慢落：握＝水湧上來（~0.2s 有感），放＝浪慢慢退（~0.6s）——解「大起大落」，也吃掉手抖的高頻抖動
     this.level += (shaped - this.level) * (shaped > this.level ? GRIP_LEVEL_ATTACK : GRIP_LEVEL_RELEASE);
+    // phantom 自我修復：長時間高水位、完全沒有任何「握一拍」＝多半是 rest 錨點錯（拿著被當成握著，Pan：不握水位還是高）。
+    // ~800 筆 report（33Hz≈25s）才啟動，之後緩慢把 baseline 與 restRef 收斂到目前姿勢；刻意長握通常有起伏/握拍，不會踩到。
+    if(this.locked && shaped >= 0.06) this.holdRun++; else this.holdRun = 0;
+    if(this.holdRun > 800){
+      this.baseline += (this.smRaw - this.baseline) * 0.008;
+      if(this.restRef != null) this.restRef += (this.smRaw - this.restRef) * 0.004;
+    }
     this.updateEdge(posDelta);
     return this.level;
   }
@@ -1102,7 +1132,7 @@ class GripCalibrator {
     const rise = posDelta - e.floor;
     e.pulse = false;
     if(e.armed){
-      if(rise >= onThresh){ e.pulse = true; e.armed = false; e.peak = posDelta; e.floorAtFire = e.floor; }
+      if(rise >= onThresh){ e.pulse = true; e.armed = false; e.peak = posDelta; e.floorAtFire = e.floor; this.holdRun = 0; }
     } else {
       if(posDelta > e.peak) e.peak = posDelta;
       if(posDelta - e.floor <= (e.peak - e.floor) * EDGE_REARM_FRAC || rise <= onThresh * 0.35){
@@ -1159,9 +1189,11 @@ function gripCalibSnapshot(slot, raw = null){
   };
 }
 
+let __gripLogSeq = 0;
 function gripLog(event, slot = 0, extra = {}){
   const now = performance.now();
   const entry = {
+    seq: ++__gripLogSeq,
     at: new Date().toISOString(),
     tMs: Math.round(now),
     event,
@@ -1181,6 +1213,10 @@ function gripLog(event, slot = 0, extra = {}){
   if(state.gripLog.length > GRIP_LOG_MAX) state.gripLog.splice(0, state.gripLog.length - GRIP_LOG_MAX);
   if(now - state.lastGripLogPersistAt > 900 || event !== "report"){
     persistGripLog();
+  }
+  if(typeof flushLogFile === "function" && now - __lastLogFlushAt > 3000){   // 自動附加寫檔（若已用 S 選過檔）
+    __lastLogFlushAt = now;
+    flushLogFile();
   }
 }
 
@@ -1203,6 +1239,64 @@ function downloadGripLog(){
 
 window.tidalGripLog = () => state.gripLog.slice();
 window.tidalLastGripLog = (n = 80) => state.gripLog.slice(-n);
+
+// ─── 自動寫檔 log（Pan 2026-07-21：不要一直手動按 L）───
+// 按 S 選一次檔案（建議選雲端資料夾裡的檔），之後每 ~3 秒把新紀錄「附加」進去（NDJSON，一行一筆）。
+// 重新整理後，第一次點按/按鍵會自動恢復寫檔（瀏覽器可能問一次權限）。分析：tools/analyze_grip_log.py 同時吃 .json 與 .ndjson。
+let __logFileHandle = null, __logWrittenSeq = 0, __logWriting = false, __lastLogFlushAt = 0, __logResumeTried = false;
+function __logDb(){ return new Promise((res, rej) => {
+  const r = indexedDB.open("tidal_log_db", 1);
+  r.onupgradeneeded = () => r.result.createObjectStore("kv");
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function __logDbPut(k, v){ const db = await __logDb(); return new Promise((res, rej) => {
+  const tx = db.transaction("kv", "readwrite"); tx.objectStore("kv").put(v, k); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); }
+async function __logDbGet(k){ const db = await __logDb(); return new Promise((res, rej) => {
+  const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function chooseLogFile(){
+  if(!window.showSaveFilePicker){ log("這個瀏覽器不支援自動寫檔（需要桌面 Chrome/Edge）。仍可按 L 手動下載。"); return; }
+  try{
+    __logFileHandle = await showSaveFilePicker({ suggestedName: "tidal_grip_log_live.ndjson",
+      types: [{ description: "Tidal grip log", accept: { "application/x-ndjson": [".ndjson"] } }] });
+    await __logDbPut("handle", __logFileHandle);
+    const w = await __logFileHandle.createWritable(); await w.write(""); await w.close();
+    __logWrittenSeq = 0;
+    log("自動 log 已開啟：每幾秒把新紀錄寫進你選的檔案（重新整理後點一下畫面即恢復）。");
+    flushLogFile();
+  }catch(_e){ /* 使用者取消 */ }
+}
+async function resumeLogFile(){
+  if(__logFileHandle || __logResumeTried || !window.showSaveFilePicker) return;
+  __logResumeTried = true;
+  try{
+    const h = await __logDbGet("handle");
+    if(!h) return;
+    let p = await h.queryPermission({ mode: "readwrite" });
+    if(p !== "granted") p = await h.requestPermission({ mode: "readwrite" });
+    if(p === "granted"){
+      __logFileHandle = h;
+      const w = await h.createWritable(); await w.write(""); await w.close();   // 每次重整開新內容（避免舊 session 混雜）
+      __logWrittenSeq = 0;
+      log("自動 log 已恢復寫檔。");
+      flushLogFile();
+    }
+  }catch(_e){ /* 權限被拒就算了，L 仍可手動 */ }
+}
+async function flushLogFile(){
+  if(!__logFileHandle || __logWriting) return;
+  __logWriting = true;
+  try{
+    const fresh = state.gripLog.filter(e => (e.seq || 0) > __logWrittenSeq);
+    if(fresh.length){
+      const lines = fresh.map(e => JSON.stringify(e)).join("\n") + "\n";
+      const f = await __logFileHandle.getFile();
+      const w = await __logFileHandle.createWritable({ keepExistingData: true });
+      await w.write({ type: "write", position: f.size, data: lines });
+      await w.close();
+      __logWrittenSeq = fresh[fresh.length - 1].seq;
+    }
+  }catch(_e){ /* 寫失敗不吵使用者；下次再試 */ }
+  __logWriting = false;
+}
 
 class OceanEngine {
   constructor(ctx){
@@ -2900,10 +2994,9 @@ function watchHidLiveness(){
     if(!dev || !state.connected[slot]) return;
     const age = state.lastGripReportAt[slot] ? now - state.lastGripReportAt[slot] : Infinity;
     if(age > HID_STALE_MS){
-      if(state.ready[slot]){
-        state.ready[slot] = false;
-        setGrip(slot, 0);
-      }
+      // 短暫斷流（藍牙塞車很常見）：水位「保持」不硬歸零——硬歸零＋恢復＝穩定握著也跳來跳去（Pan 2026-07-21）。
+      // 真的斷太久（FORGET）才會清 slot 歸零。
+      if(state.ready[slot]) state.ready[slot] = false;
       sendModeCommand(slot, "stale").catch(() => {});
       if(age > HID_FORGET_STALE_MS){
         const ghost = devices[slot];
@@ -3909,6 +4002,9 @@ addEventListener("keydown", (e) => {
   if((e.key === "r" || e.key === "R") && !e.repeat && !e.metaKey && !e.ctrlKey){
     repairBalls();
   }
+  if((e.key === "s" || e.key === "S") && !e.repeat && !e.metaKey && !e.ctrlKey){
+    chooseLogFile();   // 選一次自動 log 檔；之後每 ~3s 自動附加，不必再按 L
+  }
 });
 // 換球後若還卡住：撤銷所有握力球授權（含被換掉的舊球鬼影）→ 清空 slot → 重新請使用者授權目前在線的球。
 async function repairBalls(){
@@ -4291,6 +4387,7 @@ render();
 // 又符合瀏覽器 autoplay 需要手勢的政策。解 Pan 2026-07-17：球已授權自動接回、直接點「開始抵達」時
 // startArrival 不會 resume ctx，握球又不是 DOM 手勢 → ctx 一直 suspended → 沒聲音。
 function ensureAudioOnGesture(){
+  resumeLogFile();   // 首次手勢順便恢復自動 log 寫檔（File System API 需要在手勢中要權限）
   if(audioCtx && audioCtx.state === "running") return;
   startAudio({ resume: true }).catch(() => {});
 }

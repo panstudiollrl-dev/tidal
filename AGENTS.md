@@ -70,6 +70,17 @@
 
 ## 交接紀錄
 
+### 2026-07-21 — Claude｜水位不穩總體檢（per-hand rest／phantom 自我修復／斷流不歸零）＋log 自動寫檔
+- **Pan 回饋**：水位跳動仍不穩、一顆疑似反向、穩定握著跳來跳去、不握水位有時還是高；並要求 log 全自動寫檔（不要手動按 L）。
+- **修了四個根因**：
+  1. **rest 樣本 per-hand 化**：`restSamples{left,right}`。另一手 cue 時球常被放下（open 值低 ~1800 raw），混合中位數把 rest 錨點拉低＝「拿著就像握著」（不握水位高、也可能судь反向）的總根源。`lock()` 用「自己那隻手」的 rest；峰值判手已 per-hand，現在整條鏈一致。
+  2. **錨點漂移修正**：own-hand rest 可能是十幾秒前的（該手先校完），漂移下鎖完即假握壓。lock 用「最近 60 筆 rest」修正：往握壓方向全額跟（漂移）、往放開方向最多 45 raw（防跟到 open）。〔發現舊版通過漂移測試純屬僥倖：flat 桶 240 上限恰好只留最近樣本〕
+  3. **phantom 自我修復**：鎖定後「高水位且無任何握拍」連續 ~800 筆 report（33Hz≈25s）→ baseline 以 0.008、restRef 以 0.004 緩慢收斂到目前姿勢。錨點就算錯也會自癒；刻意長握有起伏/握拍不會誤觸（pulse 會 reset）。
+  4. **HID 斷流不再硬歸零**：`watchHidLiveness` stale(2.5s) 時水位「保持」，只停 ready 標記＋重送 mode；FORGET(6.5s) 才清——藍牙塞車時硬歸零又恢復＝「穩定握著水位跳來跳去」的主要來源之一。
+- **log 自動寫檔（Pan 要求）**：按 **S** 選一次檔案（File System Access API，建議選雲端資料夾內的 `tidal_grip_log_live.ndjson`）→ 之後每 ~3s 自動「附加」新紀錄（NDJSON）；重新整理後第一次點按自動恢復（handle 存 IndexedDB）。每筆 entry 加 `seq`。`tools/analyze_grip_log.py` 已同時支援 .json 與 .ndjson。L 手動下載仍在。
+- **驗證**：模擬 34 項全過（新增：G 另一手 cue 時球放下→錨點不被拉低；G2 反向順序同樣安全；H 人為錯錨 +800 → 30s 內自癒且真握仍有反應；漂移測試在錨點修正後恢復通過）；478 jsdom 測試（phantom/tap/殘壓）全過；node --check、jsdom init 0 錯誤。
+- 給下一位：若 Pan 還是回報不穩，現在請他按一次 S 之後 log 就會持續寫進 Drive，直接讀 `tidal_grip_log_live.ndjson` 分析，不用等手動下載。
+
 ### 2026-07-20 (l) — Claude｜修「4-7-8 數幾拍後卡在中間（按壓有聲但不繼續）」
 - **Pan 回饋**：倒數突然卡在中間，按壓仍有互動聲，但倒數不繼續。
 - **根因（(j) arm-gate 的兩個副作用）**：① re-arm 條件是「level ≤ 絕對 OFF(0.09)」——敏感球/殘壓球放開後殘餘水位停在 0.09 以上就永遠不 re-arm→數幾拍後卡死；② (h) 的換手 span 適應**會被 478 每一拍餵進去**（拍間隔 >refractory），刻意節拍被當成力量校準→越點 span 越小→越敏感→殘餘水位升→加速卡死。

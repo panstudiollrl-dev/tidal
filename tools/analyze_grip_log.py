@@ -24,7 +24,11 @@ def main():
     path = sys.argv[1]
     outdir = sys.argv[2] if len(sys.argv) > 2 else os.path.dirname(os.path.abspath(path)) or "."
     with open(path, "r", encoding="utf-8") as f:
-        entries = json.load(f)
+        text = f.read().strip()
+    if text.startswith("["):
+        entries = json.loads(text)
+    else:  # NDJSON（自動寫檔格式，一行一筆）
+        entries = [json.loads(ln) for ln in text.splitlines() if ln.strip()]
     if not isinstance(entries, list) or not entries:
         print("log 是空的或格式不對"); sys.exit(1)
 
