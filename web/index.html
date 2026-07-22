@@ -1311,6 +1311,76 @@ async function resumeLogFile(){
     }
   }catch(_e){ /* 權限被拒就算了，L 仍可手動 */ }
 }
+// ─── Session 紀錄（Pan 2026-07-22）：整段做完（結尾問卷答完）自動存 JSON ───
+// 這台電腦：按 W 選一次資料夾（建議 EEG/Tidal/record），之後每次自動寫進去；
+// 別台電腦/沒設定：自動下載到「下載」資料夾，之後再丟回 Drive。
+// 不直接上傳 GitHub：頁面是公開的，寫入權杖放進去等於任何人都能改 repo。
+let __recordResumeTried = false;
+function buildSessionRecord(){
+  const a = state.after || {};
+  const rep = (state.arrival && state.arrival.report) || null;
+  return {
+    saved_at: new Date().toISOString(),
+    session_started_at: state.sessionStartedIso || null,
+    preset: state.guided.preset || null,
+    arrival: rep ? {
+      impression: rep.impression || null,
+      agreement: (state.arrival.agreement != null) ? Number(state.arrival.agreement.toFixed(2)) : null,
+      recommended: rep.recommended_label || rep.recommended_preset || null,
+      pre_tension: state.pre != null ? state.pre : null,
+    } : null,
+    m478: state.guided.manual478 ? {
+      cycles: state.guided.manual478.completedCycles,
+      press_gaps_ms: (state.guided.manual478.pressGaps || []).map(Math.round),
+    } : null,
+    grip_presses: state.grip478Count || 0,
+    after_answers: a.answers || null,   // post/pushed/stay/agency（0-10）
+    calibration: { handMap: state.handMap, ball1: gripCalibSnapshot(1), ball2: gripCalibSnapshot(2) },
+  };
+}
+async function chooseRecordDir(){
+  if(!window.showDirectoryPicker){ log("這個瀏覽器不支援選資料夾；紀錄會改用下載的方式。"); return; }
+  try{
+    const dir = await showDirectoryPicker({ mode: "readwrite" });
+    await __logDbPut("recordDir", dir);
+    log("之後每次做完的紀錄會自動存進「" + (dir.name || "你選的資料夾") + "」。");
+  }catch(_e){ /* 使用者取消 */ }
+}
+async function resumeRecordDir(){
+  if(__recordResumeTried) return;
+  __recordResumeTried = true;
+  try{
+    const dir = await __logDbGet("recordDir");
+    if(dir){
+      let p = await dir.queryPermission({ mode: "readwrite" });
+      if(p !== "granted") await dir.requestPermission({ mode: "readwrite" });   // 在手勢中先要好權限，session 結束時才寫得進去
+    }
+  }catch(_e){}
+}
+async function saveSessionRecord(){
+  const rec = buildSessionRecord();
+  const name = "tidal_record_" + rec.saved_at.replace(/:/g, "-").slice(0, 19) + ".json";
+  const text = JSON.stringify(rec, null, 2);
+  try{
+    const dir = await __logDbGet("recordDir");
+    if(dir){
+      const p = await dir.queryPermission({ mode: "readwrite" });
+      if(p === "granted"){
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable(); await w.write(text); await w.close();
+        log("這一次的紀錄已存好：" + name);
+        return;
+      }
+    }
+  }catch(_e){ /* 落到下載 */ }
+  try{
+    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+    const el = document.createElement("a");
+    el.href = URL.createObjectURL(blob); el.download = name; el.click();
+    log("這一次的紀錄已下載（按 W 可設定自動存到指定資料夾，例如 EEG/Tidal/record）。");
+  }catch(_e){}
+}
+
 async function flushLogFile(){
   if(!__logFileHandle || __logWriting) return;
   __logWriting = true;
@@ -3574,6 +3644,7 @@ function sessionSeconds(){
 
 function startSession(presetId = ""){
   state.phase = "session";
+  state.sessionStartedIso = new Date().toISOString();   // session 紀錄用
   state.sessionStart = performance.now();
   state.sessionEnd = null;
   state.grip478Count = 0;   // 這次 session 的握放計數（結束後鼓勵用）
@@ -3636,8 +3707,8 @@ const AFTER_QUESTIONS = [
   { key: "stay",   sub: "你，覺察得到當下嗎？" },
   { key: "agency", sub: "海潮，與你同調嗎？" },
 ];
-const AFTER_ON = 0.14, AFTER_OFF = 0.07;
-const AFTER_HOLD_MS = 900;   // 握著這麼久＝自動紀錄
+const AFTER_ON = 0.24, AFTER_OFF = 0.07;   // ON 0.14→0.24（Pan 2026-07-22：輕握答題太敏感——要更明確的握才算開始作答）
+const AFTER_HOLD_MS = 1100;  // 握著這麼久＝自動紀錄（900→1100，配合 ON 調高，避免路過的力道被記成答案）
 const AFTER_READ_MS = 900;
 const AFTER_RESPONSE_MS = 5200;
 const AFTER_FIXED_RELEASE_MS = 450;
@@ -3741,6 +3812,7 @@ function afterNextQuestion(a){
     state.post = a.answers.post; state.pushed = a.answers.pushed;
     state.stay = a.answers.stay; state.agency = a.answers.agency; state.note = "";
     saveAfter();                                           // 寫入 CSV（不換 phase）
+    saveSessionRecord();                                   // 整段紀錄（時間+回覆+校正摘要）→ 資料夾或下載（Pan 2026-07-22）
     afterShowResults(a);
     return;
   }
@@ -4061,6 +4133,9 @@ addEventListener("keydown", (e) => {
   }
   if((e.key === "s" || e.key === "S") && !e.repeat && !e.metaKey && !e.ctrlKey){
     chooseLogFile();   // 選一次自動 log 檔；之後每 ~3s 自動附加，不必再按 L
+  }
+  if((e.key === "w" || e.key === "W") && !e.repeat && !e.metaKey && !e.ctrlKey){
+    chooseRecordDir(); // 選一次 session 紀錄資料夾（建議 EEG/Tidal/record）；之後每次做完自動存
   }
 });
 // 換球後若還卡住：撤銷所有握力球授權（含被換掉的舊球鬼影）→ 清空 slot → 重新請使用者授權目前在線的球。
@@ -4445,6 +4520,7 @@ render();
 // startArrival 不會 resume ctx，握球又不是 DOM 手勢 → ctx 一直 suspended → 沒聲音。
 function ensureAudioOnGesture(){
   resumeLogFile();   // 首次手勢順便恢復自動 log 寫檔（File System API 需要在手勢中要權限）
+  resumeRecordDir(); // 同理：先把 session 紀錄資料夾的權限要好，結束時才寫得進去
   if(audioCtx && audioCtx.state === "running") return;
   startAudio({ resume: true }).catch(() => {});
 }

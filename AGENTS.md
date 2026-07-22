@@ -70,6 +70,11 @@
 
 ## 交接紀錄
 
+### 2026-07-22 (g) — Claude｜答題門檻調高＋session 紀錄自動存檔（W 鍵/下載雙出口）
+- **答題太敏感（Pan）**：`AFTER_ON` 0.14→0.24、`AFTER_HOLD_MS` 900→1100——要更明確的握才開始作答；影響所有問答（回顧 agree、結尾問卷）。
+- **Session 紀錄**：整段做完（結尾問卷答完）自動產生 JSON：`saved_at`/`session_started_at`/preset/arrival（impression·agreement·建議·pre_tension）/478（輪數·拍距）/after_answers（post·pushed·stay·agency 0-10）/校正摘要（handMap＋兩球 snapshot）。出口兩種：**W 鍵**選一次資料夾（建議 `EEG/Tidal/record/`，已建）→ 之後自動寫入；沒設定/別台電腦 → 自動下載 `tidal_record_<時間>.json`。權限在首次手勢預熱（resumeRecordDir）。**不做 GitHub 直傳**：公開頁面藏寫入權杖＝任何人可改 repo。
+- **驗證**：46 項模擬、jsdom init 0、478 五情境全過。record/ 資料夾與 README 已建立。
+
 ### 2026-07-22 (f) — Claude｜修「水位不太會歸零」（答題不便）；onebang 保留（Pan 好評）
 - **根因**：(c)(d) 兩輪降力道把 span 縮小，`GRIP_DEADZONE` 的 **raw 範圍**跟著縮——放開後手虛搭在球上的殘壓（~50-100 raw）以前被死區吃掉，現在顯示成一截水位＝不歸零，答題（要 ≤AFTER_OFF 才武裝）不方便。
 - **修法**：①`GRIP_DEADZONE` 0.10→0.13；②baseline 吸收鏈加「低水位緩吸收」帶：`shaped<0.14` 以 0.015 吸（33Hz τ≈2s）——殘壓幾秒內自動歸零；`shaped<0.06` 仍 0.05 快吸、`≥0.14` 仍凍結（刻意的握都在 0.3+ 完全不受影響）。
