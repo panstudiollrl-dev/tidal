@@ -2828,7 +2828,9 @@ function setGrip(slot, level){
       if(level <= Math.max(MANUAL_478_OFF, peaks[slot] * 0.5) || peaks[slot] - level >= 0.25){
         arm[slot] = true; peaks[slot] = 0;
       }
-    } else if(level >= MANUAL_478_ON){
+    } else if(level >= MANUAL_478_ON && previous < MANUAL_478_ON){
+      // 必須「由下往上穿越」ON 才算拍：只看狀態的話，放開下坡中每回落 0.25 重新武裝一次，
+      // 高於門檻的殘餘水位會被立刻再數一拍→一次握放連跳 4→3→2（Pan 2026-07-21）。
       trigger478Press("level", slot);
     }
   }
