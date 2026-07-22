@@ -2819,11 +2819,18 @@ function setGrip(slot, level){
     // 真球數拍主路徑是 edge onset（onReport→trigger478Press("edge",slot)）；這裡的 level 上緣是鍵盤模擬/後援。
     const arm = state.guided.beat478Armed || (state.guided.beat478Armed = { 1: false, 2: false });
     const peaks = state.guided.beat478Peak || (state.guided.beat478Peak = { 1: 0, 2: 0 });
-    // 相對放開：掉到「這拍握力峰值的一半」以下就算放開（下限 OFF）。敏感球/殘壓高也 re-arm 得了（解「卡在中間」）；
-    // 卡在高位的 phantom 球峰值≈1、門檻≈0.5，永遠掉不下去→仍不會 runaway。
-    const rearmAt = Math.max(MANUAL_478_OFF, (peaks[slot] || 0) * 0.5);
-    if(level <= rearmAt) arm[slot] = true;
-    else if(level >= MANUAL_478_ON && arm[slot]) trigger478Press("level", slot);
+    if(!arm[slot]){
+      // 峰值＝這拍之後「實際看到的最高水位」持續更新（edge 觸發在水位爬升前，觸發當下的值太低不能當峰值——
+      // 那會讓門檻退回絕對 0.09，屏住呼吸整手緊繃時拍間水位掉不到 0.09＝卡死，Pan 2026-07-21）。
+      peaks[slot] = Math.max(peaks[slot] || 0, level);
+      // 相對放開：掉到峰值一半以下、或從峰值回落 ≥0.25（緊繃著數拍也過得了）。
+      // phantom 平台＝恆定高水位、沒有明顯回落 → 兩個條件都進不來，仍不會自己倒數。
+      if(level <= Math.max(MANUAL_478_OFF, peaks[slot] * 0.5) || peaks[slot] - level >= 0.25){
+        arm[slot] = true; peaks[slot] = 0;
+      }
+    } else if(level >= MANUAL_478_ON){
+      trigger478Press("level", slot);
+    }
   }
   if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
     cue.scores[slot] += level;          // 記哪隻手在響應（左右手指派用）
