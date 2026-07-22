@@ -3605,7 +3605,7 @@ function updateManual478Session(preset){
     $("breathMetric").textContent = "準備開始";
     $("heartMetric").textContent = "看球心";
     $("gripMetric").textContent = "球心提示";
-    $("orbPhaseLabel").textContent = "握一下放掉，開始";
+    $("orbPhaseLabel").textContent = "握一下鬆開，開始";
     $("orbCount").textContent = "";
   } else {
     $("sessionCopy").textContent = "每一次握放，都讓聲音和數字一起往前。";
@@ -3613,7 +3613,7 @@ function updateManual478Session(preset){
     $("breathMetric").textContent = `第 ${Math.min(m.completedCycles + 1, MANUAL_478_TARGET_CYCLES)} / ${MANUAL_478_TARGET_CYCLES} 輪`;
     $("heartMetric").textContent = `${phase.label} ${m.remaining}`;
     $("gripMetric").textContent = "跟著球心";
-    $("orbPhaseLabel").textContent = `${phase.label} · 握一下放掉`;
+    $("orbPhaseLabel").textContent = `${phase.label} · 握一下鬆開`;
     $("orbCount").textContent = m.remaining;
   }
 
