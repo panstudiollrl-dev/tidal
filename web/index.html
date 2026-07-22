@@ -809,12 +809,13 @@ const GRIP_SPAN_DECAY = 0.99985;   // 慢遺忘/重新適應（每筆 report 乘
 const GRIP_POLARITY_MARGIN = 45;   // 校正時 press-rest 至少差這麼多 raw，才鎖定方向；避免噪音把球判反。
 const GRIP_MIN_SPAN_LOCKED = 140;  // 校正完成後的 span 地板：低於未校正的 250。很硬的球（真球 log 2026-07-20(2)：
                                    // Ball1 舒適握峰值只有 ~120-270 raw）在 250 地板下永遠「要滿用力」；校正過就信校正。
-const GRIP_PEAK_TO_SPAN = 0.75;    // 滿刻度＝三握「峰值中位數」×這個比例（持續握力 ≈ 峰值的 3/4，舒適握落 ~0.75 水位）
+const GRIP_PEAK_TO_SPAN = 0.68;    // 滿刻度＝三握「峰值中位數」×這個比例。0.75→0.68（Pan 2026-07-22：換新球後要很用力——
+                                   // 校正時大家會不自覺用力捏，session 的舒適握比校正峰值低不少，係數要再讓一點）
 const GRIP_LEVEL_ATTACK = 0.14;    // 水位平滑：起（握）快一點
 const GRIP_LEVEL_RELEASE = 0.05;   // 水位平滑：落（放）慢一點——解「大起大落」，浪退本來就比湧慢
 // 換手支援（Pan 常左右手互換球）：sign/restRef 是球的物理特性、換手不受影響；span 是「球×手」的，
 // 校正後用「握一拍」(edge pulse) 當探針雙向慢適應——只有刻意握一下才調整，輕拿/放鬆緩握不觸發。
-const GRIP_SPAN_ADAPT_LO = 0.4;    // lockedSpan 適應下限（×校正原值）
+const GRIP_SPAN_ADAPT_LO = 0.3;    // lockedSpan 適應下限（×校正原值）。0.4→0.3：校正握太大力時，實際使用的輕握能把尺度拉回來
 const GRIP_SPAN_ADAPT_HI = 2.5;    // lockedSpan 適應上限（×校正原值）
 const GRIP_SPAN_ADAPT_RATE = 0.45; // 每個合格 pulse 往 target 收斂的比率（~5-6 握到位；有 3-5 筆中位數擋單次亂握）
 const GRIP_ADAPT_REFRACTORY = 25;  // pulse 間隔至少這麼多筆 report（33Hz≈0.76s）才算「刻意握一下」→ 手抖(2-4Hz)不會觸發適應
@@ -1261,6 +1262,7 @@ window.tidalLastGripLog = (n = 80) => state.gripLog.slice(-n);
 // 按 S 選一次檔案（建議選雲端資料夾裡的檔），之後每 ~3 秒把新紀錄「附加」進去（NDJSON，一行一筆）。
 // 重新整理後，第一次點按/按鍵會自動恢復寫檔（瀏覽器可能問一次權限）。分析：tools/analyze_grip_log.py 同時吃 .json 與 .ndjson。
 let __logFileHandle = null, __logWrittenSeq = 0, __logWriting = false, __lastLogFlushAt = 0, __logResumeTried = false;
+let __logFilePos = 0;   // 自己追蹤附加位置：雲端資料夾（Drive）上 getFile().size 可能回舊值→寫到錯的 offset→檔案開頭一段 NUL
 function __logDb(){ return new Promise((res, rej) => {
   const r = indexedDB.open("tidal_log_db", 1);
   r.onupgradeneeded = () => r.result.createObjectStore("kv");
@@ -1276,7 +1278,7 @@ async function chooseLogFile(){
       types: [{ description: "Tidal grip log", accept: { "application/x-ndjson": [".ndjson"] } }] });
     await __logDbPut("handle", __logFileHandle);
     const w = await __logFileHandle.createWritable(); await w.write(""); await w.close();
-    __logWrittenSeq = 0;
+    __logWrittenSeq = 0; __logFilePos = 0;
     log("自動 log 已開啟：每幾秒把新紀錄寫進你選的檔案（重新整理後點一下畫面即恢復）。");
     flushLogFile();
   }catch(_e){ /* 使用者取消 */ }
@@ -1292,7 +1294,7 @@ async function resumeLogFile(){
     if(p === "granted"){
       __logFileHandle = h;
       const w = await h.createWritable(); await w.write(""); await w.close();   // 每次重整開新內容（避免舊 session 混雜）
-      __logWrittenSeq = 0;
+      __logWrittenSeq = 0; __logFilePos = 0;
       log("自動 log 已恢復寫檔。");
       flushLogFile();
     }
@@ -1304,11 +1306,11 @@ async function flushLogFile(){
   try{
     const fresh = state.gripLog.filter(e => (e.seq || 0) > __logWrittenSeq);
     if(fresh.length){
-      const lines = fresh.map(e => JSON.stringify(e)).join("\n") + "\n";
-      const f = await __logFileHandle.getFile();
+      const bytes = new TextEncoder().encode(fresh.map(e => JSON.stringify(e)).join("\n") + "\n");
       const w = await __logFileHandle.createWritable({ keepExistingData: true });
-      await w.write({ type: "write", position: f.size, data: lines });
+      await w.write({ type: "write", position: __logFilePos, data: bytes });   // 用自己追蹤的 offset，不信 getFile().size（Drive 會給舊值）
       await w.close();
+      __logFilePos += bytes.byteLength;
       __logWrittenSeq = fresh[fresh.length - 1].seq;
     }
   }catch(_e){ /* 寫失敗不吵使用者；下次再試 */ }
@@ -2589,7 +2591,7 @@ function updateHandCue(now){
   // 水位直接平滑跟著握力：握起→水灌高、放鬆→退掉。校正就是用你舒適的力量（Pan 2026-07-14）。
   const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
   if(!inOn && grip <= ARRIVAL_PRESS_OFF) cue.armed = true;
-  $("cueOrbPrompt").textContent = inOn ? "請握起" : "請放鬆";   // 提示語在球上
+  $("cueOrbPrompt").textContent = inOn ? "輕輕握就好" : "請放鬆";   // 「請握起」會讓人用力捏→滿刻度被校得太硬（Pan 2026-07-22）
   $("guideOrb").classList.add("show-cue-text");
   cue.fill += (clamp(grip) - cue.fill) * 0.25;
   document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));

@@ -27,8 +27,16 @@ def main():
         text = f.read().strip()
     if text.startswith("["):
         entries = json.loads(text)
-    else:  # NDJSON（自動寫檔格式，一行一筆）
-        entries = [json.loads(ln) for ln in text.splitlines() if ln.strip()]
+    else:  # NDJSON（自動寫檔格式，一行一筆）；容忍壞行/NUL（雲端資料夾寫入 race 可能留垃圾）
+        entries = []
+        for ln in text.splitlines():
+            ln = ln.strip("\x00 \t\r")
+            if not ln:
+                continue
+            try:
+                entries.append(json.loads(ln))
+            except json.JSONDecodeError:
+                pass
     if not isinstance(entries, list) or not entries:
         print("log 是空的或格式不對"); sys.exit(1)
 
