@@ -834,7 +834,8 @@ const MANUAL_478_REFRACTORY_MS = 650;  // onebang（Pan 2026-07-22，如 Max/MSP
 // 用 pow(level, GRIP_GAMMA) 做知覺補償。GRIP_GAMMA<1＝壓縮曲線，低-中握就有明顯反應、末段趨緩，握起來最自然
 // （等同 Max/MSP `scale` 物件第 5 參數 exponent 的作用——把線性輸入彎成知覺線性）。0.55 比 0.75 更靈敏。
 const GRIP_GAMMA = 0.78;
-const GRIP_DEADZONE = 0.10;        // 低端死區：把「拿起來／輕碰」留給 0 附近，不直接灌滿水位。
+const GRIP_DEADZONE = 0.13;        // 低端死區：把「拿起來／輕碰／放開後的殘壓」留給 0 附近。0.10→0.13
+                                   // （Pan 2026-07-22：降力道讓 span 變小、死區的 raw 範圍跟著縮，放開後殘壓開始看得見＝不歸零）
 const HARD_GRIP = 0.7;
 const SWING_MIN = 0.5;
 const STRONG_SWING = 1.4;
@@ -1129,6 +1130,7 @@ class GripCalibrator {
         this.restRef += (this.smRaw - this.restRef) * 0.02;
     }
     else if(shaped < 0.06) this.baseline += (this.smRaw - this.baseline) * 0.05;
+    else if(shaped < 0.14) this.baseline += (this.smRaw - this.baseline) * 0.015;  // 低水位緩吸收：放開後虛搭的殘壓幾秒內歸零（答題不卡）；刻意的握都在 0.3+ 不受影響
     else this.baseline += (this.smRaw - this.baseline) * 0.00005;  // 握持真凍結：0.0005 在 60–100Hz 下 7 秒會吸掉 ~19% 握壓＝4-7-8 憋氣水位下沉
     // 靜止雜訊估計：只在真正安靜（deadzone 內）時更新——給 edge 門檻自適應用（真球 log 2026-07-22：
     // 壞球雜訊大，58 拍裡混進 9 拍不是使用者握的）
