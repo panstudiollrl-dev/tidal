@@ -1015,17 +1015,27 @@ class GripCalibrator {
     if(rest == null || press == null) return null;
     return { rest, press, delta: press - rest };
   }
-  // 兩隻手 cue 的峰值中位數，取「反應大的那隻」＝這顆球自己的手（另一手 cue 時這顆球是放著的）
+  handPeakMedian(hand){
+    const arr = this.pressPeaks[hand === "right" ? "right" : "left"];
+    return arr.length ? this.median(arr.map(Math.abs)) * Math.sign(this.median(arr)) : null;
+  }
+  // 後援：兩隻手 cue 的峰值中位數取大者。注意：使用者在「另一手」cue 時也可能跟著握這顆球（自然的共同出力），
+  // 所以這只在流程沒給 preferHand 時使用——首選永遠是流程確定的左右手指派（Pan 2026-07-21 澄清）。
   bestHandPeak(){
-    const med = arr => arr.length ? this.median(arr.map(Math.abs)) * Math.sign(this.median(arr)) : null;
-    const L = med(this.pressPeaks.left), R = med(this.pressPeaks.right);
+    const L = this.handPeakMedian("left"), R = this.handPeakMedian("right");
     if(L == null && R == null) return null;
     if(L == null) return { hand: "right", peak: R };
     if(R == null) return { hand: "left", peak: L };
     return Math.abs(L) >= Math.abs(R) ? { hand: "left", peak: L } : { hand: "right", peak: R };
   }
-  lock(){
-    const best = this.bestHandPeak();
+  lock(preferHand){
+    // 首選「這顆球被指派到的那隻手」的 cue 資料：另一手 cue 期間這顆球可能被握著、跟著出力、或放桌上——都不可靠。
+    let best = null;
+    if(preferHand){
+      const p = this.handPeakMedian(preferHand);
+      if(p != null && Math.abs(p) >= GRIP_POLARITY_MARGIN) best = { hand: preferHand, peak: p };
+    }
+    if(!best) best = this.bestHandPeak();
     const peak = best ? best.peak : null;
     // rest 錨點＝「自己那隻手」cue-off 時的中位數（那時球確定在這隻手裡、拿著不握）——
     // 不能用合併中位數：另一手 cue 期間球可能被放下（open 值差可達 1860 raw），會把錨點拉低＝拿著就滿（phantom 根因）。
@@ -2595,8 +2605,11 @@ function finishHandCue(){
   } else {
     state.handMap.right = picked === state.handMap.left ? (picked === 1 ? 2 : 1) : picked;
     // 校正完成 → 鎖定兩顆球各自的滿刻度（滿＝剛才三握的舒適握壓）。之後只慢慢擴張，不即時追峰值。
-    if(calib[1]) calib[1].lock();
-    if(calib[2]) calib[2].lock();
+    // 用流程確定的左右手指派告訴每顆球「你的手是誰」——另一手 cue 時使用者可能也握著/跟著出力/放桌上（都自然），
+    // 那段資料一律不用（Pan 2026-07-21）。
+    const leftSlot = state.handMap.left, rightSlot = state.handMap.right;
+    if(calib[leftSlot]) calib[leftSlot].lock("left");
+    if(calib[rightSlot]) calib[rightSlot].lock("right");
     gripLog("handCue:locked", 0, { leftSlot: state.handMap.left, rightSlot: state.handMap.right });
     beginPrelude();
   }
