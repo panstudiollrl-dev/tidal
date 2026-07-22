@@ -1086,7 +1086,10 @@ class GripCalibrator {
     const rawDev = this.smRaw - this.baseline;                  // 帶正負：離開靜止基線的方向與幅度
     if(!this.locked){ if(rawDev > this.upMax) this.upMax = rawDev; if(-rawDev > this.downMax) this.downMax = -rawDev; }
     const s = this.sign !== 0 ? this.sign : this.provisionalSign();   // 握壓方向（校正學到；未鎖定時帶 margin 的暫定，不會 ±1 亂跳）
-    const dev = rawDev * s;                                     // 轉成「握＝正」：不論球是上升還下降都一致
+    // 未鎖定（校正中）＝方向還沒學會：水位用「偏離量絕對值」——任何方向的握壓都讓水位升。
+    // 否則暫定 +1 遇到下降型/怪型球（真球 log 2026-07-22：Ball1 握瞬間 +150、持續握 −250），
+    // 校正時就會「用力水位反而降」（Pan）。方向的事留給 lock 定案。
+    const dev = this.locked ? rawDev * s : Math.abs(rawDev);    // 鎖定後轉成「握＝正」：上升/下降型都一致
     const posDelta = Math.max(0, dev);
     // 滿刻度 span：校正中即時學這顆球的握壓範圍；鎖定後只慢慢擴張、衰減只回到校正學到的 lockedSpan（不再崩回 MIN_SPAN
     // → 修「同一顆球剛校完正常、幾分鐘後變超敏感」：0.99985^每筆 report 在 50–100Hz 下 1–2 分鐘就腰斬）。有界。

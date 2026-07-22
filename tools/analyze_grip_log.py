@@ -70,9 +70,14 @@ def main():
         if raws:
             print(f"  raw 範圍 {min(raws)}–{max(raws)}（幅寬 {max(raws)-min(raws)}）")
 
-        # 極性：高 level 段的 smRaw-baseline 原始方向
-        press_rows = [r for r in rows if (r["level"] or 0) > 0.35 and r["smRaw"] and r["baseline"]]
-        rest_rows = [r for r in rows if (r["level"] or 0) < 0.03 and r["smRaw"] and r["baseline"]]
+        # 極性：高 level 段的 smRaw-baseline 原始方向（只看「鎖定後」的樣本——校正期間水位是 |dev|、方向未定，混入會誤報反向）
+        lock_t = 0
+        for e in entries:
+            if e.get("event") == "handCue:locked":
+                lock_t = e["tMs"]
+        rows_locked = [r for r in rows if r["t"] * 1000 >= lock_t] if lock_t else rows
+        press_rows = [r for r in rows_locked if (r["level"] or 0) > 0.35 and r["smRaw"] and r["baseline"]]
+        rest_rows = [r for r in rows_locked if (r["level"] or 0) < 0.03 and r["smRaw"] and r["baseline"]]
         if press_rows and rest_rows:
             raw_dir = sum((r["smRaw"] - r["baseline"]) for r in press_rows) / len(press_rows)
             signs = {r["sign"] for r in rows if r.get("signLocked")}
