@@ -804,7 +804,7 @@ const AUTO_ONSET_DELTA = 450;
 const GRIP_MIN_SPAN = 250;         // 滿刻度最小跨距（防雜訊放大）。調低（原 520）讓「弱球」也能校到滿：
                                    // 有些球很用力也只 +300，520 的地板會讓它最多到 ~0.43（Pan 2026-07-17：一手很用力連一半都不到）。
 const GRIP_MAX_SPAN = 1500;        // 滿刻度上限（避免異常大值）
-const GRIP_HEADROOM = 1.35;        // 留一點餘裕：校正時的舒適握壓 → ~0.74 水位；更用力才接近滿。
+const GRIP_HEADROOM = 1.22;        // 留一點餘裕：校正時的舒適握壓 → 高水位；更用力才滿。1.35→1.22（Pan 2026-07-22：還是滿用力）
 const GRIP_SPAN_DECAY = 0.99985;   // 慢遺忘/重新適應（每筆 report 乘一次）；鎖定後只慢慢擴張，不被單一尖峰改掉尺標
 const GRIP_POLARITY_MARGIN = 45;   // 校正時 press-rest 至少差這麼多 raw，才鎖定方向；避免噪音把球判反。
 const GRIP_MIN_SPAN_LOCKED = 140;  // 校正完成後的 span 地板：低於未校正的 250。很硬的球（真球 log 2026-07-20(2)：
@@ -959,6 +959,8 @@ class GripCalibrator {
     this.holdRun = 0;                                               // 連續「高水位且無握拍」的 report 數（phantom 自我修復用）
     this.recentRest = [];                                           // 最近的 rest 樣本（兩手皆收，~60 筆）：lock 時做「漂移修正」用
     this.noiseEma = 20;                                             // 靜止雜訊估計（raw）：雜訊大的球「握一拍」門檻要更高，免得自己數拍
+    this.devMean = 0; this.devVarEma = 400;                         // rawDev 慢均值/變異（~2s 窗）：沒人碰的球死平、人握著一定有起伏（phantom 判別）
+    this.healing = false;                                           // phantom 修復進行中（遲滯：修復自身的移動會推高變異，啟動後就修到底）
     this.pressPeaks = { left: [], right: [] };                      // 每隻手、每一次 cue 握的「峰值」（相對該手 rest 中位數，帶正負）
     this.curPeak = null; this.lastCueHand = null;                   // 進行中的這一握目前峰值；剛剛是哪隻手的 cue
     this.lockedSpan = 0;                                            // 「目前這隻手」的滿刻度參考＝span 衰減的下限（可隨換手慢適應）
@@ -1131,10 +1133,15 @@ class GripCalibrator {
     if(shaped <= 0) this.noiseEma += (Math.abs(rawDev) - this.noiseEma) * 0.02;
     // 快起慢落：握＝水湧上來（~0.2s 有感），放＝浪慢慢退（~0.6s）——解「大起大落」，也吃掉手抖的高頻抖動
     this.level += (shaped - this.level) * (shaped > this.level ? GRIP_LEVEL_ATTACK : GRIP_LEVEL_RELEASE);
-    // phantom 自我修復：長時間高水位、完全沒有任何「握一拍」＝多半是 rest 錨點錯（拿著被當成握著，Pan：不握水位還是高）。
-    // ~800 筆 report（33Hz≈25s）才啟動，之後緩慢把 baseline 與 restRef 收斂到目前姿勢；刻意長握通常有起伏/握拍，不會踩到。
-    if(this.locked && shaped >= 0.06) this.holdRun++; else this.holdRun = 0;
-    if(this.holdRun > 800){
+    // phantom 自我修復：長時間高水位、完全沒有任何「握一拍」、且訊號「死平」＝rest 錨點錯（球其實放著沒人碰）。
+    // 平坦度是關鍵判別（Pan 2026-07-22：持續用力時水位有時降太快＝之前把活的長握也吸掉了）：
+    // 人握著的球一定有微起伏（呼吸/手的張力），flatEma 會明顯高於沒人碰的死平訊號 → 活握永遠不會被修復機制吃水位。
+    this.devMean += (rawDev - this.devMean) * 0.02;
+    this.devVarEma += ((rawDev - this.devMean) * (rawDev - this.devMean) - this.devVarEma) * 0.02;
+    if(this.locked && shaped >= 0.06) this.holdRun++; else { this.holdRun = 0; this.healing = false; }
+    if(!this.healing && this.holdRun > 800 && Math.sqrt(this.devVarEma) < Math.max(6, this.noiseEma * 2))
+      this.healing = true;   // 只有「死平」訊號才會啟動；啟動後修到底（修復移動 baseline 會推高變異，不能再用變異當關門條件）
+    if(this.healing){
       this.baseline += (this.smRaw - this.baseline) * 0.008;
       if(this.restRef != null) this.restRef += (this.smRaw - this.restRef) * 0.004;
     }
@@ -1150,7 +1157,7 @@ class GripCalibrator {
     const rise = posDelta - e.floor;
     e.pulse = false;
     if(e.armed){
-      if(rise >= onThresh){ e.pulse = true; e.armed = false; e.peak = posDelta; e.floorAtFire = e.floor; this.holdRun = 0; }
+      if(rise >= onThresh){ e.pulse = true; e.armed = false; e.peak = posDelta; e.floorAtFire = e.floor; this.holdRun = 0; this.healing = false; }
     } else {
       if(posDelta > e.peak) e.peak = posDelta;
       if(posDelta - e.floor <= (e.peak - e.floor) * EDGE_REARM_FRAC || rise <= onThresh * 0.35){
