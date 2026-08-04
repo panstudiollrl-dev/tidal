@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidal 空間音訊 bench：三條路 A/B/C 對聽</title>
+<style>
+  :root{ --bg:#07131a; --fg:#dceaf2; --dim:#7f9aab; --line:#16323f; --hot:#4fd0c8; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--fg);
+        font:14px/1.6 -apple-system,"Noto Sans TC","Helvetica Neue",sans-serif; }
+  main{ max-width:1000px; margin:0 auto; padding:24px 20px 80px; }
+  h1{ font-size:19px; margin:0 0 4px; font-weight:600; }
+  h2{ font-size:14px; margin:26px 0 10px; color:var(--hot); font-weight:600;
+      border-bottom:1px solid var(--line); padding-bottom:6px; }
+  p.lead{ color:var(--dim); margin:0 0 18px; }
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:10px 0; }
+  button{ background:#0e2530; color:var(--fg); border:1px solid var(--line);
+          border-radius:7px; padding:9px 15px; font-size:14px; cursor:pointer; font-family:inherit; }
+  button:hover{ border-color:var(--hot); }
+  button.on{ background:var(--hot); color:#04191c; border-color:var(--hot); font-weight:600; }
+  button:disabled{ opacity:.4; cursor:default; }
+  button.big{ padding:13px 26px; font-size:15px; }
+  label.ctl{ display:block; margin:12px 0; }
+  label.ctl span{ display:block; color:var(--dim); font-size:12px; margin-bottom:3px; }
+  input[type=range]{ width:100%; }
+  table{ border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th,td{ text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); font-size:13px; }
+  th{ color:var(--dim); font-weight:500; }
+  td.n{ text-align:right; font-family:ui-monospace,Menlo,monospace; }
+  .bar{ height:7px; background:#0e2530; border-radius:4px; overflow:hidden; }
+  .bar i{ display:block; height:100%; background:var(--hot); width:0; }
+  #log{ font-family:ui-monospace,Menlo,monospace; font-size:12px; color:var(--dim);
+        white-space:pre-wrap; max-height:190px; overflow:auto; background:#040d12;
+        border:1px solid var(--line); border-radius:7px; padding:10px; margin-top:10px; }
+  .note{ color:var(--dim); font-size:12.5px; }
+  .warn{ color:#e8b465; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:0 26px; }
+  @media(max-width:700px){ .grid2{ grid-template-columns:1fr; } }
+  svg{ display:block; margin:6px auto; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Tidal 空間音訊 bench</h1>
+<p class="lead">
+  同一組海的聲音，三種方向渲染即時切換。<strong>戴耳機</strong>。<br>
+  這裡不接握力球、不動 <code>web/index.html</code>；目的只是讓耳朵先決定要走哪條路。
+</p>
+
+<div class="row">
+  <button id="btnStart" class="big">開始（要點一下才有聲音）</button>
+  <span class="note" id="ctxState">AudioContext：未開</span>
+</div>
+
+<h2>要聽哪一條</h2>
+<div class="row" id="pathBtns">
+  <button data-path="A" class="on">A　瀏覽器內建 PannerNode（現況）</button>
+  <button data-path="B">B　Omnitone FOA</button>
+  <button data-path="C">C　duck-hunt 實測 HRIR</button>
+</div>
+<div class="row">
+  <button id="btnBlind">盲測：隨機一條、不顯示是誰</button>
+  <button id="btnReveal" disabled>揭曉</button>
+  <span class="note" id="blindState"></span>
+</div>
+<p class="note">
+  A＝主頁現在用的東西（每層一個 <code>PannerNode</code>，<code>panningModel:"HRTF"</code>）。<br>
+  B＝自己寫的一階球諧編碼（ACN/SN3D）→ <code>Omnitone.createFOARenderer</code>。Omnitone 只有解碼器、沒有編碼器，編碼那段是這個 bench 自己寫的。<br>
+  C＝duck-hunt 的 344 個實測 HRIR，<strong>直接從那個 repo 抓</strong>（沒有複製任何檔案進 Tidal，也就不牽動授權／redistribution）。
+  每層兩個 convolver 交叉淡化，避免換角度爆音。
+</p>
+
+<h2>方向</h2>
+<div class="row">
+  <button id="btnOrbit">自動繞圈</button>
+  <span class="note">或直接拖下面的方位角。</span>
+</div>
+<label class="ctl"><span>方位角 <b id="azOut">0°</b>（0＝正前、正值＝右邊，跟主頁的慣例一致）</span>
+  <input type="range" id="az" min="-180" max="180" step="1" value="0"></label>
+<svg id="compass" width="150" height="150" viewBox="0 0 150 150" aria-hidden="true">
+  <circle cx="75" cy="75" r="60" fill="none" stroke="#16323f"></circle>
+  <line x1="75" y1="75" x2="75" y2="15" stroke="#16323f"></line>
+  <text x="75" y="11" fill="#7f9aab" font-size="9" text-anchor="middle">前</text>
+  <text x="141" y="78" fill="#7f9aab" font-size="9" text-anchor="middle">右</text>
+  <text x="9" y="78" fill="#7f9aab" font-size="9" text-anchor="middle">左</text>
+  <circle id="dot" cx="75" cy="15" r="5" fill="#4fd0c8"></circle>
+</svg>
+
+<h2>聽哪一層</h2>
+<div class="row" id="layerBtns"></div>
+<p class="note">
+  差別最該聽得出來的是 <b>bubble 氣泡（帶通 320Hz）</b>——主頁裡它的位置＝兩手握力的質量中心，
+  是唯一「會移動的定位聲源」。單獨聽它，比整片海一起聽清楚得多。
+</p>
+
+<div class="grid2">
+<div>
+<h2>聲音</h2>
+<label class="ctl"><span>水位（大致對應主頁的握力水位）<b id="lvOut">0.55</b></span>
+  <input type="range" id="lv" min="0" max="1" step="0.01" value="0.55"></label>
+<label class="ctl"><span>房間殘響 room.wav（MeshRIR）<b id="wetOut">0.80</b>　三條路共用</span>
+  <input type="range" id="wet" min="0" max="1" step="0.01" value="0.80"></label>
+<label class="ctl"><span>音量 <b id="volOut">0.60</b></span>
+  <input type="range" id="vol" min="0" max="1" step="0.01" value="0.60"></label>
+<div class="row">
+  <button id="btnBed" class="on">非定位層（sub 低頻床／wide 海床）</button>
+</div>
+<p class="note">這兩層在主頁裡刻意繞過 panner（「讓海是一片而不是一個點」），所以它們在三條路上完全一樣。
+  想聽差異就關掉，想聽起來像真的 Tidal 就開著。</p>
+</div>
+
+<div>
+<h2>實測輸出</h2>
+<table>
+  <thead><tr><th>路徑</th><th>RMS</th><th></th><th>trim</th></tr></thead>
+  <tbody id="meters"></tbody>
+</table>
+<div class="row">
+  <button id="btnMatch">自動對齊三條路的音量</button>
+</div>
+<p class="note">
+  這一欄是 <code>AnalyserNode</code> 從各路輸出量到的<strong>真實訊號</strong>，不是讀回 AudioParam。
+  duck-hunt 那份 <code>docs/SPATIAL_AUDIO.md</code> 最貴的教訓有兩條，都在這裡：
+  gain 讀起來正常但實際無聲是真的會發生；而<strong>沒對齊音量的 A/B 只會選出比較大聲的那個</strong>。
+  按上面那顆先對齊再聽。
+</p>
+</div>
+</div>
+
+<h2>紀錄</h2>
+<div id="log">（還沒開始）</div>
+
+<p class="note" style="margin-top:22px">
+  引用義務：<code>assets/ir/room.wav</code> 來自 <b>MeshRIR</b>（Shoichi Koyama et al., CC BY 4.0）。
+  Omnitone 為 Apache-2.0（Google），其 HRIR 基於 <b>Google/SADIE</b> 雙耳濾波器（University of York）——
+  見 <code>web/vendor/omnitone-NOTICE.txt</code>。C 路的實測 HRIR 屬 duck-hunt repo，這裡只是讀取、未再散布。
+</p>
+
+</main>
+
+<script src="vendor/omnitone.min.js"></script>
+<script>
+/* ──────────────────────────────────────────────────────────────────────────
+   Tidal 空間音訊 bench（Pan 2026-08-04）
+
+   為什麼有這個檔案：Pan 想把 duck-hunt 的實測 HRIR 套到 Tidal。量過之後發現
+   那份資料集（256 taps ＝ 5.33ms）在 Tidal 的頻段（每一層都被濾在 1.5kHz 以下）
+   會失效：ITD 在 45° 的 320Hz 是 +391us（左）、520Hz 變成 -615us（右），
+   同一個方向在相鄰頻帶指向相反的耳朵。對 duck-hunt 沒問題（鴨叫是寬頻、能量在
+   1.5kHz 以上），對 Tidal 是致命的。
+   所以這裡把三條路擺在一起讓耳朵判——包含 C，讓 Pan 自己確認上面那件事聽起來
+   是不是真的難聽，而不是只看我的數字。
+
+   規範：不動 web/index.html、不引入 build step、單檔、聲音永遠成立（哪條路壞掉都
+   還有 A）。
+   ────────────────────────────────────────────────────────────────────────── */
+
+const $ = (id) => document.getElementById(id);
+const clamp = (v, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
+
+let __logLines = [];
+function log(msg){
+  __logLines.push(msg);
+  if(__logLines.length > 120) __logLines.shift();
+  $("log").textContent = __logLines.join("\n");
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+// ── 主頁真正在用的層與濾波器 ───────────────────────────────────────────────
+// 抄的是 web/index.html 的 OceanEngine：頻率、Q、型別都對齊，這樣 bench 聽到的
+// 就是 Tidal 自己的聲音，而不是一般的測試音。base＝水位 1.0 時的大致增益。
+const LAYERS = [
+  { key:"surge",   name:"surge 湧浪",     filter:{ type:"lowpass",  freq:800,  Q:1 },    base:0.18, src:"noise" },
+  { key:"foam",    name:"foam 泡沫",      filter:{ type:"highpass", freq:1500, Q:1 },    base:0.10, src:"noise" },
+  { key:"pebble",  name:"pebble 鵝卵石",  filter:{ type:"lowpass",  freq:700,  Q:0.6 },  base:0.16, src:"pebble" },
+  { key:"bubble",  name:"bubble 氣泡",    filter:{ type:"bandpass", freq:320,  Q:0.9 },  base:0.20, src:"noise" },
+  { key:"shimmer", name:"shimmer 波光",   filter:{ type:"lowpass",  freq:1450, Q:0.55 }, base:0.14, src:"caustic" },
+];
+
+// ── C 路：duck-hunt 的實測 HRIR，直接從那個 repo 讀 ──────────────────────
+const DH_BASE = "https://raw.githubusercontent.com/panstudiollrl-dev/duck-hunt-gripball-web/main/assets/hrir/";
+// 這兩個常數與公式照抄 duck-hunt 的 hrirGainFor：那批 IR 存得很小聲、而且各方向
+// 差 11.9dB，所以「一個固定倍數」不可能對。左右耳除以同一個數，ILD 不受影響。
+const HRIR_MATCH = 0.93;
+const HRIR_MIN_NORM = 0.02;
+const HRIR_FADE = 0.06;      // 換角度時的交叉淡化秒數
+
+class OneShotNoise {
+  static mono(ctx){
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const s = ctx.createBufferSource();
+    s.buffer = buf; s.loop = true;
+    return s;
+  }
+  static stereo(ctx){
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for(let ch = 0; ch < 2; ch++){
+      const d = buf.getChannelData(ch);
+      for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const s = ctx.createBufferSource();
+    s.buffer = buf; s.loop = true;
+    return s;
+  }
+  // 抄 web/index.html 的 pebbleBuffer（大圓石灘）
+  static pebble(ctx, dur = 4.5){
+    const rate = ctx.sampleRate;
+    const len = Math.max(1, Math.floor(rate * dur));
+    const buf = ctx.createBuffer(2, len, rate);
+    for(let ch = 0; ch < 2; ch++){
+      const d = buf.getChannelData(ch);
+      let i = 0;
+      while(i < len){
+        const gap = Math.floor(rate * (0.008 + Math.random() * 0.030));
+        const dl  = Math.floor(rate * (0.012 + Math.random() * 0.038));
+        const amp = 0.25 + 0.75 * Math.random();
+        const f   = 70 + Math.random() * 260;
+        const w   = 2 * Math.PI * f / rate;
+        for(let j = 0; j < dl && i + j < len; j++){
+          const e = Math.exp(-j / (dl * 0.28));
+          d[i + j] += (0.72 * Math.sin(w * j) + 0.28 * (Math.random() * 2 - 1) * 0.5) * amp * e;
+        }
+        i += gap;
+      }
+      let pk = 0; for(let k = 0; k < len; k++){ const v = Math.abs(d[k]); if(v > pk) pk = v; }
+      if(pk > 0){ const kk = 0.7 / pk; for(let k = 0; k < len; k++) d[k] *= kk; }
+    }
+    return buf;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   一階球諧編碼器（ACN/SN3D，也就是 ambiX）
+
+   Omnitone 沒有 encoder——導出的 API 只有 renderer / rotator / convolver /
+   router / bufferList。所以這 30 行是 bench 自己寫的，也是這條路上唯一
+   「寫錯不會報錯、只會聽起來怪」的地方，因此 tmp/test_foa_encode.js 有守。
+
+   方位角慣例的轉換是這裡最容易靜默搞反的一件事：
+     bench UI：0＝正前，正值＝右（跟 web/index.html 的 panner 一致）
+     ambiX   ：方位角逆時針為正，也就是正值＝左
+   所以 Y = -sin(方位角)。
+   ───────────────────────────────────────────────────────────────────────── */
+function foaEncodeGains(azDeg, elDeg = 0){
+  const a = azDeg * Math.PI / 180, e = elDeg * Math.PI / 180;
+  return {
+    W: 1,                            // ACN 0
+    Y: -Math.sin(a) * Math.cos(e),   // ACN 1（左為正 → 取負）
+    Z: Math.sin(e),                  // ACN 2
+    X: Math.cos(a) * Math.cos(e),    // ACN 3
+  };
+}
+
+class FoaEncoder {
+  constructor(ctx){
+    this.ctx = ctx;
+    this.input = ctx.createGain();
+    this.output = ctx.createChannelMerger(4);
+    this.g = ["W","Y","Z","X"].map((_, i) => {
+      const n = ctx.createGain();
+      this.input.connect(n);
+      n.connect(this.output, 0, i);
+      return n;
+    });
+    this.setDirection(0, 0, 0);
+  }
+  setDirection(azDeg, elDeg, tau = 0.05){
+    const now = this.ctx.currentTime;
+    const v = foaEncodeGains(azDeg, elDeg);
+    const arr = [v.W, v.Y, v.Z, v.X];
+    // 平滑不跳變（AGENTS.md 的聲音原則）：方位角一直在動，直接 set 會有階梯。
+    this.g.forEach((n, i) => n.gain.setTargetAtTime(arr[i], now, tau));
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   C 路：實測 HRIR 的一層（兩個 convolver 交叉淡化）
+
+   duck-hunt 的一次性音效不需要 crossfade（角度在觸發時就定了）。Tidal 全部都是
+   持續發聲、而且會移動的層，所以這裡需要——這正是那份文件說的「真的需要
+   crossfade 的情境」。
+   ───────────────────────────────────────────────────────────────────────── */
+class MeasuredHrirLayer {
+  constructor(ctx, bank){
+    this.ctx = ctx; this.bank = bank;
+    this.input = ctx.createGain();
+    this.output = ctx.createGain();
+    this.active = "A";
+    this.irName = null;
+    for(const k of ["A","B"]){
+      const c = ctx.createConvolver();
+      c.normalize = false;            // IR 自己就帶著 ILD，正規化會把它抹平
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      this.input.connect(c); c.connect(g); g.connect(this.output);
+      this["conv" + k] = c; this["gain" + k] = g;
+    }
+    // 還沒有 IR 之前先讓聲音從一個平的旁路過去：寧可沒有方向，也不要沒有聲音。
+    this.bypass = ctx.createGain();
+    this.bypass.gain.value = 1;
+    this.input.connect(this.bypass);
+    this.bypass.connect(this.output);
+  }
+  setAzimuth(azDeg){
+    // bench 的正值＝右；那個資料集是逆時針遞增（螢幕右邊＝270°，duck-hunt 量出來的）
+    const want = this.bank.nearest(((360 - azDeg) % 360 + 360) % 360);
+    if(!want || want === this.irName) return;
+    const buf = this.bank.get(want);
+    if(!buf){ this.bank.warm(want); return; }   // 抓下來給下一次用，不等網路
+    const now = this.ctx.currentTime;
+    const to = this.active === "A" ? "B" : "A";
+    this["conv" + to].buffer = buf;
+    const gain = HRIR_MATCH / Math.max(this.bank.norm(want), HRIR_MIN_NORM);
+    this["gain" + to].gain.cancelScheduledValues(now);
+    this["gain" + this.active].gain.cancelScheduledValues(now);
+    this["gain" + to].gain.linearRampToValueAtTime(gain, now + HRIR_FADE);
+    this["gain" + this.active].gain.linearRampToValueAtTime(0, now + HRIR_FADE);
+    this.bypass.gain.cancelScheduledValues(now);
+    this.bypass.gain.linearRampToValueAtTime(0, now + HRIR_FADE);
+    this.active = to; this.irName = want;
+  }
+}
+
+class HrirBank {
+  constructor(ctx){
+    this.ctx = ctx;
+    this.azimuths = [];
+    this.buffers = new Map();
+    this.norms = new Map();
+    this.pending = new Set();
+    this.ready = false;
+  }
+  async load(){
+    const r = await fetch(DH_BASE + "manifest.json");
+    if(!r.ok) throw new Error("manifest " + r.status);
+    const entries = await r.json();
+    // 只要水平面：Tidal 的層都在水平面上，不像鴨子會飛高
+    this.azimuths = entries.filter(e => e.ele === 0).map(e => e.azi).sort((a, b) => a - b);
+    if(!this.azimuths.length) throw new Error("manifest 沒有 ele=0 的項目");
+    this.ready = true;
+    log(`C 路：manifest OK，水平面 ${this.azimuths.length} 個方位角（從 duck-hunt repo 讀，未複製檔案）`);
+    // 先暖一圈粗的，讓第一次切到 C 就有東西
+    for(let a = 0; a < 360; a += 15) this.warm(this.nearest(a));
+  }
+  nearest(target){
+    if(!this.azimuths.length) return null;
+    let best = this.azimuths[0], bd = 1e9;
+    for(const a of this.azimuths){
+      const d = Math.min(Math.abs(a - target), 360 - Math.abs(a - target));
+      if(d < bd){ bd = d; best = a; }
+    }
+    return `ir_azi${String(best).padStart(3, "0")}_ele000.wav`;
+  }
+  get(name){ return this.buffers.get(name) || null; }
+  norm(name){ return this.norms.get(name) || HRIR_MIN_NORM; }
+  async warm(name){
+    if(!name || this.buffers.has(name) || this.pending.has(name)) return;
+    this.pending.add(name);
+    try{
+      const r = await fetch(DH_BASE + name);
+      if(!r.ok) throw new Error(name + " " + r.status);
+      const buf = await this.ctx.decodeAudioData(await r.arrayBuffer());
+      // L2 norm：convolution 會把訊號乘上 IR 自己的能量，所以要各算一次
+      let sum = 0;
+      for(let ch = 0; ch < buf.numberOfChannels; ch++){
+        const d = buf.getChannelData(ch);
+        for(let i = 0; i < d.length; i++) sum += d[i] * d[i];
+      }
+      this.norms.set(name, Math.sqrt(sum / buf.numberOfChannels));
+      this.buffers.set(name, buf);
+    }catch(err){
+      log("C 路載入失敗（會繼續用旁路，不會沒聲音）：" + err.message);
+    }finally{
+      this.pending.delete(name);
+    }
+  }
+}
+
+// ── bench 本體 ─────────────────────────────────────────────────────────────
+class Bench {
+  constructor(){
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = this.ctx;
+
+    this.master = ctx.createGain();
+    this.master.gain.value = 0.6;
+    this.clip = ctx.createWaveShaper();
+    { const n = 1024, c = new Float32Array(n);
+      for(let i = 0; i < n; i++) c[i] = Math.tanh(2 * ((i / (n - 1)) * 2 - 1));
+      this.clip.curve = c; }
+    this.clip.connect(this.master);
+    this.master.connect(ctx.destination);
+
+    // 房間殘響：三條路共用。room.wav 是房間、跟用哪種方向渲染無關。
+    this.roomConv = ctx.createConvolver();
+    this.dry = ctx.createGain(); this.dry.gain.value = 0.4;
+    this.wet = ctx.createGain(); this.wet.gain.value = 0;
+    this.dry.connect(this.clip);
+    this.roomConv.connect(this.wet); this.wet.connect(this.clip);
+    this.loadRoom();
+
+    this.buildSources();
+    this.paths = {};
+    this.buildPathA();
+    this.buildPathB();
+    this.buildPathC();
+
+    this.azimuth = 0;
+    this.level = 0.55;
+    this.orbit = false;
+    this.soloLayer = null;
+    this.bed = true;
+    this.blind = null;
+    this.select("A");
+    this.t0 = performance.now();
+    this.tick();
+  }
+
+  async loadRoom(){
+    for(const url of ["../assets/ir/room.wav", "/assets/ir/room.wav", "assets/ir/room.wav"]){
+      try{
+        const r = await fetch(url);
+        if(!r.ok) continue;
+        this.roomConv.buffer = await this.ctx.decodeAudioData(await r.arrayBuffer());
+        this.wet.gain.setTargetAtTime(0.8, this.ctx.currentTime, 0.5);
+        log("room.wav（MeshRIR）已載入：" + url);
+        return;
+      }catch(err){ /* 換下一個候選 */ }
+    }
+    log("room.wav 沒載到（要從 Tidal/ 這一層開 server）。乾聲照樣成立。");
+  }
+
+  // 每一層做一次聲源，三條路共用同一個聲源 → 差別只在方向渲染
+  buildSources(){
+    const ctx = this.ctx;
+    this.layers = LAYERS.map(def => {
+      let src, extra = null;
+      if(def.src === "noise") src = OneShotNoise.mono(ctx);
+      else if(def.src === "pebble"){
+        src = ctx.createBufferSource();
+        src.buffer = OneShotNoise.pebble(ctx);
+        src.loop = true;
+      } else {
+        // shimmer 波光：抄主頁那五個柔和模態音
+        src = ctx.createGain();
+        extra = [421.9, 562.5, 726.6, 937.5, 1277.3].map((base, i) => {
+          const osc = ctx.createOscillator();
+          osc.type = i < 2 ? "triangle" : "sine";
+          osc.frequency.value = base;
+          const g = ctx.createGain(); g.gain.value = 0;
+          osc.connect(g); g.connect(src); osc.start();
+          return { g, phase: Math.random() * Math.PI * 2, rate: 0.08 + i * 0.045,
+                   weight: [0.30, 0.26, 0.20, 0.15, 0.09][i] };
+        });
+      }
+      const f = ctx.createBiquadFilter();
+      f.type = def.filter.type;
+      f.frequency.value = def.filter.freq;
+      f.Q.value = def.filter.Q;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      // pebble 的來源是立體聲；HRIR 卷積前要先攤平成 mono，不然左右耳資訊會被
+      // 原本的立體聲影像汙染（duck-hunt SPATIAL_AUDIO.md 第 1 點）。
+      const merge = ctx.createGain();
+      merge.channelCount = 1;
+      merge.channelCountMode = "explicit";
+      merge.channelInterpretation = "speakers";
+      src.connect(merge); merge.connect(f); f.connect(g);
+      if(src.start && def.src !== "caustic") src.start();
+      return { def, src, filter:f, out:g, caustic:extra };
+    });
+
+    // 非定位床：sub / wide。主頁裡它們刻意繞過 panner，所以直接進 clip。
+    this.sub = OneShotNoise.mono(ctx);
+    const subLP = ctx.createBiquadFilter();
+    subLP.type = "lowpass"; subLP.frequency.value = 130; subLP.Q.value = 0.4;
+    this.subGain = ctx.createGain(); this.subGain.gain.value = 0;
+    this.sub.connect(subLP); subLP.connect(this.subGain); this.subGain.connect(this.clip);
+    this.sub.start();
+
+    this.wide = OneShotNoise.stereo(ctx);
+    const wideLP = ctx.createBiquadFilter();
+    wideLP.type = "lowpass"; wideLP.frequency.value = 520;
+    this.wideGain = ctx.createGain(); this.wideGain.gain.value = 0;
+    this.wide.connect(wideLP); wideLP.connect(this.wideGain); this.wideGain.connect(this.clip);
+    this.wide.start();
+  }
+
+  // 每條路：spatializer → trim → analyser → mute → 共用的 dry/wet
+  // analyser 擺在 mute 之前，所以三條路的音量隨時都量得到，不管現在在聽哪一條。
+  makePathTail(key){
+    const ctx = this.ctx;
+    const trim = ctx.createGain(); trim.gain.value = 1;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    const mute = ctx.createGain(); mute.gain.value = 0;
+    trim.connect(analyser);
+    analyser.connect(mute);
+    mute.connect(this.dry);
+    mute.connect(this.roomConv);
+    this.paths[key] = { trim, analyser, mute, buf: new Float32Array(analyser.fftSize), rms: 0 };
+    return trim;
+  }
+
+  buildPathA(){
+    const ctx = this.ctx;
+    const tail = this.makePathTail("A");
+    this.paths.A.panners = this.layers.map(L => {
+      const p = ctx.createPanner();
+      p.panningModel = "HRTF";
+      p.distanceModel = "inverse";
+      p.refDistance = 1; p.maxDistance = 20; p.rolloffFactor = 1.2;
+      L.out.connect(p); p.connect(tail);
+      return p;
+    });
+  }
+
+  buildPathB(){
+    const ctx = this.ctx;
+    const tail = this.makePathTail("B");
+    this.paths.B.encoders = this.layers.map(L => {
+      const e = new FoaEncoder(ctx);
+      L.out.connect(e.input);
+      return e;
+    });
+    // 四通道匯流排：所有層編碼完在這裡相加，再一次解碼。
+    // convolver 數量固定＝2（跟層數無關），這是 ambisonics 的結構優勢。
+    const bus = ctx.createGain();
+    bus.channelCount = 4;
+    bus.channelCountMode = "explicit";
+    bus.channelInterpretation = "discrete";
+    this.paths.B.encoders.forEach(e => e.output.connect(bus));
+    this.paths.B.bus = bus;
+    this.paths.B.ready = false;
+    // Omnitone 還沒 initialize 完就先讓它靜音，不要卡住出聲。
+    try{
+      const r = Omnitone.createFOARenderer(ctx);
+      this.paths.B.renderer = r;
+      bus.connect(r.input);
+      r.output.connect(tail);
+      r.initialize().then(() => {
+        this.paths.B.ready = true;
+        log("B 路：Omnitone FOARenderer ready（HRIR 內嵌在那 46KB 裡，沒有外部抓取）");
+      }).catch(err => log("B 路 initialize 失敗：" + err));
+    }catch(err){
+      log("B 路建立失敗（Omnitone 沒載到？）：" + err.message);
+    }
+  }
+
+  buildPathC(){
+    const tail = this.makePathTail("C");
+    this.bank = new HrirBank(this.ctx);
+    this.paths.C.layers = this.layers.map(L => {
+      const m = new MeasuredHrirLayer(this.ctx, this.bank);
+      L.out.connect(m.input); m.output.connect(tail);
+      return m;
+    });
+    this.bank.load().catch(err => log("C 路 manifest 失敗（會用旁路）：" + err.message));
+  }
+
+  select(key){
+    this.current = key;
+    const now = this.ctx.currentTime;
+    for(const k of ["A","B","C"])
+      this.paths[k].mute.gain.setTargetAtTime(k === key ? 1 : 0, now, 0.04);
+  }
+
+  setAzimuth(az){
+    this.azimuth = az;
+    const now = this.ctx.currentTime;
+    const rad = az * Math.PI / 180;
+    const d = 3.2;
+    // A：跟主頁一樣（正值＝右 → +X）
+    this.paths.A.panners.forEach(p => {
+      p.positionX.setTargetAtTime(Math.sin(rad) * d, now, 0.08);
+      p.positionZ.setTargetAtTime(-Math.cos(rad) * d, now, 0.08);
+    });
+    // B：球諧編碼
+    if(this.paths.B.encoders) this.paths.B.encoders.forEach(e => e.setDirection(az, 0));
+    // C：挑最近的實測 IR
+    if(this.paths.C.layers) this.paths.C.layers.forEach(m => m.setAzimuth(az));
+  }
+
+  tick(){
+    const now = this.ctx.currentTime;
+    const t = (performance.now() - this.t0) / 1000;
+    if(this.orbit){
+      const az = Math.sin(t * 0.12 * Math.PI * 2) * 180;   // ~8 秒繞一趟
+      this.setAzimuth(az);
+      $("az").value = Math.round(az);
+      this.paintAz(az);
+    }
+    // 各層增益：水位 × 該層基準，solo 時其餘為 0
+    this.layers.forEach(L => {
+      const on = !this.soloLayer || this.soloLayer === L.def.key;
+      L.out.gain.setTargetAtTime(on ? this.level * L.def.base : 0, now, 0.15);
+      if(L.caustic) L.caustic.forEach(c => {
+        // 慢 LFO：連續的玻璃水面，不是固定音量的和弦
+        const v = 0.5 + 0.5 * Math.sin(c.phase + t * c.rate * Math.PI * 2);
+        c.g.gain.setTargetAtTime(this.level * c.weight * 0.5 * v, now, 0.2);
+      });
+    });
+    const bedOn = this.bed ? 1 : 0;
+    this.subGain.gain.setTargetAtTime(bedOn * this.level * 0.22, now, 0.2);
+    this.wideGain.gain.setTargetAtTime(bedOn * this.level * 0.14, now, 0.2);
+
+    for(const k of ["A","B","C"]){
+      const p = this.paths[k];
+      p.analyser.getFloatTimeDomainData(p.buf);
+      let s = 0;
+      for(let i = 0; i < p.buf.length; i++) s += p.buf[i] * p.buf[i];
+      const rms = Math.sqrt(s / p.buf.length);
+      p.rms = p.rms * 0.8 + rms * 0.2;     // 平滑，讀數才看得懂
+    }
+    this.paintMeters();
+    requestAnimationFrame(() => this.tick());
+  }
+
+  paintAz(az){
+    const rad = az * Math.PI / 180;
+    $("dot").setAttribute("cx", (75 + Math.sin(rad) * 60).toFixed(1));
+    $("dot").setAttribute("cy", (75 - Math.cos(rad) * 60).toFixed(1));
+    $("azOut").textContent = Math.round(az) + "°";
+  }
+
+  paintMeters(){
+    const rows = $("meters").children;
+    let peak = 1e-6;
+    for(const k of ["A","B","C"]) peak = Math.max(peak, this.paths[k].rms);
+    ["A","B","C"].forEach((k, i) => {
+      const tr = rows[i]; if(!tr) return;
+      const p = this.paths[k];
+      tr.children[1].textContent = p.rms.toFixed(4);
+      tr.children[2].firstChild.style.width = (clamp(p.rms / peak) * 100).toFixed(0) + "%";
+      tr.children[3].textContent = p.trim.gain.value.toFixed(2) + "×";
+    });
+  }
+
+  // 三條路一直都在跑（analyser 在 mute 前面），所以量一次就能同時對齊。
+  matchLevels(){
+    const ref = this.paths.A.rms;
+    if(ref < 1e-5){ log("音量太小、量不到，先把水位／音量拉高一點再對齊。"); return; }
+    const now = this.ctx.currentTime;
+    for(const k of ["B","C"]){
+      const p = this.paths[k];
+      if(p.rms < 1e-6){ log(`${k} 路量不到訊號，跳過（可能還沒 ready）`); continue; }
+      const t = clamp(p.trim.gain.value * ref / p.rms, 0.02, 50);
+      p.trim.gain.setTargetAtTime(t, now, 0.1);
+      log(`${k} 路 trim → ${t.toFixed(3)}×（原 RMS ${p.rms.toFixed(4)} vs A 的 ${ref.toFixed(4)}）`);
+    }
+    log("已對齊到 A 路。對齊之後再 A/B，聽到的差別才是空間感而不是音量。");
+  }
+}
+
+// ── UI ────────────────────────────────────────────────────────────────────
+let bench = null;
+
+$("btnStart").addEventListener("click", async () => {
+  if(!bench){
+    if(typeof Omnitone === "undefined")
+      log("⚠ vendor/omnitone.min.js 沒載到——B 路會不可用，A/C 仍可聽。");
+    bench = new Bench();
+    $("btnStart").textContent = "已開始";
+    $("btnStart").disabled = true;
+    log("開始。三條路都在跑，右邊的 RMS 是實際量到的訊號。");
+    log("建議順序：① 按「自動對齊三條路的音量」② solo bubble ③ 自動繞圈 ④ 再切 A/B/C。");
+  }
+  await bench.ctx.resume();
+  $("ctxState").textContent = "AudioContext：" + bench.ctx.state;
+});
+
+$("pathBtns").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-path]");
+  if(!btn || !bench) return;
+  if(bench.blind){ log("盲測中——先按「揭曉」再手動切換。"); return; }
+  [...$("pathBtns").children].forEach(b => b.classList.toggle("on", b === btn));
+  bench.select(btn.dataset.path);
+  log("切到 " + btn.dataset.path + " 路");
+});
+
+$("btnBlind").addEventListener("click", () => {
+  if(!bench) return;
+  const pick = ["A","B","C"][Math.floor(Math.random() * 3)];
+  bench.blind = pick;
+  bench.select(pick);
+  [...$("pathBtns").children].forEach(b => b.classList.remove("on"));
+  $("btnReveal").disabled = false;
+  $("blindState").textContent = "正在聽：？（已隨機選一條）";
+  log("盲測開始。先判斷好不好聽，再揭曉。");
+});
+
+$("btnReveal").addEventListener("click", () => {
+  if(!bench || !bench.blind) return;
+  const k = bench.blind;
+  $("blindState").textContent = "剛剛聽的是：" + k;
+  [...$("pathBtns").children].forEach(b => b.classList.toggle("on", b.dataset.path === k));
+  bench.blind = null;
+  $("btnReveal").disabled = true;
+  log("剛剛聽的是 " + k + " 路。");
+});
+
+$("btnOrbit").addEventListener("click", (e) => {
+  if(!bench) return;
+  bench.orbit = !bench.orbit;
+  e.target.classList.toggle("on", bench.orbit);
+});
+
+$("az").addEventListener("input", (e) => {
+  if(!bench) return;
+  bench.orbit = false;
+  $("btnOrbit").classList.remove("on");
+  const az = Number(e.target.value);
+  bench.setAzimuth(az);
+  bench.paintAz(az);
+});
+
+$("btnBed").addEventListener("click", (e) => {
+  if(!bench) return;
+  bench.bed = !bench.bed;
+  e.target.classList.toggle("on", bench.bed);
+});
+
+$("btnMatch").addEventListener("click", () => bench && bench.matchLevels());
+
+for(const [id, key, fmt] of [["lv","level",v=>v.toFixed(2)],
+                             ["wet",null,v=>v.toFixed(2)],
+                             ["vol",null,v=>v.toFixed(2)]]){
+  $(id).addEventListener("input", (e) => {
+    if(!bench) return;
+    const v = Number(e.target.value);
+    $(id + "Out").textContent = fmt(v);
+    if(key) bench[key] = v;
+    else if(id === "wet") bench.wet.gain.setTargetAtTime(v, bench.ctx.currentTime, 0.1);
+    else bench.master.gain.setTargetAtTime(v, bench.ctx.currentTime, 0.1);
+  });
+}
+
+// 層按鈕與音量表的列，照 LAYERS 動態生
+{
+  const wrap = $("layerBtns");
+  const mk = (key, label, on) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.dataset.layer = key;
+    if(on) b.classList.add("on");
+    wrap.appendChild(b);
+    return b;
+  };
+  mk("", "全部", true);
+  LAYERS.forEach(L => mk(L.key, "solo " + L.name, false));
+  wrap.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-layer]");
+    if(!b || !bench) return;
+    [...wrap.children].forEach(x => x.classList.toggle("on", x === b));
+    bench.soloLayer = b.dataset.layer || null;
+    log(b.dataset.layer ? "solo " + b.dataset.layer : "全部層");
+  });
+
+  const tb = $("meters");
+  for(const [k, name] of [["A","A 內建 Panner"],["B","B Omnitone FOA"],["C","C 實測 HRIR"]]){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${name}</td><td class="n">–</td><td><div class="bar"><i></i></div></td><td class="n">–</td>`;
+    tb.appendChild(tr);
+  }
+}
+</script>
+</body>
+</html>

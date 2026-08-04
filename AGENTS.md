@@ -71,6 +71,54 @@
 
 ## 交接紀錄
 
+### 2026-08-04 (b) — Claude (Opus)｜空間音訊 A/B/C 試聽台（`web/spatial_bench.html`）—— 主頁未動，等 Pan 的耳朵決定
+
+- **Pan 的要求**：「我覺得可以用看看 Omnitone 的 spatial audio，但我之前不是有 MeshRIR 嗎，我的 duck-hunt 也是用這個」→「我其實就是覺得，跟 duck-hunt 或 Solarmix 既有的就好了」→**「先讓我試用看看再決定好嗎」**。所以這次的交付物是**一個獨立的試聽台**，`web/index.html` **刻意一行都沒改**（有測試釘住：`test_foa_encode.js` [10] 斷言主頁不含 `omnitone`）。
+
+- **先釐清一個一直被「空間感」這個詞混在一起的三件事**（這是整個討論的關鍵）：
+  | | 是什麼 | Tidal 現況 |
+  |---|---|---|
+  | `assets/ir/room.wav`（MeshRIR） | **房間**的殘響與染色 | 已在用，跟方向無關 |
+  | duck-hunt `assets/hrir/` | **方向**（ITD/ILD） | 沒在用 |
+  | Omnitone | 設計過的**環繞聲解碼**濾波器 | 這次評估的對象 |
+  「我之前不是有 MeshRIR 嗎」→ 有，但那是房間，不是方向。兩者可以同時存在（bench 裡三條路都共用同一顆 room convolver）。
+
+- **「用既有的就好」為什麼在 Tidal 行不通——實測，不是讀碼猜的**：
+  - duck-hunt 的 HRIR 是 **256 taps = 5.33ms**。用 interaural phase 反推 ITD：同樣 45°，**320Hz 讀到 +391µs（偏左）、520Hz 讀到 −615µs（偏右）**——相鄰頻帶指向相反的耳朵；315° 同樣翻號；130Hz 讀到 +3595µs（真人 ITD 上限約 ±700µs ＝ 這是 phase-wrap 假影）。
+  - 對 duck-hunt 完全沒差（鴨叫是寬頻，能量在 1.5kHz 以上，那裡的 ILD 是實測正確的）；對 Tidal 是結構性的問題，因為 **Tidal 每一層都被濾在 1.5kHz 以下**。
+  - 逐層帶內能量（在每層**真實濾波器頻帶**內取 9 點對數 DFT、前方弧中位數、以 foam 為 0dB）：duck-hunt HRIR → bubble(BP320) **−13.4dB**、shore(LP640) −12.8、pebble(LP700) −11.5、surge(LP800) −9.9、shimmer(LP1450) −5.8、foam(HP1500) 0.0。Omnitone FOA 在**同樣頻帶**：−0.3 / −0.2 / −0.3 / −0.4 / −2.0 / 0.0 dB。
+  - 同樣 256 taps 為什麼差這麼多：Omnitone 那批是**設計過、做過 diffuse-field 等化**的解碼濾波器，而且 FOA 的低頻方向是編在**振幅比**上、不是靠時間差。
+  - **Solarmix 沒有可搬的東西**：Unity + Steam Audio。`Assets/test_hrtf.sofa` 與 `Assets/Plugins/SteamAudio/Resources/dtf_nh2.sofa` **SHA-1 完全相同**（`ea957d15525028a80c073eab970c36583c8dac4c`）＝那是 Steam Audio 內建的 ARI `nh2` DTF，**不是 Pan 自己量的**；SOFA 是 HDF5，Web Audio 讀不了，這台也沒 h5py。
+  - 所以「用既有的」被我改成：**沿用 duck-hunt 的工程做法**（per-IR 增益補償、載入永不阻塞出聲、Node 對真檔測試、對齊音量的 A/B），方向渲染另尋。
+
+- **§「不要引入重依賴」的理由（規範要求寫在交接筆記）**：`AGENTS.md:43` 說 spatial 若需函式庫「先評估 Omnitone / JSAmbisonics」——這就是那個評估。**Omnitone 46589 bytes、HRIR 以 base64 內嵌（15 個 RIFF：FOA 2 + SOA 5 + TOA 8）、沒有任何 rawgit/CDN 抓取、沒有已廢棄的 ScriptProcessor、只用 Gain/Splitter/Merger/Convolver**，離線可用、無 build step、Apache-2.0（NOTICE 已附 `web/vendor/omnitone-NOTICE.txt`）。⚠️ **誠實說明：最後一個實質 commit 是 2019-01-16、最後 release 1.3.0（2019-01-18）**，沒 archive、912 star，但實際上等於自己維護。Resonance Audio Web SDK **已 archived**；JSAmbisonics 2022-05 停更。所以**如果 Pan 聽了覺得 B 路值得**，下一步建議不是就這樣留著 46KB，而是**內聯約 30 行 FOA 解碼 + 一個 2KB 的 `sh_hrir_order_1.wav`**（見下面待決策）。
+
+- **怎麼試（Pan 這一步）**：
+  ```
+  cd Tidal && python3 -m http.server 8000
+  ```
+  桌機 Chrome/Edge 開 `http://localhost:8000/web/spatial_bench.html`（**不能 `file://`**），**戴耳機**。頁面自己會印建議順序：
+  **① 先按「自動對齊三條路的音量」② solo bubble（差異最該聽得出來的那層）③ 自動繞圈 ④ 再切 A/B/C。**
+  - 三條路：**A** = 瀏覽器內建 HRTF panner（＝主頁現況）、**B** = 一階球諧編碼 → Omnitone FOA 解碼、**C** = duck-hunt 那批實測 HRIR（直接 cross-origin 抓 raw.githubusercontent.com，**沒有把任何檔案複製進 Tidal**，順便完全避開 Solarmix `docs/DATASETS.md` 的 Redistribution Rule）。
+  - 三條路**共用同一組聲源、同一顆房間 convolver**，analyser 放在 mute **之前**（所以沒在聽的那兩條也量得到）——這樣才能一次把音量對齊。**沒對齊的 A/B 只會選出比較大聲的那個，這是 duck-hunt 文件裡最貴的教訓。**
+  - 有**盲測 + 揭曉**：先別看是哪一條再判斷。
+  - sub(LP130) / wide(LP520) 照主頁一樣繞過空間化直接進 clip。
+
+- **怎麼驗證（不用真球）**：
+  - `node tmp/test_foa_encode.js` → **53 項斷言全過**。測的是唯一我自己寫、而且**寫錯不會報錯只會左右相反**的東西：`foaEncodeGains()`。bench UI 與主頁 panner 都用「正方位角＝右」，而 ambiX 的 **Y 是左為正**，所以 `Y = -sin(a)*cos(e)`。斷言除了直接檢查符號，還用**從 Omnitone `foa-convolver.js` 讀出來的真實接線**（`L = W + Y`、`R = W − Y`）解回左右耳交叉驗證。另外把「FOA 一階前後混淆」當**現況記錄**釘住，免得下一位把它當缺陷去「修」。
+  - `node tmp/smoke_spatial_bench.js` → **51 項斷言全過**（需 `cd /tmp && npm install jsdom --no-save`，**不要裝進 Drive 同步資料夾**）。jsdom + 假 Web Audio 真的跑一遍建圖：5 個 HRTF panner、**11 個 convolver（房間 1 + C 路 5 層 ×2）**、其中 10 個 `normalize === false`、Omnitone 真的被 `initialize()`、三條路都到得了 destination、房間 convolver `__in === 3`。`fetch` 一律 404 ＝ 測離線路徑（「聲音永遠成立」的最低標）。
+  - **突變測試 16/16 全殺**。過程中 **M11 存活**：把 `merge.channelCountMode` 從 `"explicit"` 改成 `"max"`（＝拿掉卷積前的 mono 化，會讓 pebble 的立體聲影像汙染 HRIR 的左右耳資訊，duck-hunt `SPATIAL_AUDIO.md` 第 1 點）兩支測試都照樣過。**根因是我自己的斷言太鬆**——只找 `channelCountMode = "explicit"`，而 B 路的四通道匯流排也是 explicit，所以 regex 照樣命中。改成要求 `channelCount = 1;` 與 `explicit` 同時出現在 120 字內，M11 才被殺掉（另一個變體「刪掉 `merge.channelCount = 1;`」也一併殺掉）。
+
+- **未完成**：docs 還沒提到這個 bench（`RESEARCH.md` §空間音訊 的選型表、`DESIGN.md:112`、`web/README.md`）——等 Pan 聽完有結論再寫，免得寫了又改。
+
+- ⚠️ **待 Pan 決策（聽完再說，我沒有替你決定）**：
+  1. **A / B / C 哪一條？** 或者「差異小到不值得動主頁」也是完全合理的答案——那就把 bench 留著當記錄，主頁維持現況。
+  2. 若選 B：**FOA 還是 TOA**（TOA 前後定位好得多，但 HRIR 大 4 倍、8 個 convolver）。
+  3. 若選 B：**要不要留這顆 46KB vendor**，還是內聯約 30 行 FOA 解碼 + 一個 2KB `sh_hrir_order_1.wav`（考慮到上面「2019 年就停更」）。我傾向後者，但先聽了再說。
+  4. **要不要真的在 `web/index.html` 開一條並行的 FOA 匯流排**——§2 說互動核心「沿用、不要重寫」，這件事要 Pan 明確點頭我才動主頁。
+
+- **引用義務（都已寫在 bench 頁面上）**：MeshRIR **CC BY 4.0**，需標註 Shoichi Koyama et al. 與資料集出處；Omnitone **Apache-2.0**，其 HRIR 來自 Google / **SADIE, University of York**。
+
 ### 2026-08-04 — Claude (Opus)｜移除 30.7 秒的握力校正：量一次零點＋固定滿刻度＋方向不猜（中英文版同步）
 - **Pan 的要求**：把 duck-hunt 的「不校正、直接開始」做法搬到 Tidal——「他的校正也很糟糕」。接著指定「同步」（＝英文版 `web/en/index.html` 一起改）並要直接上線測試。
 - **舊校正錯在哪（有真實紀錄可證，不是靠讀碼猜）**：

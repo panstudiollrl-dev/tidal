@@ -5,3 +5,6 @@ __pycache__/
 # Reference material kept locally; do not publish downloaded papers or videos.
 meditation/
 
+# Session 紀錄只存本機、不上傳（AGENTS.md 的隱私與同意規範）。README.txt 留著。
+record/*.json
+
