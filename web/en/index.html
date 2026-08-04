@@ -684,14 +684,7 @@
             <p>For the next thirty seconds, breathe naturally and notice each inhale and exhale.</p>
           </div>
         </div>
-        <div id="arrivalHandCue" style="display:none">
-          <div class="arrival-title" id="handCueTitle">Calibration · Left hand</div>
-          <div class="arrival-copy">
-            <p>First, let me get to know your grip. Watch the orb at the center and let your hand follow its cue three times.</p>
-          </div>
-          <div class="breath-word" id="handCuePrompt" style="display:none">Ready…</div>
-          <div class="hint" id="handCueHint">The water level rises and falls with your grip.</div>
-        </div>
+        <!-- arrivalHandCue：cue 校正的畫面已移除（Pan 2026-08-04，不校正） -->
         <div id="arrivalBreath" style="display:none">
           <div class="arrival-title">Hear the breath</div>
           <div class="countdown"><span id="breathClock">30</span></div>
@@ -800,17 +793,49 @@ const SUPPORTED_GRIP_BALLS = [
 ];
 const MODE_9DOF_GRIP = 3;
 const AUTO_ONSET_DELTA = 450;
-// 浮動握力校正（Pan 2026-07-09：固定滿刻度太高，很用力才到 30%）。滿刻度會自動追蹤你的握力範圍。
-const GRIP_MIN_SPAN = 250;         // 滿刻度最小跨距（防雜訊放大）。調低（原 520）讓「弱球」也能校到滿：
-                                   // 有些球很用力也只 +300, 520 的地板會讓它最多到 ~0.43 (Pan 2026-07-17：一手很用力連一半都不到）。
-const GRIP_MAX_SPAN = 1500;        // 滿刻度上限（避免異常大值）
-const GRIP_HEADROOM = 1.35;        // 留一點餘裕：校正時的舒適握壓 → ~0.74 水位；更用力才接近滿。
-const GRIP_SPAN_DECAY = 0.99985;   // 慢遺忘/重新適應（每筆 report 乘一次）；鎖定後只慢慢擴張，不被單一尖峰改掉尺標
+// ── 不校正（Pan 2026-08-04）──────────────────────────────────────────────────
+// 舊做法：進 session 前跑「左手三握、右手三握」的 cue 校正（30.7 秒），從那六握學出每顆球的
+// 滿刻度 span、握壓方向 sign、左右手指派 handMap。三樣都學錯了，而且有 Pan 的真實紀錄可證：
+//
+//   record/tidal_record_2026-07-29T06-31-52.json → ball1 calibSpan 171、ball2 calibSpan 185，
+//   lockedSpan 143 / 141 ＝幾乎等於舊地板 GRIP_MIN_SPAN_LOCKED(140)。四顆球次裡三顆落在地板上，
+//   也就是 30.7 秒之後校正沒有提供任何資訊，是那個常數在做事。
+//   算術對得上：span = 峰值中位數 × 0.68 → 252×0.68=171、273×0.68=185，
+//   代表校正期間只量到 250-273 raw，而協定實測「用力握」是 +1250 raw（GRIPBALL_PROTOCOL.md）。
+//   根因是 cue 的提示字「輕輕握就好」——使用者最輕的一握被當成了滿刻度。
+//   後果就是 Pan 回報的兩個症狀：span 掉到地板→輕握就滿、殘壓 62raw 被讀成 0.36（高於答題門檻
+//   AFTER_ON 0.24＝殘壓會被當成答案）＝「有時超級敏感」；而 30.7 秒沒換到東西＝「校正效果不大」。
+//   sign 也不穩：同一顆 ball2 兩份紀錄一次學成 +1、一次 −1（pressMinusRest 一次 +98 一次 −114）。
+//
+// 現在：只量一次「拿著不握」的零點（GRIP_BASELINE_MS 的 raw 中位數），滿刻度用下面這個固定常數，
+// 方向不猜（用 |rawDev|，見 update()）。cue 校正整段移除。
+// 這條路線與 duck-hunt 的 QUICK_ENGAGE_FORCE 同一個想法：能寫死的就不要學，學錯比沒學更糟。
+const GRIP_FULL_SCALE = 900;       // 固定滿刻度（raw，相對零點）。唯一要調的數字。
+                                   // 900 的來歷：協定實測全力握 ≈ +1250 raw，經 HEADROOM 1.22 → effScale 1098，
+                                   // 於是輕握(188raw)→0.09、舒適握(438raw)→0.40、明確握(750raw)→0.70、全力→1.00，
+                                   // 而輕拿的殘壓(62raw)→0.00（落在死區內）。這正是 GRIPBALL_PROTOCOL.md 要求的
+                                   // 「只拿著不刻意握≈0、舒適握有明顯但不滿格、很用力才接近滿」。
+                                   // 若真球偏硬（全力握不到 900）就調低這一個數字，其餘都不用動；診斷面板（D）會顯示它。
+const GRIP_BASELINE_MS = 700;      // 零點取樣時間：這段時間內 raw 的「中位數」＝零點。
+                                   // 中位數不是平均——取樣中手抖一下的尖峰不會把零點拉走。
+const GRIP_HEADROOM = 1.22;        // 留一點餘裕：到舒適握壓就算 ~高水位；更用力才滿（Pan 2026-07-22）
+const GRIP_LEVEL_ATTACK = 0.14;    // 水位平滑：起（握）快一點
+const GRIP_LEVEL_RELEASE = 0.05;   // 水位平滑：落（放）慢一點——解「大起大落」，浪退本來就比湧慢
+const GRIP_REST_MARGIN = 45;       // restRef 只在 raw 回到它 ±這個範圍內才跟漂移（手張開/放桌上時凍結）
+// 4-7-8「握一拍」的 per-ball edge detector（不再只靠全域 level 門檻——殘壓會讓 level 降不回 OFF＝卡在 4）：
+const EDGE_ON_FRAC = 0.26;         // 一拍至少要相對 rest floor 上升滿刻度的這個比例
+const EDGE_ON_MIN_RAW = 80;        // 且至少這麼多 raw（防 span 很小時輕碰成拍）
+const EDGE_REARM_FRAC = 0.45;      // 從峰值退回這個比例以下＝視為放開，重新武裝
+const EDGE_FLOOR_RISE = 0.02;      // rest floor 每筆 report 向上爬的比率：殘壓 ~1 秒內被吸收，下一拍照樣測得到
+const MANUAL_478_REFRACTORY_MS = 650;  // onebang（Pan 2026-07-22，如 Max/MSP）：一拍之後關閘 650ms——
+                                       // 用力握的攻擊常有 過衝→微回落→坐穩 的彈跳，380ms 擋不住「4、3 緊貼著跳」；
+                                       // 正常數拍 ~1 拍/秒不受影響
 // 握力→水位的「自然對應曲線」：不是線性。依 Stevens 冪定律（S=k·Iⁿ；握力是 Stevens 1960 的經典連續量），
 // 用 pow(level, GRIP_GAMMA) 做知覺補償。GRIP_GAMMA<1＝壓縮曲線，低-中握就有明顯反應、末段趨緩，握起來最自然
 // （等同 Max/MSP `scale` 物件第 5 參數 exponent 的作用——把線性輸入彎成知覺線性）。0.55 比 0.75 更靈敏。
 const GRIP_GAMMA = 0.78;
-const GRIP_DEADZONE = 0.10;        // 低端死區：把「拿起來／輕碰」留給 0 附近，不直接灌滿水位。
+const GRIP_DEADZONE = 0.13;        // 低端死區：把「拿起來／輕碰／放開後的殘壓」留給 0 附近。0.10→0.13
+                                   // （Pan 2026-07-22：降力道讓 span 變小、死區的 raw 範圍跟著縮，放開後殘壓開始看得見＝不歸零）
 const HARD_GRIP = 0.7;
 const SWING_MIN = 0.5;
 const STRONG_SWING = 1.4;
@@ -831,11 +856,7 @@ const BREATH_MARK_MIN_GAP_MS = 900;
 const AGREEMENT_FIX_MS = 900;
 const AGREEMENT_RESPONSE_MS = 5200;
 const AGREEMENT_AUTO_ADVANCE_MS = 900;
-const HAND_CUE_REPS = 3;
-const HAND_CUE_READY_MS = 1800;
-const HAND_CUE_ON_MS = 1800;
-const HAND_CUE_OFF_MS = 2500;
-const HAND_CUE_RELEASE_MS = 650;
+// HAND_CUE_* 常數已隨 cue 校正一起移除（Pan 2026-08-04）
 const HID_STALE_MS = 2500;
 const HID_MODE_RESEND_MS = 1400;
 const HID_FORGET_STALE_MS = 6500;
@@ -906,57 +927,122 @@ const state = {
     confirmation: "",
     confirmationAt: null,
     confirmationAdvanceTimer: null,
-    handCue: {
-      hand: "left",
-      cueOn: false,
-      rep: 0,
-      startedAt: null,
-      scores: { 1: 0, 2: 0 },
-      completed: false,
-      lastRep: -1,
-      successThisRep: false,
-      armed: false,
-      fill: 0,
-      successSoundAt: 0,
-      waitingRelease: false,
-      releaseSince: 0,
-    },
     report: null,
   },
 };
 
 class GripCalibrator {
-  constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_MIN_SPAN; this.level = 0; this.locked = false;
-    this.sign = 0; this.upMax = 0; this.downMax = 0; }
-  // 校正結束後鎖定：滿刻度＝這顆球在三握校正時學到的舒適握壓（每顆球各自）＋鎖定握壓「方向」（polarity).
-  // 解兩手不對稱、也解「換球後水位倒過來」——有些球握下去 raw 上升、有些下降，之前寫死「上升＝握」就會倒反（Pan 2026-07-17).
-  lock(){ this.locked = true; if(this.sign === 0) this.sign = this.upMax >= this.downMax ? 1 : -1; }
+  constructor(){ this.baseline = null; this.smRaw = null; this.span = GRIP_FULL_SCALE; this.level = 0;
+    this.zeroSamples = [];                                          // 零點取樣（raw）：GRIP_BASELINE_MS 內收滿就取中位數
+    this.zeroStartedAt = null;                                      // 第一筆 report 的時間（零點取樣的起點）
+    this.zeroed = false;                                            // 零點已定案；在此之前水位一律 0（不會用半熟的零點算出假握壓）
+    this.holdRun = 0;                                               // 連續「高水位且無握拍」的 report 數（phantom 自我修復用）
+    this.noiseEma = 20;                                             // 靜止雜訊估計（raw）：雜訊大的球「握一拍」門檻要更高，免得自己數拍
+    this.devMean = 0; this.devVarEma = 400;                         // rawDev 慢均值/變異（~2s 窗）：沒人碰的球死平、人握著一定有起伏（phantom 判別）
+    this.healing = false;                                           // phantom 修復進行中（遲滯：修復自身的移動會推高變異，啟動後就修到底）
+    this.reportTick = 0;
+    this.restRef = null;                                            // 「拿著不握」的 raw 參考位（＝零點；放手時 baseline 的回歸點）
+    this.edge = { armed: true, floor: 0, peak: 0, pulse: false }; } // 4-7-8 用的 per-ball「握一拍」偵測
+  median(values){
+    if(!values.length) return null;
+    const v = values.slice().sort((a, b) => a - b);
+    return v[Math.floor(v.length / 2)];
+  }
   update(raw){
-    if(this.baseline === null){ this.baseline = raw; this.smRaw = raw; this.level = 0; return 0; }
+    this.reportTick++;
+    const now = performance.now();
+    // ── 零點：只做這一件事，取 GRIP_BASELINE_MS 內 raw 的中位數 ──
+    // 取樣期間回傳 0：零點還沒定案就換算水位，等於拿半熟的零點生出假握壓（舊碼「第一筆 raw 就當 baseline」
+    // 遇到「拿起球的瞬間才連上」就會把手掌壓力寫進零點）。
+    if(!this.zeroed){
+      if(this.zeroStartedAt == null) this.zeroStartedAt = now;
+      this.zeroSamples.push(raw);
+      if(this.zeroSamples.length > 400) this.zeroSamples.shift();
+      if(now - this.zeroStartedAt < GRIP_BASELINE_MS) { this.smRaw = raw; return 0; }
+      this.baseline = this.median(this.zeroSamples);   // 中位數：取樣中手抖一下的尖峰拉不走零點
+      this.restRef = this.baseline;
+      this.smRaw = this.baseline;
+      this.zeroed = true;
+      return 0;
+    }
     this.smRaw += (raw - this.smRaw) * 0.3;                     // 輕度平滑，抗單筆雜訊
     const rawDev = this.smRaw - this.baseline;                  // 帶正負：離開靜止基線的方向與幅度
-    if(!this.locked){ if(rawDev > this.upMax) this.upMax = rawDev; if(-rawDev > this.downMax) this.downMax = -rawDev; }
-    const s = this.sign !== 0 ? this.sign : (this.upMax >= this.downMax ? 1 : -1);   // 握壓方向（校正學到；未鎖定時即時猜）
-    const dev = rawDev * s;                                     // 轉成「握＝正」：不論球是上升還下降都一致
-    const posDelta = Math.max(0, dev);
-    // 滿刻度 span：校正中即時學這顆球的握壓範圍；鎖定後只慢慢擴張（別讓一次尖峰或漂移改掉尺標→之後同力變弱）。有界。
-    if(!this.locked) this.span = Math.max(posDelta, this.span * GRIP_SPAN_DECAY);
-    else if(posDelta > this.span) this.span += (posDelta - this.span) * 0.02;
-    else this.span *= GRIP_SPAN_DECAY;
-    this.span = clamp(this.span, GRIP_MIN_SPAN, GRIP_MAX_SPAN);
-    const effScale = this.span * GRIP_HEADROOM;                 // 到你的舒適握壓就算 ~滿
+    // 方向不猜（Pan 2026-08-04）：舊碼要在校正期間學 sign，而同一顆 ball2 在兩份真實紀錄裡
+    // 一次學成 +1、一次 −1（pressMinusRest +98 / −114）＝「水位有時倒過來」。
+    // 改用偏離量的絕對值：不論這顆球握下去 raw 是升是降，握＝水位上升，在定義上不可能倒反。
+    const dev = Math.abs(rawDev);
+    const posDelta = dev;
+    const effScale = this.span * GRIP_HEADROOM;                 // 固定滿刻度（this.span === GRIP_FULL_SCALE，不再學）
     let rawLevel = clamp(posDelta / effScale);
     rawLevel = rawLevel <= GRIP_DEADZONE ? 0 : clamp((rawLevel - GRIP_DEADZONE) / (1 - GRIP_DEADZONE));
-    const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA)
-    // baseline 三態（以「握＝正」的 dev 判斷，與方向無關）：
-    //   非握壓方向（dev<0，多半是放開/回到靜止）→ 快速追回靜止基線，下一握乾淨起算；
-    //   閒置（shaped<0.06)→ 吸收感測器漂移，讓漂移不累積成假握壓（arm/答題門檻不被誤觸）；
-    //   握持中（shaped≥0.06)→ 近乎凍結，穩定用力時水位不會一直下沉。
-    if(dev < 0) this.baseline += (this.smRaw - this.baseline) * 0.3;
-    else if(shaped < 0.06) this.baseline += (this.smRaw - this.baseline) * 0.05;
-    else this.baseline += (this.smRaw - this.baseline) * 0.0005;
-    this.level += (shaped - this.level) * 0.2;                  // 平滑
+    const shaped = Math.pow(rawLevel, GRIP_GAMMA);              // 響應曲線（可調 GRIP_GAMMA）
+    // baseline 更新（三態）：放開快歸零／閒置吸漂移／握持凍結。
+    // 沒有 sign 之後「放開」不再是「dev<0」（abs 之後永遠 >=0），而是「水位已經落回死區裡」——
+    // 語意其實更準：放開的定義本來就是水位回到 0，不是 raw 往某個方向動。
+    if(shaped <= 0){
+      // 放手：快回歸到「拿著不握」的 restRef，不追 smRaw、也不追「放桌上」的地板。
+      // 否則下次拿起球，光是手掌貼上就是一大段假握壓（真球 log：Ball2 差 1860 raw＝一拿就全滿）。
+      //
+      // 這裡原本是「追 smRaw、但夾在 restRef ± span*0.1」。那個餘裕跟被刪掉的 shaped<0.14 帶子
+      // 犯同一個錯：尺寸寫在 span 上，滿刻度從 ~140 變成 900 之後，餘裕從 14 raw 變成 90 raw。
+      // 後果是死鎖：輕握(188 raw) 起手時 shaped 還是 0（死區 143 raw），於是走進這條「放手」分支，
+      // baseline 以 0.3 的速率一路追到 restRef+90，dev 停在 97 raw ＝永遠卡在死區裡，水位恆為 0。
+      // 握壓得超過 143+90=233 raw 才逃得出來。（本次改動由 tmp/sim_grip_nocalib.js 抓到。）
+      //
+      // 改成直接追 restRef：漂移由 restRef 自己慢慢跟（下面那行），baseline 只是跟著 restRef。
+      // 殘壓不需要餘裕——死區本身就是 143 raw，已經蓋過拿起球的殘壓 62 raw。（Pan 2026-08-04）
+      const target = this.restRef != null ? this.restRef : this.smRaw;
+      this.baseline += (target - this.baseline) * 0.3;
+      // restRef 慢速跟漂移：只在 smRaw 回到 restRef 附近時更新（手張開/放桌上時凍結）
+      if(this.restRef != null && Math.abs(this.smRaw - this.restRef) < GRIP_REST_MARGIN)
+        this.restRef += (this.smRaw - this.restRef) * 0.02;
+    }
+    else if(shaped < 0.06) this.baseline += (this.smRaw - this.baseline) * 0.05;   // 閒置吸漂移（~169 raw 以下）
+    // 舊碼在這裡還有一條「shaped<0.14 緩吸收」的帶子（吸收率 0.015），是為殘壓加的。
+    // 那條帶子的門檻寫在 shaped 上，而 shaped 的 raw 意義取決於滿刻度：
+    //   舊的 span≈140 → shaped<0.14 只到 34 raw ＝真的只蓋殘壓；
+    //   固定滿刻度 900 → shaped<0.14 變成 220 raw ＝把「真的輕握」(188 raw) 也當成漂移吸掉。
+    // （這是本次改動時被自己的測試抓到的：輕握水位一路被吸到 0.00。）
+    // 現在不需要它了：死區本身就是 143 raw，已經蓋過殘壓的 62 raw。移除（Pan 2026-08-04）。
+    else this.baseline += (this.smRaw - this.baseline) * 0.00005;  // 握持真凍結：0.0005 在 60–100Hz 下 7 秒會吸掉 ~19% 握壓＝4-7-8 憋氣水位下沉
+    // 靜止雜訊估計：只在真正安靜（deadzone 內）時更新——給 edge 門檻自適應用（真球 log 2026-07-22：
+    // 壞球雜訊大，58 拍裡混進 9 拍不是使用者握的）
+    if(shaped <= 0) this.noiseEma += (Math.abs(rawDev) - this.noiseEma) * 0.02;
+    // 快起慢落：握＝水湧上來（~0.2s 有感），放＝浪慢慢退（~0.6s）——解「大起大落」，也吃掉手抖的高頻抖動
+    this.level += (shaped - this.level) * (shaped > this.level ? GRIP_LEVEL_ATTACK : GRIP_LEVEL_RELEASE);
+    // phantom 自我修復：長時間高水位、完全沒有任何「握一拍」、且訊號「死平」＝rest 錨點錯（球其實放著沒人碰）。
+    // 平坦度是關鍵判別（Pan 2026-07-22：持續用力時水位有時降太快＝之前把活的長握也吸掉了）：
+    // 人握著的球一定有微起伏（呼吸/手的張力），flatEma 會明顯高於沒人碰的死平訊號 → 活握永遠不會被修復機制吃水位。
+    this.devMean += (rawDev - this.devMean) * 0.02;
+    this.devVarEma += ((rawDev - this.devMean) * (rawDev - this.devMean) - this.devVarEma) * 0.02;
+    if(shaped >= 0.06) this.holdRun++; else { this.holdRun = 0; this.healing = false; }
+    if(!this.healing && this.holdRun > 800 && Math.sqrt(this.devVarEma) < Math.max(6, this.noiseEma * 2))
+      this.healing = true;   // 只有「死平」訊號才會啟動；啟動後修到底（修復移動 baseline 會推高變異，不能再用變異當關門條件）
+    if(this.healing){
+      this.baseline += (this.smRaw - this.baseline) * 0.008;
+      if(this.restRef != null) this.restRef += (this.smRaw - this.restRef) * 0.004;
+    }
+    this.updateEdge(posDelta);
     return this.level;
+  }
+  // per-ball「握一拍」偵測（4-7-8）：rest floor 追蹤＋相對這顆球 span 的遲滯。
+  // 殘壓（放不乾淨）會在 ~1 秒內被 floor 吸收，下一拍仍然量得到「相對上升」——不要求 level 回到絕對 0。
+  updateEdge(posDelta){
+    const e = this.edge;
+    e.floor = posDelta < e.floor ? posDelta : e.floor + (posDelta - e.floor) * EDGE_FLOOR_RISE;
+    const onThresh = Math.max(this.span * EDGE_ON_FRAC, EDGE_ON_MIN_RAW, this.noiseEma * 5);   // 雜訊大的球要更明確的握才算拍
+    const rise = posDelta - e.floor;
+    e.pulse = false;
+    if(e.armed){
+      if(rise >= onThresh){ e.pulse = true; e.armed = false; e.peak = posDelta; e.floorAtFire = e.floor; this.holdRun = 0; this.healing = false; }
+    } else {
+      if(posDelta > e.peak) e.peak = posDelta;
+      if(posDelta - e.floor <= (e.peak - e.floor) * EDGE_REARM_FRAC || rise <= onThresh * 0.35){
+        // 這一握結束＝重新武裝。舊碼在這裡還會用這一握的峰值回頭改 span（換手適應），
+        // 現在滿刻度固定，就沒有東西要適應了（Pan 2026-08-04）。
+        e.armed = true; e.peak = 0; e.floorAtFire = null;
+      }
+    }
   }
 }
 
@@ -1735,22 +1821,12 @@ function resetArrival(){
     agreeFixedAt: 0,
     agreeStartedAt: 0,        // 問題出現後的回應窗；沒有握也是回答
     suggestReadyAt: 0,        // 進 suggest 後的緩衝，避免同一次握壓誤觸繼續
-    handCue: {
-      hand: "left",
-      cueOn: false,
-      rep: 0,
-      startedAt: null,
-      scores: { 1: 0, 2: 0 },
-      completed: false,
-      lastRep: -1,
-      successThisRep: false,
-      fill: 0,
-      successSoundAt: 0,
-      waitingRelease: false,
-      releaseSince: 0,
-    },
     report: null,
   };
+  // 不校正（Pan 2026-08-04）：左右手指派原本由 cue 校正決定，現在用固定預設。
+  // 兩顆球長得一樣、WebHID 也拿不到序號，本來就無從分辨哪顆在哪隻手；唯一的差別是
+  // 左右聲道可能互換（pan ±0.52），對放鬆聲景沒有對錯。原本每個讀取點都已經有 `|| 1` / `|| 2` 的 fallback。
+  state.handMap = { left: 1, right: 2 };
   showArrivalStep("intro");
 }
 
@@ -1770,7 +1846,6 @@ function showArrivalStep(step, animate = true){
   state.arrival.transitionTo = null;
   $("arrivalIntro").style.display = step === "intro" ? "block" : "none";
   $("arrivalConnect").style.display = step === "connect" ? "block" : "none";
-  $("arrivalHandCue").style.display = step === "handCue" ? "block" : "none";
   $("arrivalPrelude").style.display = step === "prelude" ? "block" : "none";
   $("arrivalBreath").style.display = step === "breath" ? "block" : "none";
   $("arrivalHold").style.display = step === "hold" ? "block" : "none";
@@ -1802,7 +1877,7 @@ function readyCount(){
 function showConnectOrStart(){
   const n = connectedCount();
   const r = readyCount();
-  if(n >= 2 && r >= 2) beginHandCue("left");
+  if(n >= 2 && r >= 2) beginPrelude();   // 不校正，直接開始（Pan 2026-08-04）
   else {
     showArrivalStep("connect");
     updateConnectScene();
@@ -1836,32 +1911,13 @@ function updateConnectScene(){
 
 function maybeAdvanceFromConnect(){
   if(state.arrival.step !== "connect") return;
-  if(connectedCount() >= 2 && readyCount() >= 2) beginHandCue("left");
+  if(connectedCount() >= 2 && readyCount() >= 2) beginPrelude();   // 不校正，直接開始（Pan 2026-08-04）
   else updateConnectScene();
 }
 
-function beginHandCue(hand){
-  const cue = state.arrival.handCue;
-  cue.hand = hand;
-  cue.cueOn = false;
-  cue.rep = 0;
-  cue.startedAt = null;
-  cue.scores = { 1: 0, 2: 0 };
-  cue.completed = false;
-  cue.lastRep = -1;
-  cue.successThisRep = false;
-  cue.armed = false;
-  cue.fill = 0;
-  cue.successSoundAt = 0;
-  cue.waitingRelease = true;
-  cue.releaseSince = 0;
-  $("handCueTitle").textContent = hand === "left" ? "Calibration · Left hand" : "Calibration · Right hand";
-  $("handCueHint").textContent = "";
-  document.documentElement.style.setProperty("--cue-fill", "0");
-  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success");
-  showArrivalStep("handCue");
-}
-
+// beginHandCue / updateHandCue / finishHandCue 已整段移除（Pan 2026-08-04，不校正）：
+// 30.7 秒的 cue 校正學到的 span/sign/handMap 三樣都學錯（見 GRIP_FULL_SCALE 上方的註解與真實紀錄）。
+// 現在連上兩顆球就直接 beginPrelude()，零點由 GripCalibrator 自己在頭 700ms 量。
 async function bootExperience(){
   resetArrival();
   await startAudio({ resume: false }).catch(() => {});
@@ -2014,9 +2070,6 @@ function updateArrival(){
   if(state.phase !== "before") return;
   if(arrival.transitionTo) return;
   const now = performance.now();
-  if(arrival.step === "handCue"){
-    updateHandCue(now);
-  }
   // 覺察呼吸 & 表達緊張：中央球水位跟著握力，讓使用者看見自己的表達（Pan 2026-07-14).
   if(arrival.step === "breath" || arrival.step === "hold"){
     if(arrival.step === "breath"){
@@ -2160,95 +2213,6 @@ function updateArrival(){
         finishArrival();
       }
     }
-  }
-}
-
-function updateHandCue(now){
-  const cue = state.arrival.handCue;
-  const bothReleased = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
-  if(cue.waitingRelease){
-    cue.cueOn = false;
-    cue.fill *= 0.82;
-    document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
-    $("cueOrbPrompt").textContent = cue.hand === "left" ? "Relax first" : "Switch to right hand";
-    $("guideOrb").classList.add("show-cue-text", "cue-off");
-    $("guideOrb").classList.remove("cue-on", "cue-success");
-    if(bothReleased){
-      if(!cue.releaseSince) cue.releaseSince = now;
-      if(now - cue.releaseSince >= HAND_CUE_RELEASE_MS){
-        cue.waitingRelease = false;
-        cue.releaseSince = 0;
-        cue.startedAt = now;
-      }
-    } else {
-      cue.releaseSince = 0;
-    }
-    return;
-  }
-  if(!cue.startedAt) cue.startedAt = now;
-  const cycle = HAND_CUE_ON_MS + HAND_CUE_OFF_MS;
-  const elapsed = now - cue.startedAt;
-  if(elapsed < HAND_CUE_READY_MS){
-    cue.cueOn = false;
-    $("cueOrbPrompt").textContent = "Ready…";
-    $("guideOrb").classList.add("show-cue-text");
-    $("guideOrb").classList.remove("cue-on", "cue-success");
-    $("guideOrb").classList.add("cue-off");
-    return;
-  }
-  const cueElapsed = elapsed - HAND_CUE_READY_MS;
-  const rep = Math.floor(cueElapsed / cycle);
-  const doneAt = HAND_CUE_READY_MS + HAND_CUE_REPS * cycle;
-  if(elapsed >= doneAt){
-    finishHandCue();
-    return;
-  }
-  const inOn = (cueElapsed % cycle) < HAND_CUE_ON_MS;
-  cue.rep = rep;
-  cue.cueOn = inOn;
-  if(inOn && cue.lastRep !== rep){
-    cue.lastRep = rep;
-    cue.successThisRep = false;
-    cue.armed = Math.max(state.grip[1] || 0, state.grip[2] || 0) <= ARRIVAL_PRESS_OFF;
-    $("guideOrb").classList.remove("cue-success");
-    if(engine){
-      if(!state.audioFadedIn){
-        state.audioFadedIn = true;
-        if(audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
-        engine.fadeIn();
-      }
-      engine.cueWave(cue.hand === "left" ? -0.58 : 0.58);
-    }
-  }
-  // 水位直接平滑跟著握力：握起→水灌高、放鬆→退掉。校正就是用你舒適的力量（Pan 2026-07-14).
-  const grip = Math.max(state.grip[1] || 0, state.grip[2] || 0);
-  if(!inOn && grip <= ARRIVAL_PRESS_OFF) cue.armed = true;
-  $("cueOrbPrompt").textContent = inOn ? "Grip now" : "Relax";   // 提示語在球上
-  $("guideOrb").classList.add("show-cue-text");
-  cue.fill += (clamp(grip) - cue.fill) * 0.25;
-  document.documentElement.style.setProperty("--cue-fill", cue.fill.toFixed(3));
-  $("guideOrb").classList.toggle("cue-on", inOn);
-  $("guideOrb").classList.toggle("cue-off", !inOn);
-  $("guideOrb").classList.toggle("cue-success", cue.fill > 0.35);
-}
-
-function finishHandCue(){
-  const cue = state.arrival.handCue;
-  if(cue.completed) return;
-  cue.completed = true;
-  document.documentElement.style.setProperty("--cue-fill", "0");
-  $("guideOrb").classList.remove("cue-on", "cue-off", "cue-success", "show-cue-text");   // 清掉校正提示，別讓「請放鬆」殘留到後面（Pan 2026-07-15)
-  $("cueOrbPrompt").textContent = "";
-  const picked = cue.scores[2] > cue.scores[1] ? 2 : 1;
-  if(cue.hand === "left"){
-    state.handMap.left = picked;
-    beginHandCue("right");
-  } else {
-    state.handMap.right = picked === state.handMap.left ? (picked === 1 ? 2 : 1) : picked;
-    // 校正完成 → 鎖定兩顆球各自的滿刻度（滿＝剛才三握的舒適握壓）。之後只慢慢擴張，不即時追峰值。
-    if(calib[1]) calib[1].lock();
-    if(calib[2]) calib[2].lock();
-    beginPrelude();
   }
 }
 
@@ -2448,9 +2412,6 @@ function requestAudioFadeIn(){
 function setGrip(slot, level){
   const previous = state.grip[slot] || 0;
   state.grip[slot] = level;
-  const cue = state.arrival.handCue;
-  const pressEdge = previous < ARRIVAL_PRESS_ON && level >= ARRIVAL_PRESS_ON;
-  if(state.arrival.step === "handCue" && cue.cueOn && level <= ARRIVAL_PRESS_OFF) cue.armed = true;
   if(state.phase === "session" && state.guided.preset === "hold478"){
     const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數
     // 簡單遲滯：握過 ON 數一拍、掉到 OFF 以下才重新武裝。底部死區保證放開＝0，能確實掉到 OFF 以下（不卡）。
@@ -2462,19 +2423,7 @@ function setGrip(slot, level){
       advanceManual478();
     }
   }
-  if(state.arrival.step === "handCue" && cue.cueOn && cue.armed && pressEdge){
-    cue.scores[slot] += level;          // 記哪隻手在響應（左右手指派用）
-    cue.successThisRep = true;
-    cue.armed = false;
-    // 水位由 updateHandCue 直接跟著握力，不再用累加（Pan：很用力也只到 1/4).
-    $("guideOrb").classList.add("cue-success");
-    const now = performance.now();
-    if(engine && now - cue.successSoundAt > 650){
-      cue.successSoundAt = now;
-      requestAudioFadeIn();
-      engine.cueWave(cue.hand === "left" ? -0.58 : 0.58);
-    }
-  }
+  // cue 校正的「哪隻手在響應」計分已移除（Pan 2026-08-04，不校正）
   if(engine && !state.audioFadedIn && level >= ARRIVAL_PRESS_ON){
     requestAudioFadeIn();
   }
@@ -2677,7 +2626,7 @@ function onReport(e, slot){
     if(state.arrival.step === "connect") maybeAdvanceFromConnect();
     const raw = dv.getUint16(2, true);
     const c = calib[slot];
-    const rawDelta = c.baseline == null ? 0 : Math.max(0, (raw - c.baseline) * (c.sign || 1));  // 依握壓方向
+    const rawDelta = c.baseline == null ? 0 : Math.abs(raw - c.baseline);   // 不猜方向（Pan 2026-08-04）
     const level = c.update(raw);
     if(engine && !state.audioFadedIn && (level > 0.035 || rawDelta > 70)){
       requestAudioFadeIn();
@@ -3638,9 +3587,8 @@ function updateDiag(){
     const c = calib[s];
     const base = `Ball${s} [${dev(s)}]`;
     if(!c || c.baseline == null) return `${base}  raw:--`;
-    const sgn = c.sign || (c.upMax >= c.downMax ? 1 : -1);
-    const gd = Math.round((c.smRaw - c.baseline) * sgn);       // 握壓方向的 delta（正＝往握的方向）
-    return `${base}\n   raw~${Math.round(c.smRaw)} base~${Math.round(c.baseline)} d${gd} sign${sgn} span${Math.round(c.span)}${c.locked ? "*" : ""} lvl${(state.grip[s] || 0).toFixed(2)}`;
+    const gd = Math.round(Math.abs(c.smRaw - c.baseline));     // 不猜方向：偏離零點的量（見 GripCalibrator）
+    return `${base}\n   raw~${Math.round(c.smRaw)} base~${Math.round(c.baseline)} d${gd} full${Math.round(c.span)}${c.zeroed ? "" : " zeroing"} lvl${(state.grip[s] || 0).toFixed(2)}`;
   };
   el.textContent = [
     `phase:${state.phase}  step:${state.arrival.step}`,

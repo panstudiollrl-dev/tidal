@@ -47,18 +47,23 @@ Python：`struct.pack("<BB25s", report_id=1, cmd_id, padded_data)` → `device.w
 - 待機 relaxed 值約 `34000`（因球而異，**務必自動校正 baseline**，不要寫死）。
 - 用力握相對 baseline 約 `+1250`（`auto_full_scale`）即可視為滿刻度，讓整個聲音映射不必用蠻力就達得到。
 - 舊原型的固定觸發值為 `37000`（`grip_sound_demo.py` 仍用），但 Tidal 沿用 nature_loop 的**自動校正 + 慢漂移歸零**：緩慢變化視為感測器漂移、併入 baseline；快速上升才算一次握壓 onset。
-- **浮動滿刻度（Tidal web，更新 2026-07-20 晚）**：目前程式正在除錯階段，**不可視為穩定校正方案**。Pan 最新回饋：4-7-8 會卡住；校正效果不大；數字/水位有時像反向；同一顆球有時很敏感、有時正常。為了分析真球，`web/index.html` 已新增操作 log（按 **L** 下載、`localStorage` key `tidal_grip_operation_log_v1`），每筆 report 記 raw、baseline、sign、span、level、cue state。請以 log 判斷，不要只憑感覺調常數。
-  - `GRIP_MIN_SPAN = 250`：為了讓弱球也有明顯水位而降低，但可能放大低端漂移/輕觸。
-  - `GRIP_MAX_SPAN = 1500`
-  - `GRIP_HEADROOM = 1.35`：舒適最大握力不會立刻被映射成 100%。
-  - `GRIP_GAMMA = 0.78`
-  - `GRIP_DEADZONE = 0.10`
-  - `GRIP_SPAN_DECAY = 0.99985`
-  - `GRIP_POLARITY_MARGIN = 45`：校正 cue 期間收集 rest / press raw median，用 `press-rest` 判斷 polarity。若使用者 cue 前已握著、或某顆球低端漂移，仍可能判錯。
-  - baseline 漂移目前仍是 heuristic，不是完整 per-ball estimator；4-7-8 卡住時，先看 log 中放鬆後 `level` 是否仍高於 `MANUAL_478_OFF`，以及握下去 `delta` 是否為正。
-
-  接手者測試時請確認：只是拿起球不刻意握時水位應接近 0；舒適握應有明顯但不滿格的反應；很用力才接近滿水位。若要再做 per-ball span lock，請不要直接回到 2026-07-17 後段那套已造成流程混亂的版本，而要另寫小步模擬與真球測試。
-- **更新 2026-07-20 深夜（Claude）**：上面段落描述的四個問題已各自定位並修正（sign 無 margin 亂跳／未鎖定 baseline 快追吃掉下降型證據／span 鎖定後仍衰減到地板＝越玩越敏感／478 全域 level 門檻卡拍）。修法與 18 項 node 模擬紀錄見 `AGENTS.md` 2026-07-20 (e)。4-7-8 現在走 per-ball edge detector（rest floor＋相對 span 遲滯），殘壓不用回到 0 也數得到拍。**尚待真球驗證**：跑一輪→按 L 下載 log→`python3 tools/analyze_grip_log.py <log>` 自動判讀。
+- **現行做法：不校正、固定滿刻度（Tidal web，2026-08-04 起）** ← 這是目前上線的版本
+  - 只量**一次零點**：連上球後頭 `GRIP_BASELINE_MS = 700` ms 內 raw 的**中位數**＝零點（中位數不是平均，取樣中手抖一下的尖峰拉不走它）。零點定案前水位一律回 0。
+  - 滿刻度**寫死**：`GRIP_FULL_SCALE = 900`（raw，相對零點），不再學、不再浮動。這是**唯一需要調的數字**——若真球偏硬（全力握到不了 900），只調它，其餘都不用動；按 **D** 開診斷面板會顯示 `full900`。
+  - **方向不猜**：用 `Math.abs(rawDev)`。不論這顆球握下去 raw 是升是降，握＝水位上升，在定義上不可能倒反。
+  - `GRIP_HEADROOM = 1.22`、`GRIP_GAMMA = 0.78`、`GRIP_DEADZONE = 0.13`（死區 143 raw，蓋得住拿起球的殘壓 62 raw、又不吃掉輕握 188 raw）。
+  - 左右手指派固定為 `handMap = { left: 1, right: 2 }`。兩顆球長得一樣、WebHID 也拿不到序號，本來就無從分辨；唯一差別是左右聲道可能互換，對放鬆聲景沒有對錯。
+  - 對照表（FULL = +1250 的球）：輕拿殘壓 62raw→0.00、輕握 188raw→0.02、舒適握 438raw→0.40、明確握 750raw→0.70、全力→1.00。正是本節上面要求的「只拿著不刻意握≈0、舒適握明顯但不滿格、很用力才接近滿」。
+  - 驗證：`node tmp/sim_grip_nocalib.js`（中文版）與 `node tmp/sim_grip_nocalib.js en`（英文版），83 項斷言，兩份都跑。測試用 regex 從 `index.html` 抽**真正的**常數與 `GripCalibrator` 來跑，不重寫邏輯。
+  - ⚠️ **弱球風險（誠實記錄）**：`GRIP_FULL_SCALE = 900` 是為協定實測 +1250 的球挑的。若某顆球全力握只有 +300 raw（2026-07-17 Pan 曾遇到），全力握只到 0.23。測試 [7] 會把這件事印出來並直接給該調成多少。
+- ~~**浮動滿刻度（2026-07-20 晚）**~~：**已於 2026-08-04 整段移除**，連同 30.7 秒的左右手 cue 校正。保留這段記錄是為了說明「為什麼不要再走回去」：
+  - 那套用 cue 校正學 `span` / `sign` / `handMap`，三樣都學錯了，而且有 Pan 的真實紀錄可證。`record/tidal_record_2026-07-29T06-31-52.json`：ball1 `calibSpan 171`、ball2 `calibSpan 185`，`lockedSpan 143 / 141` ＝幾乎等於當時的地板 `GRIP_MIN_SPAN_LOCKED = 140`。四顆球次裡三顆落在地板上，也就是 30.7 秒之後校正沒提供任何資訊，是那個常數在做事。
+  - 算術對得上：`span = 峰值中位數 × GRIP_PEAK_TO_SPAN(0.68)` → 252×0.68=171、273×0.68=185，代表校正期間只量到 250–273 raw，而本節上面實測「用力握」是 **+1250 raw**。
+  - 根因是 cue 的提示字**「輕輕握就好」**（2026-07-22 為了讓人不要用力而改的）——使用者最輕的一握被當成了滿刻度。
+  - 這正好解釋 Pan 的兩個回饋：span 掉到地板→輕握就滿、殘壓 62raw 被讀成 0.36（高於答題門檻 `AFTER_ON` 0.24 ＝殘壓被當成答案）＝「有時超級敏感」；30.7 秒沒換到東西＝「校正效果不大」。`sign` 也不穩：同一顆 ball2 兩份紀錄一次學成 +1、一次 −1（`pressMinusRest` +98 / −114）＝「水位有時倒過來」。
+  - 教訓：**能寫死的就不要學，學錯比沒學更糟。** 與 duck-hunt 的 `QUICK_ENGAGE_FORCE` 同一個想法。
+  - 舊常數（`GRIP_MIN_SPAN` / `GRIP_MAX_SPAN` / `GRIP_SPAN_DECAY` / `GRIP_MIN_SPAN_LOCKED` / `GRIP_PEAK_TO_SPAN` / `GRIP_POLARITY_MARGIN` / `HAND_CUE_*`）都已不存在。
+- 4-7-8 的「握一拍」仍走 per-ball edge detector（rest floor＋相對滿刻度的遲滯），殘壓不用回到 0 也數得到拍——這部分**沒有**跟著校正一起改。操作 log 仍在（按 **L** 下載、`localStorage` key `tidal_grip_operation_log_v1`），但欄位已隨校正移除而簡化（不再有 `sign` / `calibSpan` / `lockedSpan` / `peakLeft` / `peakRight`）。
 
 ## 觸覺回饋（haptic，可選）
 
@@ -83,10 +88,15 @@ send_command(dev, cmd_id=11, data_bytes=cmd_data)
 
 ## 兩顆球 = 兩隻手
 
-Web 版以授權/連線順序分成 **Ball 1 / Ball 2**，再用左右手 cue 學 `handMap.left/right`。不要假設 Ball 1 永遠是左手或永遠是某顆 serial。
-每顆各自維護 baseline、polarity sign、span 與 level，互不干擾；球可在執行中加入或離開。
+Web 版以授權/連線順序分成 **Ball 1 / Ball 2**。不要假設 Ball 1 永遠是某顆 serial。
+`handMap.left/right` 自 2026-08-04 起是**固定預設** `{left: 1, right: 2}`（原本用左右手 cue 學，見上面「不校正」段落——兩顆球本來就分辨不出來，唯一差別是左右聲道可能互換）。
+每顆球各自維護零點 baseline、rest 參考位與 level，互不干擾；球可在執行中加入或離開。滿刻度是全域固定常數，不再 per-ball。
 
 ## Arrival 校正注意（2026-07-15 實測問題）
+
+> ⚠️ **本節已成歷史（2026-08-04）**：cue 校正整段移除，因此下面關於「三次 cue」「per-ball span lock」的指引**不再是待辦事項**。
+> 保留是因為它記錄了兩件仍然有效的教訓：(1) 不要用「降低全域門檻」來讓校正好過；(2) 輕碰不該等於有意圖的握壓——這件事現在由固定死區（143 raw）達成，不需要校正。
+> 若未來有人想重做校正，請先讀上面「不校正」段落裡的真實紀錄，再決定是否真的需要。
 
 > 更新（Claude 2026-07-15）：造成「稍微碰到就進下一階」的那個過度敏感版本（Codex 降低全域門檻）**已 revert 回 0dbffa0**，目前左右手 cue 是時間節奏、不會碰一下就跳。以下是**未來要正確重做 per-ball 校正**時的指引（不要再用降全域門檻的方式）。
 
