@@ -71,7 +71,111 @@
 
 ## 交接紀錄
 
-### 2026-08-04 (b) — Claude (Opus)｜空間音訊 A/B/C 試聽台（`web/spatial_bench.html`）—— 主頁未動，等 Pan 的耳朵決定
+### 2026-08-04 (c) — Claude (Opus)｜Pan 選了 C：實測 HRIR 卷積上主頁（中英文版同步）＋ shimmer 調大
+
+- **Pan 的決定**：「c 的表現最好，請用它來套用到我的 tidal 專案裡面，然後 shimmer 的相對音量可以再大點嗎」。
+  所以 (b) 那則裡「主頁未動」的狀態**到這裡結束**——`web/index.html` 與 `web/en/index.html` 都改了。
+  Omnitone（B 路）**沒有選用**，`web/vendor/omnitone.min.js` 目前留著沒刪（見下面待決事項）。
+
+- **做了什麼**
+  1. `assets/hrir/`：從 duck-hunt 複製水平面 90 個 IR（48kHz / float32 / stereo / 256 taps，共 368KB）
+     ＋ `manifest.json` ＋ `README.md`（來源、量測、補償表都在那裡）。只取 `ele=0`，那邊另有 ±15°/+30°。
+  2. 兩頁都新增 `HrirBank`（多候選路徑載入、繞圈找最近角度、per-IR L2 norm、粗暖一圈）與
+     `HrirSource`（單聲道化＋makeup＋雙 convolver 交叉淡化＋退回 panner）。
+  3. 走實測 HRIR 的層：主浪匯流排（surge/foam/pebble）、bubble、左右岸浪。
+  4. `SHIMMER_LEVEL = 1.6`（+4.1dB），乘在整個 `causticAmt` 上。
+
+- **⚠️ 一個一定要先知道的量測結果：不補償就等於偷改 Pan 調好的平衡。**
+  這批 IR 在低頻是往下斜的。以 `foam`（HP1500）為 0dB 基準，在各層**真實濾波器頻帶**內取
+  對數等距 13 點 DFT、90 個方向取中位數：
+
+  | 層 | 頻帶 | 卷積後帶內增益 | 補償 |
+  |---|---|---|---|
+  | drone | BP260 | −17.1dB | 7.19× |
+  | bubble | BP320 | −13.7dB | 4.82× |
+  | shore | LP640 | −12.3dB | 4.10× |
+  | pebble | LP700 | −11.2dB | 3.61× |
+  | surge | LP800 | −9.9dB | 3.11× |
+  | shimmer | LP1450 | −4.7dB | 1.72× |
+  | foam | HP1500 | +1.4dB | 0.85× |
+
+  低頻層會整體掉 10–14dB ＝ 悄悄把 Pan 依阿朗壹錄音調好的比例改掉。卷積是線性的，所以在
+  **進 convolver 之前**乘上係數就能還原，而且左右耳乘同一個數，ILD（方向線索）不受影響。
+  方向之間還有 −2.4 .. +7.5dB 的起伏，那是 HRTF 本來就有的，**不補、也不該補**。
+
+  **因此主頁會比 Pan 在 bench 聽到的 C 路低頻更足**——bench 的 C 路沒有這層補償。這是刻意的，
+  但也是「Pan 認可的聲音」與「上線的聲音」之間唯一的差別，所以頁面上留了 **H 鍵**可以即時
+  切回瀏覽器內建 HRTF 做 A/B。**如果 Pan 覺得太厚，先動 `SPATIAL_MAKEUP` 而不是動各層的
+  `gain.value`**（後者是 Pan 自己調的聲音設計，補償是後來加的修正項）。
+
+- **兩個刻意的邊界（是決定，不是漏掉）**
+  - **shimmer 不過 HRIR**：它是「一片」水光而不是點聲源，過點聲源定位會把它收成一個方向
+    ——跟 `sub` / `wide` 同樣的理由。沒經過 HRIR 就沒有要補的損失，所以也沒有 makeup。
+  - **一次性音效（impact / cue / glint）留在內建 panner**：① bench 只比較了 5 個持續層，
+    Pan 的耳朵認可的是那些；② 那三個是寬頻瞬態，內建 panner 的弱點（低頻持續帶）在那裡
+    影響最小；③ glint 約 1.6 次/秒，每次多開一顆 convolver 是真實的效能代價。要不要一起換
+    **請 Pan 決定**。
+
+- **⚠️ 資料集來源：duck-hunt 的標示是錯的，而正確答案還沒確認。**
+  duck-hunt 的 `.gitignore` 把來源池標成「1551 個 MeshRIR HRIR wav」。**這個標示錯了**：
+  MeshRIR 是**房間**麥克風陣列（3969 顆全向麥克風），裡面沒有 HRTF。實測：
+
+  | 方位角 | 峰值 ITD | ILD |
+  |---|---|---|
+  | 0° | 0µs | −2.2dB |
+  | 45° | +167µs | +16.5dB |
+  | 90° | +583µs | +20.4dB |
+  | 270° | −583µs | −17.2dB |
+
+  ±583µs 與 20dB 是**人頭**量級（真人 ITD 上限約 ±700µs），90°/270° 對稱翻號。相距 0.3m 的
+  兩顆**全向**麥克風不會有 20dB 的耳間差（沒有頭部遮蔽），ILD 會接近 0。所以這批是真 HRIR。
+  `gripball_webhid.js:1514` 的「SADIE-style」比較接近。**但確切的原始資料集仍未確認**
+  （來源池 `hrir_wavs/` 不在 repo、也不在這台機器上），所以**沒有**替它寫任何引用。
+  **要對外發佈前請先確認原始資料集與授權**——不要照抄 SADIE II / CC BY 4.0 的說法。
+  （`assets/ir/room.wav` 是另一件事：那個確實是 MeshRIR、CC BY 4.0、要標註 Shoichi Koyama et al.，
+  標註仍在 `assets/ir/README.md`。兩者同時在用：HRIR 給方向、room.wav 給房間。）
+
+- **怎麼驗證**（都從 `Tidal/` 這層跑）
+  ```
+  node tmp/test_hrir_spatial.js       # 169 項斷言（中英文版各跑一次結構斷言）
+  node tmp/mutate_hrir_spatial.js     # 59/59 個突變被擋下（兩頁各注入一次）
+  python3 -m http.server 8000         # 然後開 http://localhost:8000/web/index.html
+  ```
+  **注意這次測試放在 `Tidal/tmp/`（進 repo），不是以前的 `EEG/tmp/`（在 repo 外、沒版控）。**
+  理由：測試跟著它驗的碼一起版控，換機器 clone 就能跑；`EEG/` 不是 git repo，放那裡等於
+  只存在這台機器上。舊的 `EEG/tmp/*.js` 沒有搬（Drive 讀不到），所以兩處暫時並存——
+  **建議下一位把舊的也搬進 `Tidal/tmp/`**，並把路徑從 `EEG/` 相對改成 `Tidal/` 相對。
+  測試**讀真的 IR 檔**量 ITD/ILD 當真值（不用假資料），並且 regex 抽 `index.html` 裡**真正的**
+  `nearest()` / `SPATIAL_MAKEUP` 出來跑，不在測試裡重寫一份。最關鍵的兩項是
+  「pan=+1 挑到的 IR 右耳要更大聲」（左右搞反不會報錯、只會聽起來相反）與「makeup 要等於
+  從真 IR 重算的值」。診斷面板（**D**）多了一行 `spatial:`，可以看到目前用哪條路、暖了幾顆 IR。
+
+- **⚠️ 未完成 / 卡住**
+  - **這次的改動還沒進 Google Drive 也還沒 commit。** 工作期間整個 Drive 掛載變成
+    `Operation not permitted`（連帳號根目錄都 `ls` 不了，Drive 行程還活著），所以我從已推上去的
+    `b3f59a0` clone 到 **`/tmp/tidal-work`** 繼續做。**掛載恢復後要把 `web/index.html`、
+    `web/en/index.html`、`assets/hrir/`、`tmp/test_hrir_spatial.js`、`tmp/mutate_hrir_spatial.js`、
+    `tmp/port_hrir_to_en.py`、`AGENTS.md` 複製回 Drive 再 commit / push。** 沒有東西遺失
+    （`b3f59a0` 是剛推上去的），但**在複製回去之前 Drive 上的 repo 沒有這些改動**。
+  - 上次 push 也遇過 Drive 的 `mmap failed`：解法是 clone 到 `/tmp`、`git fetch <drive路徑> main:drivemain`
+    → `merge --ff-only` → 從 `/tmp` push。
+  - `tmp/test_foa_encode.js` [10] 那條 `!/spatial_bench/` 是整檔字串比對，現在會對**註解裡**
+    提到出處的那行誤報。原意是「主頁不能**依賴** bench」，所以 `tmp/test_hrir_spatial.js` 改成只驗
+    `script src` / `import` / `fetch`。**那條舊斷言要改成同樣的寫法**（該檔在 Drive 的 `EEG/tmp/`，
+    目前讀不到，所以還沒改）。`!/omnitone/` 那條仍然成立、也已在新測試裡覆蓋。
+  - 這次**只用測試與量測驗過，還沒有人用耳朵聽過**。H 鍵 A/B 就是為此留的。
+
+- **給下一位的建議**：Pan 若說「低頻太多」→ 調 `SPATIAL_MAKEUP`（整體乘一個 <1 的數），
+  不要動各層的 `gain.value`。若說「方向感沒差多少」→ 先按 H 確認 A/B 真的有切換
+  （看 `spatial:` 那行），再看是不是 `cached` 數字太小（IR 沒暖到）。
+
+---
+
+### 2026-08-04 (b) — Claude (Opus)｜空間音訊 A/B/C 試聽台（`web/spatial_bench.html`）—— ⚠️ 「主頁未動」已由 (c) 取代
+
+> ⚠️ **後續**：Pan 之後聽了 bench，選了 **C 路（實測 HRIR）**，主頁已於 **(c)** 那則改掉。
+> 下面「主頁刻意一行都沒改」只描述 (b) 當時的狀態。這則其餘的內容（三件事的釐清、
+> 量測證據、Solarmix 的 SHA-1 發現、Omnitone 的 2019 停更）仍然有效。
 
 - **Pan 的要求**：「我覺得可以用看看 Omnitone 的 spatial audio，但我之前不是有 MeshRIR 嗎，我的 duck-hunt 也是用這個」→「我其實就是覺得，跟 duck-hunt 或 Solarmix 既有的就好了」→**「先讓我試用看看再決定好嗎」**。所以這次的交付物是**一個獨立的試聽台**，`web/index.html` **刻意一行都沒改**（有測試釘住：`test_foa_encode.js` [10] 斷言主頁不含 `omnitone`）。
 

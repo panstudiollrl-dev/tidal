@@ -13,7 +13,12 @@ python3 -m http.server 8000
 
 用**桌面版 Chrome 或 Edge** 開 <http://localhost:8000/web/index.html>（Safari / Firefox 不支援 WebHID）。
 
-> ⚠️ **root 要在 `Tidal/`**：`index.html` 抓 `../assets/ir/room.wav`；若從 `web/` 開 server，`../` 逃出根目錄會 404（MeshRIR 空間著色靜默載不到，海仍會響）。`loadIR` 已會依序試多個候選路徑，但 `assets/` 實體在 `Tidal/` 底下，所以 server 根至少要到 `Tidal/`。
+> ⚠️ **root 要在 `Tidal/`**：`index.html` 抓 `../assets/ir/room.wav` **與 `../assets/hrir/`**；若從 `web/` 開 server，`../` 逃出根目錄會 404（房間著色與**方向定位**都會靜默退回，海仍會響）。兩者都會依序試多個候選路徑，但 `assets/` 實體在 `Tidal/` 底下，所以 server 根至少要到 `Tidal/`。
+
+> **空間定位（Pan 2026-08-04）**：方位改用 `assets/hrir/` 的**實測 HRIR 卷積**（盲測選定，
+> 見 `AGENTS.md` 2026-08-04 (b)(c)）。載不到就自動退回瀏覽器內建 `PannerNode(HRTF)`——
+> 聲音永遠成立。按 **H** 可即時 A/B 對照；按 **D** 開診斷面板，`spatial:` 那行會顯示
+> 目前走哪條路、暖了幾顆 IR。
 
 ## 握力球型號
 
@@ -41,7 +46,7 @@ WebHID 不會穩定把 serial number 暴露給頁面，所以程式用 vendor/pr
 
 ## 現況與待補（TODO(agent)）
 
-已可跑但目前**不是穩定手感版**：程序式三層海浪（surge / foam / impact）、多 LFO 疊加的湧浪動態、PannerNode(HRTF) + **MeshRIR ConvolverNode（dry/wet）空間鏈**、揮動跟隨方向、**用力握+揮動才觸發的拍石**（蓄積 swell + 長殘響尾巴）、WebHID 讀 GRIP RAW／IMU、自動校正、鍵盤模擬、**Arrival 抵達流程**（左右手對應 + 30 秒吸握吐放呼吸覺察 + 1.2 秒緊張程度握持 + 小 report + 使用者確認 + 依自我檢測建議呼吸場景 + CSV 欄位）、**引導 session preset**（海潮 / 左右潮 / 4-7-8 / 風箱：呼吸相位×握力水位×心跳海色）、**4-7-8 手動握拍**（球心數字 + 階段文字 + 每握一下扣一拍 + 可接語音）、**海作為主視覺**（最新為站在岸邊看出去的青綠海面、近岸白浪/水膜）、**中央圓球**（握力越大越被擠小，光與水位增強）、**鵝卵石大圓石低頻滾動**（阿朗壹風，Ball2 grip 主控捲動量、退浪相位給節奏）＋**低頻包覆床**、session 自評與 CSV 匯出。**最新 blocker（Pan 2026-07-20）是握力校正仍不可靠：4-7-8 會卡住；數字/水位有時像反向；同一顆球有時過敏、有時正常。請先用 L 鍵操作 log 判讀 raw/baseline/sign/span/level，再決定怎麼修。**
+已可跑但目前**不是穩定手感版**：程序式三層海浪（surge / foam / impact）、多 LFO 疊加的湧浪動態、**實測 HRIR 卷積方位層**（`assets/hrir/`，未載入時退回 PannerNode(HRTF)）+ **MeshRIR ConvolverNode（dry/wet）空間鏈**、揮動跟隨方向、**用力握+揮動才觸發的拍石**（蓄積 swell + 長殘響尾巴）、WebHID 讀 GRIP RAW／IMU、自動校正、鍵盤模擬、**Arrival 抵達流程**（左右手對應 + 30 秒吸握吐放呼吸覺察 + 1.2 秒緊張程度握持 + 小 report + 使用者確認 + 依自我檢測建議呼吸場景 + CSV 欄位）、**引導 session preset**（海潮 / 左右潮 / 4-7-8 / 風箱：呼吸相位×握力水位×心跳海色）、**4-7-8 手動握拍**（球心數字 + 階段文字 + 每握一下扣一拍 + 可接語音）、**海作為主視覺**（最新為站在岸邊看出去的青綠海面、近岸白浪/水膜）、**中央圓球**（握力越大越被擠小，光與水位增強）、**鵝卵石大圓石低頻滾動**（阿朗壹風，Ball2 grip 主控捲動量、退浪相位給節奏）＋**低頻包覆床**、session 自評與 CSV 匯出。**最新 blocker（Pan 2026-07-20）是握力校正仍不可靠：4-7-8 會卡住；數字/水位有時像反向；同一顆球有時過敏、有時正常。請先用 L 鍵操作 log 判讀 raw/baseline/sign/span/level，再決定怎麼修。**
 
 > 註：頁面上的「即時節奏」顯示已移除（Pan 2026-07-09：聽覺感覺不到、無實質意義）。`dominant_mode` 仍在背景計算、只寫進 CSV 供研究，不顯示給使用者。
 

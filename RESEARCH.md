@@ -12,7 +12,7 @@
 | 合成語言（主線） | **Web Audio（`web/index.html`）** | 延續 `Gripball/nature_loop_web.html` 已驗證的 WebHID 骨架；零安裝、桌面 Chrome/Edge 可跑；兩人團隊維護成本低。 |
 | 合成語言（副線） | **Max/MSP + gen~** | 聲音設計時快速試 DSP（`gen~` 可寫 sample-level 演算法）；定案參數再搬回 Web。非必須。 |
 | 海浪聲學模型 | **Andy Farnell《Designing Sound》水體/海浪法** | 程序式、參數化、即時可控，正好符合「有界 recipe、即時互動」需求；比純播放錄音更能把「潮汐/方向」變成連續維度。 |
-| 空間音訊 | **先 PannerNode(HRTF)，再選配 MeshRIR convolution / ambisonics** | 由簡到繁；先驗證方向感對放鬆的價值，再決定是否承擔 IR 資料與 convolution 複雜度。 |
+| 空間音訊 | **實測 HRIR 卷積（方向）＋ MeshRIR convolution（房間）**；`PannerNode(HRTF)` 降為退路 | 由簡到繁走完了：先用 PannerNode 驗證方向感有價值，2026-08-04 Pan 盲測後換成實測 HRIR。ambisonics（Omnitone）評估後未選用。詳見 §4。 |
 
 > 為何是程序式而非只播海浪錄音：錄音是固定資料，無法讓「握力→潮汐」平滑連續地改變浪的物理。Farnell 的核心主張正是「把聲音當成一段可即時改變的程序（procedural audio），而非資料」。這與 Tidal 要的即時互動天然契合。
 
@@ -66,6 +66,30 @@
 - **JSAmbisonics**：瀏覽器用的 FOA/HOA ambisonics 處理。<https://github.com/polarch/JSAmbisonics>
 
 選型建議：先 PannerNode 驗證概念；要更強包覆感或多點聲場再上 Convolver(MeshRIR) 或 ambisonics。避免一開始就扛函式庫與資料複雜度。
+
+### 選型結果（Pan 2026-08-04 用 `web/spatial_bench.html` A/B/C 盲測）
+
+先釐清一個一直被「空間感」這個詞混在一起的**三件事**（三者可以並存，Tidal 現在同時用前兩個）：
+
+| | 給的是什麼 | Tidal 現況 |
+|---|---|---|
+| `assets/ir/room.wav`（MeshRIR） | **房間**殘響與著色 | 一直在用（`convolver`，dry/wet） |
+| `assets/hrir/`（實測 HRIR） | **方向**（ITD／ILD） | ✅ 2026-08-04 選定 |
+| Omnitone | ambisonic **解碼**用的設計濾波器 | ❌ 未選用 |
+
+| 路 | 是什麼 | 結果 |
+|---|---|---|
+| A | `PannerNode(HRTF)`（原本的做法） | 退為 HRIR 未載入時的退路 |
+| B | Omnitone FOA 編碼 + binaural 解碼 | **未選用**。另外它 2019-01 之後就沒有實質更新（最後版本 1.3.0，Resonance Audio Web SDK 已封存），對兩人團隊是長期風險——符合 `AGENTS.md` §「不要引入重依賴」的顧慮。 |
+| **C** | **實測 HRIR 卷積**（duck-hunt 那批 IR） | ✅ **Pan：「c 的表現最好」** |
+
+實作與注意事項見 `DESIGN.md` §5、`assets/hrir/README.md`、`AGENTS.md` 2026-08-04 (b)(c)。
+其中一件**不看量測會踩到**的事：那批 IR 低頻往下斜，各層進 convolver 前要乘 `SPATIAL_MAKEUP`
+的補償係數（最低的頻帶掉 13.7dB），否則等於悄悄改掉調好的層間平衡。
+
+另外，Solarmix 的 `test_hrtf.sofa` **不能拿來用**：它與 Steam Audio 內附的
+`dtf_nh2.sofa` 位元完全相同（SHA-1 `ea957d15525028a80c073eab970c36583c8dac4c`），
+是 Steam Audio 隨附的 ARI `nh2` DTF，不是 Pan 自己量的；而且 SOFA 是 HDF5，Web Audio 讀不了。
 
 ## 5. 與既有原型的銜接
 

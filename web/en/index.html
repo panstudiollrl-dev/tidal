@@ -1046,9 +1046,181 @@ class GripCalibrator {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   實測 HRIR 卷積定位（Pan 2026-08-04 在 web/spatial_bench.html 盲測選定的 C 路）
+
+   取代瀏覽器內建的 PannerNode(HRTF)。IR 在 assets/hrir/（90 個水平面方位角，
+   來源與量測見那裡的 README.md）。
+
+   三個一定要記住的點：
+   1. **`normalize = false`**：IR 本身就帶著實測的耳間音量差(ILD)，讓瀏覽器
+      正規化會把我們要的方向線索抹平。
+   2. **卷積前要單聲道化**：立體聲來源（pebble / wide）的原有立體聲影像會汙染
+      HRIR 的左右耳資訊（duck-hunt SPATIAL_AUDIO.md 第 1 點）。
+   3. **卷積前要乘 makeup 補償**：這批 IR 低頻往下斜，bubble 那種頻帶會掉 13.7dB。
+      不補就是悄悄把 Pan 依阿朗壹錄音調好的平衡改掉。左右耳乘同一個數，ILD 不受影響。
+      每層的係數見 SPATIAL_MAKEUP，量測方法寫在 assets/hrir/README.md。
+
+   聲音永遠成立：IR 還沒到（或整批載不到）就走內建 HRTF panner，不會因此沒聲音。
+   ═══════════════════════════════════════════════════════════════════════════ */
+const HRIR_BASE_CANDIDATES = ["../assets/hrir/", "/assets/hrir/", "assets/hrir/", "../../assets/hrir/"];
+// 照抄 duck-hunt 的 hrirGainFor：那批 IR 存得很小聲、而且各方向的能量差很多，
+// 所以「一個固定倍數」不可能對；除以每個 IR 自己的 L2 norm 才會等大聲。
+const HRIR_MATCH = 0.93;
+const HRIR_MIN_NORM = 0.02;
+const HRIR_FADE = 0.06;        // 換角度時的交叉淡化秒數（平滑不跳變）
+// 各層在自己濾波器頻帶內量到的補償係數（assets/hrir/README.md 有完整表格與方法）
+// 只列真的走 HRIR 的層。**一次性音效（impact / cue / glint）刻意留在內建 HRTF panner**：
+// ① bench 只比較了這 5 個持續層，Pan 的耳朵認可的是那些；② 那三個是寬頻瞬態，內建
+// panner 的弱點（低頻持續帶）在那裡影響最小；③ glint 約 1.6 次/秒，每次多開 convolver
+// 會是真實的效能代價。要不要一起換請 Pan 決定，見 AGENTS.md 交接紀錄。
+const SPATIAL_MAKEUP = { surge: 3.11, foam: 0.85, pebble: 3.61, bubble: 4.82, shore: 4.10 };
+// 波光的相對音量（Pan 2026-08-04：「shimmer 的相對音量可以再大點」）。
+// 1.0 ＝ 2026-07-16 調的原始值；1.6 ＝ +4.1dB。只調這個數字就好，見 loop() 裡的用處。
+const SHIMMER_LEVEL = 1.6;
+
+class HrirBank {
+  constructor(ctx){
+    this.ctx = ctx;
+    this.base = null;
+    this.azimuths = [];
+    this.buffers = new Map();
+    this.norms = new Map();
+    this.pending = new Set();
+    this.ready = false;
+  }
+  async load(){
+    for(const base of HRIR_BASE_CANDIDATES){
+      try{
+        const r = await fetch(base + "manifest.json");
+        if(!r.ok) continue;                       // 這個路徑沒有，試下一個
+        const entries = await r.json();
+        this.azimuths = entries.filter(e => e.ele === 0).map(e => e.azi).sort((a, b) => a - b);
+        if(!this.azimuths.length) continue;
+        this.base = base;
+        this.ready = true;
+        log(`Loaded measured HRIR: ${this.azimuths.length} horizontal azimuths (spatial imaging).`);
+        // 先暖一圈粗的，讓一開始就有方向可用；沒暖到的角度會在用到時才抓。
+        for(let a = 0; a < 360; a += 15) this.warm(this.nearest(a));
+        return true;
+      }catch(_err){ /* 試下一個候選路徑 */ }
+    }
+    log("HRIR not loaded; spatial imaging falls back to the built-in HRTF (the sea still holds).");
+    return false;
+  }
+  nearest(target){
+    if(!this.azimuths.length) return null;
+    let best = this.azimuths[0], bd = 1e9;
+    for(const a of this.azimuths){
+      // 繞圈：358° 距離 2° 只有 4°，直接取絕對值差會挑到頭的另一邊
+      const d = Math.min(Math.abs(a - target), 360 - Math.abs(a - target));
+      if(d < bd){ bd = d; best = a; }
+    }
+    return `ir_azi${String(best).padStart(3, "0")}_ele000.wav`;
+  }
+  get(name){ return this.buffers.get(name) || null; }
+  norm(name){ return this.norms.get(name) || HRIR_MIN_NORM; }
+  async warm(name){
+    if(!name || !this.base || this.buffers.has(name) || this.pending.has(name)) return;
+    this.pending.add(name);
+    try{
+      const r = await fetch(this.base + name);
+      if(!r.ok) throw new Error(name + " " + r.status);
+      const buf = await this.ctx.decodeAudioData(await r.arrayBuffer());
+      // L2 norm：卷積會把訊號乘上 IR 自己的能量，所以每個 IR 都要各算一次
+      let sum = 0;
+      for(let ch = 0; ch < buf.numberOfChannels; ch++){
+        const d = buf.getChannelData(ch);
+        for(let i = 0; i < d.length; i++) sum += d[i] * d[i];
+      }
+      this.norms.set(name, Math.sqrt(sum / buf.numberOfChannels));
+      this.buffers.set(name, buf);
+    }catch(_err){
+      /* 單一角度載不到就繼續用目前那顆 IR：不吵使用者、也不會沒聲音 */
+    }finally{
+      this.pending.delete(name);
+    }
+  }
+}
+
+/* 一個可移動的空間聲源：對外只有 input / setDirection()，替換掉原本的 panner。
+   內部兩顆 convolver 交叉淡化——Tidal 的層都是持續發聲而且會移動的，換角度時
+   直接換 buffer 會有喀聲。（duck-hunt 的一次性音效不需要，角度在觸發時就定了。） */
+class HrirSource {
+  constructor(ctx, bank, makeup = 1, fallback = null){
+    this.ctx = ctx; this.bank = bank; this.active = "A"; this.irName = null;
+    this.input = ctx.createGain();
+    this.output = ctx.createGain();
+    // 單聲道化＋makeup 補償（一個節點做兩件事：立體聲來源攤平、還原帶內音量）
+    this.mono = ctx.createGain();
+    this.mono.channelCount = 1;
+    this.mono.channelCountMode = "explicit";
+    this.mono.channelInterpretation = "speakers";
+    this.mono.gain.value = makeup;
+    this.input.connect(this.mono);
+    for(const k of ["A", "B"]){
+      const c = ctx.createConvolver();
+      c.normalize = false;              // 保住實測的 ILD
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      this.mono.connect(c); c.connect(g); g.connect(this.output);
+      this["conv" + k] = c; this["gain" + k] = g;
+    }
+    // 退回路徑：IR 還沒到之前走內建 HRTF panner（有 fallback 就用，否則直通）。
+    // 寧可暫時沒有實測方向，也不要沒有聲音。
+    this.fallback = fallback;
+    this.bypass = ctx.createGain();
+    this.bypass.gain.value = 1;
+    this.input.connect(this.bypass);
+    if(fallback){ this.bypass.connect(fallback); fallback.connect(this.output); }
+    else this.bypass.connect(this.output);
+    this.usingIr = false;
+  }
+  connect(dest){ return this.output.connect(dest); }
+  // pan: -1(左) .. +1(右)，與頁面既有慣例一致
+  setDirection(pan, distance = 3.2, tau = 0.12){
+    const now = this.ctx.currentTime;
+    if(this.fallback){
+      const rad = Math.max(-1, Math.min(1, pan)) * Math.PI / 2;
+      this.fallback.positionX.setTargetAtTime(Math.sin(rad) * distance, now, tau);
+      this.fallback.positionZ.setTargetAtTime(-Math.cos(rad) * distance, now, tau);
+    }
+    if(!this.bank.ready) return;
+    // pan → 方位角。**這個資料集的方位角是逆時針遞增的**（實測：ir_azi090 的左耳
+    // 峰值早 28 sample、RMS 高 20.4dB ＝ 90° 是左耳），所以右邊要對到 360−角度。
+    const azDeg = Math.max(-1, Math.min(1, pan)) * 90;
+    const want = this.bank.nearest(((360 - azDeg) % 360 + 360) % 360);
+    if(!want || want === this.irName) return;
+    const buf = this.bank.get(want);
+    if(!buf){ this.bank.warm(want); return; }     // 抓下來給下一次用，不等網路
+    const to = this.active === "A" ? "B" : "A";
+    this["conv" + to].buffer = buf;
+    const g = HRIR_MATCH / Math.max(this.bank.norm(want), HRIR_MIN_NORM);
+    this["gain" + to].gain.cancelScheduledValues(now);
+    this["gain" + this.active].gain.cancelScheduledValues(now);
+    this["gain" + to].gain.linearRampToValueAtTime(g, now + HRIR_FADE);
+    this["gain" + this.active].gain.linearRampToValueAtTime(0, now + HRIR_FADE);
+    this.bypass.gain.cancelScheduledValues(now);
+    this.bypass.gain.linearRampToValueAtTime(0, now + HRIR_FADE);
+    this.active = to; this.irName = want; this.usingIr = true;
+  }
+  // H 鍵：切回內建 HRTF 做 A/B 對照（Pan 想再確認一次選對了）
+  setEnabled(on){
+    const now = this.ctx.currentTime;
+    if(!this.bank.ready || !this.irName) return;
+    const irG = on ? HRIR_MATCH / Math.max(this.bank.norm(this.irName), HRIR_MIN_NORM) : 0;
+    this["gain" + this.active].gain.setTargetAtTime(irG, now, 0.05);
+    this.bypass.gain.setTargetAtTime(on ? 0 : 1, now, 0.05);
+    this.usingIr = on;
+  }
+}
+
 class OceanEngine {
   constructor(ctx){
     this.ctx = ctx;
+    this.hrir = new HrirBank(ctx);
+    this.spatialSources = [];
+    this.hrirEnabled = true;
     this.master = ctx.createGain();
     this.master.gain.value = 0;
     this.clip = ctx.createWaveShaper();
@@ -1067,16 +1239,25 @@ class OceanEngine {
     this.wet = ctx.createGain();
     this.dry.gain.value = 1;
     this.wet.gain.value = 0;
-    this.busIn = ctx.createGain();
-    this.busIn.connect(this.panner);
-    this.panner.connect(this.dry);
+    // 主浪聲源：實測 HRIR 卷積，退回內建 panner。makeup 放在**各層自己**身上
+    // （surge / foam / pebble 混在同一條匯流排上，但三者需要的補償不一樣：
+    //  3.11 / 0.85 / 3.61，掛在匯流排上只會有一個值，一定有兩層是錯的），
+    // 所以這裡的 HrirSource 用 makeup = 1。
+    this.mainSpatial = new HrirSource(ctx, this.hrir, 1, this.panner);
+    this.spatialSources.push(this.mainSpatial);
+    this.busIn = this.mainSpatial.input;
+    this.mainSpatial.connect(this.dry);
     this.dry.connect(this.clip);
-    this.panner.connect(this.convolver);
+    this.mainSpatial.connect(this.convolver);
     this.convolver.connect(this.wet);
     this.wet.connect(this.clip);
     this.clip.connect(this.master);
     this.master.connect(ctx.destination);
     this.loadIR(["../assets/ir/room.wav", "/assets/ir/room.wav", "assets/ir/room.wav", "../../assets/ir/room.wav"]);
+    // 不 await：載入期間先用內建 HRTF，聲音永遠成立。
+    // 載完要**重設一次固定方位的聲源**（左右岸浪只在建構時設一次角度，那時 bank 還沒好；
+    // 主浪與氣泡在 loop() 裡每幀都設，會自己接上，不需要處理）。
+    this.hrir.load().then(ok => { if(ok) this.reapplyFixedDirections(); });
 
     this.noise = OceanEngine.noiseSource(ctx);
     this.surgeLP = ctx.createBiquadFilter();
@@ -1086,7 +1267,11 @@ class OceanEngine {
     this.surgeGain.gain.value = 0.18;
     this.noise.connect(this.surgeLP);
     this.surgeLP.connect(this.surgeGain);
-    this.surgeGain.connect(this.busIn);
+    // makeup：HRIR 在 LP800 頻帶內掉 9.9dB（見 assets/hrir/README.md）
+    this.surgeMk = ctx.createGain();
+    this.surgeMk.gain.value = SPATIAL_MAKEUP.surge;
+    this.surgeGain.connect(this.surgeMk);
+    this.surgeMk.connect(this.busIn);
 
     this.noise2 = OceanEngine.noiseSource(ctx);
     this.foamHP = ctx.createBiquadFilter();
@@ -1096,7 +1281,11 @@ class OceanEngine {
     this.foamGain.gain.value = 0;
     this.noise2.connect(this.foamHP);
     this.foamHP.connect(this.foamGain);
-    this.foamGain.connect(this.busIn);
+    // foam 是唯一在 1.5kHz 以上的層，HRIR 在那裡反而 +1.4dB，所以補償小於 1
+    this.foamMk = ctx.createGain();
+    this.foamMk.gain.value = SPATIAL_MAKEUP.foam;
+    this.foamGain.connect(this.foamMk);
+    this.foamMk.connect(this.busIn);
 
     // 鵝卵石沿岸：退浪時海水捲動大量石頭的沙沙／喀啦聲（Pan 2026-07-09).
     // 預生成密集小石撞擊的循環紋理 → bandpass 塑成石質 → 由「退浪閘門」與能量調變，與海濤呼應。
@@ -1111,7 +1300,12 @@ class OceanEngine {
     this.pebbleGain.gain.value = 0;
     this.pebble.connect(this.pebbleBP);
     this.pebbleBP.connect(this.pebbleGain);
-    this.pebbleGain.connect(this.busIn);
+    // makeup：HRIR 在 LP700 頻帶內掉 11.2dB。（pebble 是立體聲來源，卷積前會被
+    // HrirSource 攤平成 mono——那是必要的，見那個 class 的註解第 2 點。）
+    this.pebbleMk = ctx.createGain();
+    this.pebbleMk.gain.value = SPATIAL_MAKEUP.pebble;
+    this.pebbleGain.connect(this.pebbleMk);
+    this.pebbleMk.connect(this.busIn);
 
     // 低頻包覆床（阿朗壹「被低頻與天地包圍」的壓感）：非定位——直接進 clip、不過 panner, 
     // 低頻本就無方向性，繞過 HRTF 讓它裹住整個聲場而非指向某處。
@@ -1141,11 +1335,15 @@ class OceanEngine {
     this.bubblePanner.refDistance = 1;
     this.bubblePanner.maxDistance = 22;
     this.bubblePanner.rolloffFactor = 1.1;
+    // bubble 是最吃補償的一層：BP320 頻帶內掉 13.7dB（4.82×）。這也是 Pan 在 bench
+    // 裡 solo 來聽差異的那一層。
+    this.bubbleSpatial = new HrirSource(ctx, this.hrir, SPATIAL_MAKEUP.bubble, this.bubblePanner);
+    this.spatialSources.push(this.bubbleSpatial);
     this.bubble.connect(this.bubbleBP);
     this.bubbleBP.connect(this.bubbleGain);
-    this.bubbleGain.connect(this.bubblePanner);
-    this.bubblePanner.connect(this.dry);
-    this.bubblePanner.connect(this.convolver);
+    this.bubbleGain.connect(this.bubbleSpatial.input);
+    this.bubbleSpatial.connect(this.dry);
+    this.bubbleSpatial.connect(this.convolver);
     this.gripTotal = 0;                              // 兩手總力道（質量中心的權重和）
 
     // 波光（Pan 2026-07-16，參考 3-Audio 0005）：不是高頻亮片，而是 350–1600Hz 的中頻水光。
@@ -1170,8 +1368,11 @@ class OceanEngine {
     });
     this.shimmerBus.connect(this.shimmerBP);
     this.shimmerBP.connect(this.shimmerGain);
+    // shimmer 刻意**不**過 HRIR / panner：它是「一片」水光而不是一個點聲源，
+    // 過點聲源定位反而會把它收成一個方向（跟 sub / wide 同樣的理由）。
+    // 因此它也不需要 makeup 補償——沒經過 HRIR，就沒有要補的低頻損失。
     this.shimmerGain.connect(this.dry);
-    this.shimmerGain.connect(this.convolver);        // 帶空間
+    this.shimmerGain.connect(this.convolver);        // 帶空間（房間殘響）
     this.lastGlint = 0;
 
     //  (Pan 2026-07-14：移除純正弦低頻「湧」本體——那是「電平聲」的來源，每次握壓就冒出來。
@@ -1379,11 +1580,34 @@ class OceanEngine {
     pan.positionZ.value = -Math.cos(rad) * 3.2;
     src.connect(lp);
     lp.connect(g);
-    g.connect(pan);
-    pan.connect(this.dry);
-    pan.connect(this.convolver);
+    // makeup：HRIR 在 LP640 頻帶內掉 12.3dB
+    const sp = new HrirSource(ctx, this.hrir, SPATIAL_MAKEUP.shore, pan);
+    this.spatialSources.push(sp);
+    sp.setDirection(side * (60 / 90), 3.2, 0.01);     // ±60°：pan 單位是 ±1＝±90°
+    g.connect(sp.input);
+    sp.connect(this.dry);
+    sp.connect(this.convolver);
     src.start();
-    return { src, lp, g, pan };
+    return { src, lp, g, pan, sp, side };
+  }
+
+  // HRIR 載完後補設一次固定方位的聲源（見 constructor 裡 hrir.load() 的註解）。
+  // 第一次抓 IR 時 buffer 還沒 decode 完，所以要重試幾次；抓不到就一直用內建 HRTF。
+  reapplyFixedDirections(tries = 0){
+    let allSet = true;
+    for(const s of [this.sideL, this.sideR]){
+      if(!s || !s.sp) continue;
+      s.sp.setDirection(s.side * (60 / 90), 3.2, 0.01);
+      if(!s.sp.usingIr) allSet = false;
+    }
+    if(!allSet && tries < 20) setTimeout(() => this.reapplyFixedDirections(tries + 1), 250);
+  }
+
+  // H 鍵：實測 HRIR ←→ 瀏覽器內建 HRTF 的即時 A/B（Pan 想再確認一次選對了）
+  setHrirEnabled(on){
+    this.hrirEnabled = !!on;
+    for(const s of this.spatialSources) s.setEnabled(this.hrirEnabled);
+    return this.hrirEnabled;
   }
 
   setSideGuide(l, r){ this.sideGuide.l = clamp(l); this.sideGuide.r = clamp(r); }
@@ -1479,16 +1703,18 @@ class OceanEngine {
     const bubbleLfo = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 3.7);
     this.bubbleGain.gain.setTargetAtTime(0.05 + 0.30 * this.gripTotal * (0.6 + 0.4 * swell), now, 0.28);
     this.bubbleBP.frequency.setTargetAtTime(240 + 180 * bubbleLfo + 120 * this.gripTotal, now, 0.5);
-    const bRad = clamp(this.gripPan, -1, 1) * Math.PI / 2;               // 質量中心方位
     const bDist = 3.4 - 1.8 * this.gripTotal;                           // 越用力＝氣泡湧得越近
-    this.bubblePanner.positionX.setTargetAtTime(Math.sin(bRad) * bDist, now, 0.12);   // 逐幀平滑移動
-    this.bubblePanner.positionZ.setTargetAtTime(-Math.cos(bRad) * bDist, now, 0.12);
+    // 逐幀平滑移動（HrirSource 內部同時更新退回用的 panner 與實測 IR 的角度選擇）
+    this.bubbleSpatial.setDirection(clamp(this.gripPan, -1, 1), bDist, 0.12);
     this.metrics.pebble = stoneAmt * roll;
 
     // 波光：參考 0005 的中頻水光，能量集中在 350–1600Hz, centroid 約 750Hz. 
     // 不是高頻叮聲，而是幾個柔和模態音以慢速包絡互相明滅。
     const caustic = 0.45 + 0.30 * Math.sin(t * 2 * Math.PI * 0.10) + 0.18 * Math.sin(t * 2 * Math.PI * 0.20 + 1.4) + 0.10 * Math.sin(t * 2 * Math.PI * 5.18);
-    const causticAmt = clamp(0.012 + 0.044 * energy + 0.012 * swell);
+    // SHIMMER_LEVEL：Pan 2026-08-04「shimmer 的相對音量可以再大點」→ 1.6×（+4.1dB）。
+    // 乘在整條上（不是只加基底）＝保持「隨能量起伏」的動態，只是整體抬高；不動 caustic
+    // 的形狀，波光還是會呼吸。要再調就只改這個數字。
+    const causticAmt = clamp(SHIMMER_LEVEL * (0.012 + 0.044 * energy + 0.012 * swell));
     this.shimmerGain.gain.setTargetAtTime(causticAmt * clamp(caustic, 0.16, 1), now, 0.35);
     this.shimmerBP.frequency.setTargetAtTime(1120 + 260 * energy + 140 * swell, now, 0.7);
     if(this.causticVoices){
@@ -1508,10 +1734,8 @@ class OceanEngine {
     if(now - this.lastSwing > 0.3) this.azTarget *= 0.985;
     this.azimuth += (this.azTarget - this.azimuth) * this.azEase;
     const panAz = clamp(this.azimuth * 0.38 + this.gripPan * 0.44 + guided.pan * guided.influence * 0.30, -1, 1);
-    const rad = panAz * Math.PI / 2;
     const dist = Math.max(1.3, 6.5 - 2.0 * energy - 3.6 * sp);  // Ball1 握→海更近更滿；放鬆→遠而寬而柔
-    this.panner.positionX.setTargetAtTime(Math.sin(rad) * dist, now, 0.4);
-    this.panner.positionZ.setTargetAtTime(-Math.cos(rad) * dist, now, 0.4);
+    this.mainSpatial.setDirection(panAz, dist, 0.4);
     requestAnimationFrame(() => this.loop());
   }
 
@@ -3560,6 +3784,13 @@ addEventListener("keydown", (e) => {
   if((e.key === "r" || e.key === "R") && !e.repeat && !e.metaKey && !e.ctrlKey){
     repairBalls();
   }
+  if((e.key === "h" || e.key === "H") && !e.repeat && !e.metaKey && !e.ctrlKey){
+    // 實測 HRIR ←→ 瀏覽器內建 HRTF 的即時 A/B（同一組聲音、同一個房間，只換方向渲染）
+    if(!engine) return;
+    if(!engine.hrir.ready){ log("HRIR is not loaded yet (or unavailable) — you are hearing the built-in HRTF."); return; }
+    const on = engine.setHrirEnabled(!engine.hrirEnabled);
+    log(on ? "Spatial imaging: measured HRIR convolution." : "Spatial imaging: built-in HRTF (A/B reference).");
+  }
 });
 // 換球後若還卡住：撤銷所有握力球授權（含被換掉的舊球鬼影）→ 清空 slot → 重新請使用者授權目前在線的球。
 async function repairBalls(){
@@ -3596,7 +3827,8 @@ function updateDiag(){
     fmt(1),
     fmt(2),
     `handMap L:${state.handMap.left ?? "-"}  R:${state.handMap.right ?? "-"}  granted:${state.grantedCount ?? "?"}`,
-    `[D] toggle   [R] re-pair balls`,
+    `spatial:${engine ? (engine.hrir.ready ? (engine.hrirEnabled ? `HRIR ${engine.hrir.azimuths.length}az cached${engine.hrir.buffers.size}` : "built-in HRTF (A/B)") : "built-in HRTF (no IR)") : "-"}`,
+    `[D] toggle   [R] re-pair balls   [H] HRIR A/B`,
   ].join("\n");
 }
 setInterval(updateDiag, 120);

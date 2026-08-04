@@ -107,12 +107,24 @@ EEG 若接入，先作為低權重慢變節奏層與探索性量測；不要把 
 
 **決策（Pan 2026-07-08）：第一版就上 MeshRIR convolution。** 兩級同時存在，但 MeshRIR 是目標，PannerNode 只作為 IR 就緒前的暫時退路。
 
-- **方位層（PannerNode, HRTF）**：揮動方向 → panner 方位；tide energy → 距離（近/遠）。提供動態的方向移動感。
-- **空間著色層（MeshRIR ConvolverNode，第一版必做）**：把海的各層（或 panner 輸出）送進以 **MeshRIR** 實測室內脈衝響應建的 `ConvolverNode`，得到真實房間的空間著色與沉浸包覆。不同接收點的 IR 對應聽者在聲場中的位置。IR 匯出步驟見 `RESEARCH.md` §3、`assets/ir/README.md`。
+- **方位層**：揮動方向 → 方位；tide energy → 距離（近/遠）。提供動態的方向移動感。
+- **空間著色層（MeshRIR ConvolverNode，第一版必做）**：把海的各層（或方位層輸出）送進以 **MeshRIR** 實測室內脈衝響應建的 `ConvolverNode`，得到真實房間的空間著色與沉浸包覆。不同接收點的 IR 對應聽者在聲場中的位置。IR 匯出步驟見 `RESEARCH.md` §3、`assets/ir/README.md`。
 - 選配：需要多點聲場或 6DoF 時再評估 ambisonics（`Omnitone` / `JSAmbisonics`）。
 
-> 訊號鏈：sources → panner(方位/距離) → MeshRIR convolver(空間著色) → soft-clip → out。
-> 若 IR 尚未匯出，convolver 先旁路（bypass），僅靠 panner 出聲，但這是暫時狀態，非第一版目標。
+> **更新（Pan 2026-08-04）：方位層已從 `PannerNode(HRTF)` 換成實測 HRIR 卷積。**
+> Pan 在 `web/spatial_bench.html` 做 A/B/C 盲測後選了 C 路（實測 HRIR），Omnitone（B 路）未選用。
+> IR 在 `assets/hrir/`（水平面 90 個方位角），實作見 `web/index.html` 的 `HrirBank` / `HrirSource`，
+> 來源與量測見 `assets/hrir/README.md`，決策脈絡見 `AGENTS.md` 2026-08-04 (b)(c)。
+>
+> **兩件必須一起記住的事：**
+> ① 這批 IR 低頻往下斜，各層在**進 convolver 前**要乘 `SPATIAL_MAKEUP` 的補償係數
+> （bubble 那種頻帶會掉 13.7dB），否則等於悄悄改掉依阿朗壹錄音調好的平衡。
+> ② `shimmer` / `sub` / `wide` **刻意不過方位層**——它們是「一片」而不是點聲源。
+> 一次性音效（impact / cue / glint）目前仍用內建 `PannerNode`，理由見交接紀錄。
+>
+> 訊號鏈：sources → **makeup gain → 實測 HRIR 卷積**(方位/距離) → MeshRIR convolver(空間著色) → soft-clip → out。
+> HRIR 未載入時自動退回內建 `PannerNode(HRTF)`（聲音永遠成立）；頁面 **H** 鍵可即時 A/B。
+> 若房間 IR 尚未匯出，`convolver` 先旁路（bypass）。
 
 ## 6. 參數表（建議起點，待校準）
 
