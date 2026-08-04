@@ -818,6 +818,50 @@ const GRIP_FULL_SCALE = 900;       // 固定滿刻度（raw，相對零點）。
                                    // 若真球偏硬（全力握不到 900）就調低這一個數字，其餘都不用動；診斷面板（D）會顯示它。
 const GRIP_BASELINE_MS = 700;      // 零點取樣時間：這段時間內 raw 的「中位數」＝零點。
                                    // 中位數不是平均——取樣中手抖一下的尖峰不會把零點拉走。
+// ── 零點自我修正（Pan 2026-08-04 回饋後加）─────────────────────────────────────
+// Pan：「一剛開始鬆開手水位還是會跑到全滿」＋「478 一剛開始按壓會不太有反應 然後突然
+// bang＋震動好幾次」。這**兩件事是同一個 bug**：
+//   零點在「手已經握著」時取樣 → baseline 寫成握著的值。之後
+//     放開 → rawDev 是大的負值 → update() 的 Math.abs() → 水位全滿；
+//     按壓 → raw 往 baseline 靠 → posDelta 變小 → updateEdge 量不到上升邊 ＝ 按了沒反應；
+//     再過幾秒 restRef 慢慢爬 / phantom healing 把零點修回來 → 極性突然翻正
+//            → 積在那裡的上升邊一起認列 ＝ bang＋震動好幾次。
+// Math.abs() 本身是對的（球的極性真的不能猜，學錯比不學更糟），但它讓「零點錯在哪一邊」
+// 都變成同一種災難：**錯的零點在任一方向都讀成全滿**。所以要修的是零點，不是絕對值。
+//
+// 修法用一個訊號本身的性質：**「拿著不握」是 raw 分布停留最久的位置**（分布的眾數 mode）。
+// 握壓是短暫的動作、放鬆是預設狀態；就算是 4-7-8 這種一直在數拍的段落，每拍也是握 ~0.35s、
+// 放 ~0.65s。所以在一個數秒的窗裡做直方圖、取**佔用時間最多**的那一格＝零點。
+//
+// 為什麼不是「最長的平坦段」（第一版的寫法，被 tmp/sim_grip_rezero.js [5] 抓掉）：
+// 4-7-8 的憋氣段是好幾秒的持續握壓，它也是平的；只要它比前面那段靜止更長，零點就會被
+// 它偷走＝長握中水位突然塌成 0。佔用時間對這件事免疫：真正的靜止在整個窗裡的總時數
+// 一定遠多於任何單一次握壓。
+//
+// 為什麼不是原本的中位數：中位數假設分布是單峰的。「一開始握著、之後放開」是**雙峰**分布，
+// 中位數會落在兩峰之間（兩邊都不是），眾數會正確落在放開那一峰。
+// ⚠️ 這裡有一個**無法完全消除**的取捨，寫下來免得以後有人以為是 bug：
+// 「一開始握著、然後放開」跟「先靜止、然後刻意長握」這兩段 raw 訊號**結構完全一樣**——
+// 都是「在 A 待一下、跑到 B 待著」，而零點都取在 A。唯一的差別是「在 B 待多久」。
+// 所以能區分它們的**只有時間長度**，不是實作偷懶：這兩件事在 raw 串流裡真的只差這個。
+// 於是選這組取捨：
+//   ・門檻 GRIP_HIST_MIN_MS（1.5 秒）＝「離開零點超過 1.5 秒不動」就認定零點錯了。
+//     這個數字直接決定 Pan 看到的「水位全滿多久才自己好」，所以取最小的安全值：
+//     數拍的一握是 ~0.35 秒，1.5 秒有 4 倍餘裕，不會把數拍誤判成零點錯。
+//   ・只在連上後 GRIP_REZERO_MS（8 秒）內、且只做**一次**（rezeroCount === 0）。
+// 代價：連上後 8 秒內如果有人刻意握滿 1.5 秒以上，水位會塌一次。可接受，因為
+//   ・4-7-8 的憋氣（真正會長握好幾秒的地方）遠在這個窗之後，而且 Z-d 之後那段已不抓握壓；
+//   ・這 8 秒是「拿起球、還沒開始」的階段，本來就沒有需要維持的長握。
+// 換來的是 Pan 的症狀①②在頭 2 秒內自己收斂，而不是整場歪掉。
+const GRIP_HIST_BIN = 24;          // 直方圖每格的 raw 寬度（略大於靜止雜訊，小於死區 143）
+const GRIP_HIST_MIN_MS = 1500;     // 「離開零點不動」超過這麼久就認定零點取錯了（見上面的取捨）
+const GRIP_REZERO_MS = 8000;       // 只在連上後這段時間內積極重取零點——Pan 的症狀是「一剛開始」，
+                                   // 而積極重取零點的代價就是上面那個取捨。過了這段就交回給既有的
+                                   // restRef 慢跟 + phantom 修復（它們溫和得多，不會塌水位）。
+const GRIP_REZERO_MIN_SHIFT = 90;  // 零點要挪動這麼多 raw 才值得換（小於死區的一半，避免抖來抖去）
+// 「握一拍」的最短間隔。真實數拍是 ~1 拍/秒，擠在 0.4 秒內的連發不可能是使用者數的：
+// 它只會是雜訊尖峰、或零點剛換掉時的殘響——也就是 Pan 的「突然 bang＋震動好幾次」。
+const GRIP_BEAT_REFRACTORY_MS = 400;
 const GRIP_HEADROOM = 1.22;        // 留一點餘裕：到舒適握壓就算 ~高水位；更用力才滿（Pan 2026-07-22）
 const GRIP_LEVEL_ATTACK = 0.14;    // 水位平滑：起（握）快一點
 const GRIP_LEVEL_RELEASE = 0.05;   // 水位平滑：落（放）慢一點——解「大起大落」，浪退本來就比湧慢
@@ -827,9 +871,8 @@ const EDGE_ON_FRAC = 0.26;         // 一拍至少要相對 rest floor 上升滿
 const EDGE_ON_MIN_RAW = 80;        // 且至少這麼多 raw（防 span 很小時輕碰成拍）
 const EDGE_REARM_FRAC = 0.45;      // 從峰值退回這個比例以下＝視為放開，重新武裝
 const EDGE_FLOOR_RISE = 0.02;      // rest floor 每筆 report 向上爬的比率：殘壓 ~1 秒內被吸收，下一拍照樣測得到
-const MANUAL_478_REFRACTORY_MS = 650;  // onebang（Pan 2026-07-22，如 Max/MSP）：一拍之後關閘 650ms——
-                                       // 用力握的攻擊常有 過衝→微回落→坐穩 的彈跳，380ms 擋不住「4、3 緊貼著跳」；
-                                       // 正常數拍 ~1 拍/秒不受影響
+// （MANUAL_478_REFRACTORY_MS 已移除：4-7-8 自走化之後沒有「握壓數拍」要去重了，Pan 2026-08-04。
+//   一般的握拍去重仍然有，改在 GripCalibrator 裡用 GRIP_BEAT_REFRACTORY_MS 做。）
 // 握力→水位的「自然對應曲線」：不是線性。依 Stevens 冪定律（S=k·Iⁿ；握力是 Stevens 1960 的經典連續量），
 // 用 pow(level, GRIP_GAMMA) 做知覺補償。GRIP_GAMMA<1＝壓縮曲線，低-中握就有明顯反應、末段趨緩，握起來最自然
 // （等同 Max/MSP `scale` 物件第 5 參數 exponent 的作用——把線性輸入彎成知覺線性）。0.55 比 0.75 更靈敏。
@@ -849,9 +892,9 @@ const ARRIVAL_PRELUDE_SECONDS = 5;
 // 否則抵達的握持題會卡住（Pan 2026-07-14：卡在用握力表達緊張程度）。ON/OFF 之間留 hysteresis. 
 const ARRIVAL_PRESS_ON = 0.28;
 const ARRIVAL_PRESS_OFF = 0.16;
-// 4-7-8 數拍用較低門檻，好觸發（Pan 2026-07-14：很用力握數字也沒減少＝門檻太高）。放開＝任一手都降到 OFF 以下就重新武裝。
+// 4-7-8 只剩「握一下開始」用得到這個門檻（自走化之後不再數拍，Pan 2026-08-04）。
+// MANUAL_478_OFF 一起移除：它是「放開才重新武裝」用的，而現在沒有要武裝的東西。
 const MANUAL_478_ON = 0.20;
-const MANUAL_478_OFF = 0.09;
 const BREATH_MARK_MIN_GAP_MS = 900;
 const AGREEMENT_FIX_MS = 900;
 const AGREEMENT_RESPONSE_MS = 5200;
@@ -942,7 +985,12 @@ class GripCalibrator {
     this.healing = false;                                           // phantom 修復進行中（遲滯：修復自身的移動會推高變異，啟動後就修到底）
     this.reportTick = 0;
     this.restRef = null;                                            // 「拿著不握」的 raw 參考位（＝零點；放手時 baseline 的回歸點）
-    this.edge = { armed: true, floor: 0, peak: 0, pulse: false }; } // 4-7-8 用的 per-ball「握一拍」偵測
+    this.edge = { armed: true, floor: 0, peak: 0, pulse: false, lastFireAt: null };  // 4-7-8 用的 per-ball「握一拍」偵測
+    // 零點自我修正（見 GRIP_REZERO_MS 上面那段註解）：raw 的佔用時間直方圖，取眾數當零點
+    this.hist = new Map();                                           // bin index → { ms, sum, n }
+    this.lastHistAt = null;                                          // 上一筆的時間（算這一筆佔用多久）
+    this.firstReportAt = null;                                       // 第一筆 report 的時間（GRIP_REZERO_MS 的起點）
+    this.rezeroCount = 0; }                                          // 重取零點的次數（診斷面板/log 用）
   median(values){
     if(!values.length) return null;
     const v = values.slice().sort((a, b) => a - b);
@@ -954,6 +1002,7 @@ class GripCalibrator {
     // ── 零點：只做這一件事，取 GRIP_BASELINE_MS 內 raw 的中位數 ──
     // 取樣期間回傳 0：零點還沒定案就換算水位，等於拿半熟的零點生出假握壓（舊碼「第一筆 raw 就當 baseline」
     // 遇到「拿起球的瞬間才連上」就會把手掌壓力寫進零點）。
+    if(this.firstReportAt == null) this.firstReportAt = now;
     if(!this.zeroed){
       if(this.zeroStartedAt == null) this.zeroStartedAt = now;
       this.zeroSamples.push(raw);
@@ -964,6 +1013,50 @@ class GripCalibrator {
       this.smRaw = this.baseline;
       this.zeroed = true;
       return 0;
+    }
+    // ── 零點自我修正：raw 佔用時間的眾數 ─────────────────────────────────────
+    // 這一段的用意見 GRIP_REZERO_MS 上面的註解：如果一開始是握著的，零點會寫錯，
+    // 而 Math.abs() 會讓錯的零點在**任一方向**都讀成全滿。「拿著不握」是 raw 停留最久
+    // 的位置，所以用佔用時間的眾數把零點換掉。
+    if(this.rezeroCount === 0 && now - this.firstReportAt < GRIP_REZERO_MS){
+      const dtMs = this.lastHistAt == null ? 0 : Math.min(100, now - this.lastHistAt);   // 上限 100ms：斷線回來不要一次灌爆一格
+      this.lastHistAt = now;
+      const bin = Math.round(raw / GRIP_HIST_BIN);
+      let h = this.hist.get(bin);
+      if(!h){ h = { ms: 0, sum: 0, n: 0 }; this.hist.set(bin, h); }
+      h.ms += dtMs; h.sum += raw; h.n++;
+      // 挑戰者＝目前這一格（含左右鄰格）。要含鄰格，否則靜止的手抖會讓 raw 在兩格邊界上來回，
+      // 佔用時間被切成兩半，永遠湊不到門檻（第一版就是卡在這裡）。
+      let ms = 0, sum = 0, n = 0;
+      for(let b = bin - 1; b <= bin + 1; b++){
+        const v = this.hist.get(b);
+        if(v){ ms += v.ms; sum += v.sum; n += v.n; }
+      }
+      // 現任者＝零點所在的那一格（含鄰格），也就是「原本以為的靜止位置」佔了多久。
+      // ⚠️ 這個比較是必要的，不能只用「挑戰者待了 GRIP_HIST_MIN_MS」當條件：
+      // 4-7-8 數拍是每秒握 0.35 秒，連握 5 拍之後**握著那一格**的累計佔用就會超過 1.5 秒，
+      // 於是零點被握壓偷走——放開後水位反而卡在 0.8（實際踩到過，tmp/_dbg.js beats 重現）。
+      // 眾數的定義本來就是「佔用最多」，所以挑戰者必須真的**贏過**現任者，而不是只過一個門檻。
+      const baseBin = Math.round(this.baseline / GRIP_HIST_BIN);
+      let baseMs = 0;
+      for(let b = baseBin - 1; b <= baseBin + 1; b++){
+        const v = this.hist.get(b);
+        if(v) baseMs += v.ms;
+      }
+      // 換零點的條件：**現在**停在一個離零點夠遠的位置、已經在這裡待了夠久，而且待得比零點還久。
+      // 條件寫在「現在這一格」而不是全域眾數上，是因為要換的那個值必須是使用者當下的靜止值。
+      if(ms >= GRIP_HIST_MIN_MS && ms > baseMs && n > 0 && Math.abs(sum / n - this.baseline) >= GRIP_REZERO_MIN_SHIFT){
+        const mode = sum / n;
+        this.baseline = mode;
+        this.restRef = mode;
+        this.rezeroCount++;
+        // 換零點會讓 edge detector 的 floor / 武裝狀態失效（它們是相對舊零點算的），
+        // 一起重設——否則就是 Pan 遇到的「突然 bang 好幾次」（積在那裡的邊一起認列）。
+        this.edge.armed = true; this.edge.floor = 0; this.edge.peak = 0; this.edge.pulse = false;
+        this.holdRun = 0; this.healing = false;
+        this.level = 0;                                               // 水位也歸零：舊零點算出來的水位是假的
+        this.smRaw = raw;                                             // 平滑器也重新起算，不要拖著舊零點的殘影
+      }
     }
     this.smRaw += (raw - this.smRaw) * 0.3;                     // 輕度平滑，抗單筆雜訊
     const rawDev = this.smRaw - this.baseline;                  // 帶正負：離開靜止基線的方向與幅度
@@ -1034,7 +1127,16 @@ class GripCalibrator {
     const rise = posDelta - e.floor;
     e.pulse = false;
     if(e.armed){
-      if(rise >= onThresh){ e.pulse = true; e.armed = false; e.peak = posDelta; e.floorAtFire = e.floor; this.holdRun = 0; this.healing = false; }
+      if(rise >= onThresh){
+        // 不反應期：真實數拍是 ~1 拍/秒，擠在 GRIP_BEAT_REFRACTORY_MS 內的第二拍不可能是使用者數的
+        // （只會是雜訊尖峰或零點剛換掉的殘響）＝Pan 的「突然 bang＋震動好幾次」。
+        // 仍然照常解除武裝、記峰值：這一握**有發生**，只是不算成一拍。
+        const now = performance.now();
+        if(e.lastFireAt == null || now - e.lastFireAt >= GRIP_BEAT_REFRACTORY_MS){
+          e.pulse = true; e.lastFireAt = now;
+        }
+        e.armed = false; e.peak = posDelta; e.floorAtFire = e.floor; this.holdRun = 0; this.healing = false;
+      }
     } else {
       if(posDelta > e.peak) e.peak = posDelta;
       if(posDelta - e.floor <= (e.peak - e.floor) * EDGE_REARM_FRAC || rise <= onThresh * 0.35){
@@ -1069,15 +1171,51 @@ const HRIR_BASE_CANDIDATES = ["../assets/hrir/", "/assets/hrir/", "assets/hrir/"
 const HRIR_MATCH = 0.93;
 const HRIR_MIN_NORM = 0.02;
 const HRIR_FADE = 0.06;        // 換角度時的交叉淡化秒數（平滑不跳變）
-// 各層在自己濾波器頻帶內量到的補償係數（assets/hrir/README.md 有完整表格與方法）
+/* ── HRIR 的頻率傾斜修正（Pan 2026-08-04 回饋後加）────────────────────────────
+   Pan：「這些聲音跟我當時阿朗壹海岸錄音的頻帶差很多，這個版本的模仿海浪的白噪音很假」。
+
+   量到的原因：這批 IR 的**方向平均**響應從 220Hz 到 7kHz 有 26.9dB 的上斜
+   （220Hz −23.8dB、320Hz −16.5dB、640Hz −7.6dB、7kHz +2.6dB）。阿朗壹的指紋剛好相反
+   （spectral centroid 428Hz、2–6kHz 只佔 1.3%、6k+ 幾乎 0%）。等於這批 IR 是一個很陡的
+   高通——任何寬頻噪音過去都被削掉低頻、抬高嘶聲，正是「白噪音很假」的成因之一。
+
+   前一版只用「每層一個寬頻倍數」(SPATIAL_MAKEUP) 補償。那只能把該層頻帶的**中位**能量
+   拉回 0dB，帶**內**的斜率完全沒動：surge 的 LP800 頻帶裡 120Hz 與 700Hz 差 12dB，
+   乘一個數字兩邊一起搬，斜率還在。所以改成在卷積**之後**串一組固定 biquad 逼近方向平均
+   響應的倒數；左右耳乘同一條 ⇒ ILD / ITD（方向感的來源）完全不受影響。
+
+   係數由 tmp/fit_hrir_tilt_fix.js 從 90 個真 IR 擬合（f / Q 取好記的整數、只解增益）：
+   45Hz–12kHz 的落差 26.9dB → 最大殘差 2.7dB。修正後各層帶內殘差都在 ±0.3dB 內，
+   所以 SPATIAL_MAKEUP 隨之全部塌回 ~1.0（見下）。
+
+   ⚠️ 這是「補回可聽的量」，不是「還原」：256 taps @48kHz ＝ 5.33ms，60Hz 只有 0.32 個
+   週期，這批 IR 物理上無法表示 60–250Hz 的方向資訊。低頻的包覆感仍然主要靠不過 HRIR 的
+   sub / wide 兩層（它們本來就繞過空間化，低頻無方向性）。 */
+const HRIR_TILT_FIX = [
+  { type: "lowshelf",  f: 250,  q: 0.5, gain: 15.6 },   // 把 −20dB 的整片低頻抬回來
+  { type: "peaking",   f: 230,  q: 0.9, gain: 12.1 },   // 208–260Hz 那個 −23.8dB 的凹谷
+  { type: "peaking",   f: 520,  q: 1.3, gain: 2.2 },    // 300–700Hz 的過渡段
+  { type: "peaking",   f: 1500, q: 1.0, gain: -1.0 },
+  { type: "highshelf", f: 4500, q: 0.5, gain: -3.0 },   // 壓掉 +2.6dB 的高頻上翹
+];
+const HRIR_TILT_TRIM = 1.288;  // 修正鏈整體 +2.2dB（用阿朗壹的頻帶權重把總音量對回 0dB）
+// 各層在自己濾波器頻帶內**還剩**的殘差補償（assets/hrir/README.md 有完整表格與方法）。
+// 有了 HRIR_TILT_FIX 之後這些值全部塌回 ~1.0——傾斜已經在卷積後被拉平，不必再每層各補
+// 10–14dB。保留這組常數（而不是刪掉）是因為它記錄了「這一層還差多少」，換 IR 或改濾波器
+// 時重跑 tmp/fit_hrir_tilt_fix.js 就會得到新值。
 // 只列真的走 HRIR 的層。**一次性音效（impact / cue / glint）刻意留在內建 HRTF panner**：
 // ① bench 只比較了這 5 個持續層，Pan 的耳朵認可的是那些；② 那三個是寬頻瞬態，內建
 // panner 的弱點（低頻持續帶）在那裡影響最小；③ glint 約 1.6 次/秒，每次多開 convolver
 // 會是真實的效能代價。要不要一起換請 Pan 決定，見 AGENTS.md 交接紀錄。
-const SPATIAL_MAKEUP = { surge: 3.11, foam: 0.85, pebble: 3.61, bubble: 4.82, shore: 4.10 };
-// 波光的相對音量（Pan 2026-08-04：「shimmer 的相對音量可以再大點」）。
-// 1.0 ＝ 2026-07-16 調的原始值；1.6 ＝ +4.1dB。只調這個數字就好，見 loop() 裡的用處。
-const SHIMMER_LEVEL = 1.6;
+const SPATIAL_MAKEUP = { surge: 1.02, foam: 0.98, pebble: 1.01, bubble: 1.03, shore: 1.02 };
+// 波光的相對音量（Pan 2026-08-04：「shimmer 和 pebble 的聲音幾乎都是沒有的」）。
+// 1.0 ＝ 2026-07-16 調的原始值；2.4 ＝ +7.6dB。只調這個數字就好，見 loop() 裡的用處。
+const SHIMMER_LEVEL = 2.4;
+// 鵝卵石的「靜止底量」（Pan 2026-08-04：pebble 幾乎聽不到）。
+// 原本 pebbleGain 的常數項只有 0.030，而整層是由 Ball2 握力（this.spread）驅動的——
+// 沒握球時它就坐在那個底上＝實質靜音。但 DESIGN.md §4.4 說鵝卵石是**本聲景的定位聲**
+// （阿朗壹大圓石灘、石頭撞擊 ~47/s），它必須在放鬆狀態下就聽得到，握力只是「更多更響」。
+const PEBBLE_FLOOR = 0.14;
 
 class HrirBank {
   constructor(ctx){
@@ -1158,12 +1296,32 @@ class HrirSource {
     this.mono.channelInterpretation = "speakers";
     this.mono.gain.value = makeup;
     this.input.connect(this.mono);
+    // 傾斜修正鏈：接在卷積**之後**（見 HRIR_TILT_FIX 的註解）。
+    // 兩顆 convolver 共用同一條鏈——它是與方向無關的固定修正，沒有理由各做一份；
+    // 而且交叉淡化在鏈**之前**完成，換角度時修正鏈的內部狀態不會被打斷（不會有喀聲）。
+    this.tilt = ctx.createGain();
+    this.tilt.gain.value = 1;
+    this.tiltOut = ctx.createGain();
+    this.tiltOut.gain.value = HRIR_TILT_TRIM;
+    let node = this.tilt;
+    this.tiltStages = HRIR_TILT_FIX.map(s => {
+      const f = ctx.createBiquadFilter();
+      f.type = s.type;
+      f.frequency.value = s.f;
+      f.Q.value = s.q;
+      f.gain.value = s.gain;
+      node.connect(f);
+      node = f;
+      return f;
+    });
+    node.connect(this.tiltOut);
+    this.tiltOut.connect(this.output);
     for(const k of ["A", "B"]){
       const c = ctx.createConvolver();
       c.normalize = false;              // 保住實測的 ILD
       const g = ctx.createGain();
       g.gain.value = 0;
-      this.mono.connect(c); c.connect(g); g.connect(this.output);
+      this.mono.connect(c); c.connect(g); g.connect(this.tilt);
       this["conv" + k] = c; this["gain" + k] = g;
     }
     // 退回路徑：IR 還沒到之前走內建 HRTF panner（有 fallback 就用，否則直通）。
@@ -1218,13 +1376,15 @@ class HrirSource {
 class OceanEngine {
   constructor(ctx){
     this.ctx = ctx;
-    this.hrir = new HrirBank(ctx);
-    this.spatialSources = [];
-    this.hrirEnabled = true;
     this.master = ctx.createGain();
     this.master.gain.value = 0;
     this.clip = ctx.createWaveShaper();
     this.clip.curve = OceanEngine.tanhCurve();
+
+    // 實測 HRIR 資料庫：非阻塞載入，載不到就一路用內建 HRTF
+    this.hrir = new HrirBank(ctx);
+    this.spatialSources = [];
+    this.hrirEnabled = true;
 
     this.panner = ctx.createPanner();
     this.panner.panningModel = "HRTF";
@@ -1259,35 +1419,54 @@ class OceanEngine {
     // 主浪與氣泡在 loop() 裡每幀都設，會自己接上，不需要處理）。
     this.hrir.load().then(ok => { if(ok) this.reapplyFixedDirections(); });
 
-    this.noise = OceanEngine.noiseSource(ctx);
+    // 底床 surge：海的持續體。用 pink 而不是白噪音（Pan 2026-08-04「白噪音很假」）——
+    // 白噪音過 LP800 之後，頻帶內 120Hz 到 700Hz 仍然是平的，聽起來像「被濾過的雜訊」；
+    // pink 的 −3dB/oct 讓帶內自己往下斜，才有「一整片海在低處呼吸」的重量。
+    this.noise = OceanEngine.pinkNoiseSource(ctx);
     this.surgeLP = ctx.createBiquadFilter();
     this.surgeLP.type = "lowpass";
     this.surgeLP.frequency.value = 800;
     this.surgeGain = ctx.createGain();
     this.surgeGain.gain.value = 0.18;
-    this.noise.connect(this.surgeLP);
-    this.surgeLP.connect(this.surgeGain);
-    // makeup：HRIR 在 LP800 頻帶內掉 9.9dB（見 assets/hrir/README.md）
+    // makeup：HRIR_TILT_FIX 之後 LP800 頻帶內只剩 −0.19dB 殘差（見 assets/hrir/README.md）
     this.surgeMk = ctx.createGain();
     this.surgeMk.gain.value = SPATIAL_MAKEUP.surge;
+    this.noise.connect(this.surgeLP);
+    this.surgeLP.connect(this.surgeGain);
     this.surgeGain.connect(this.surgeMk);
     this.surgeMk.connect(this.busIn);
 
-    this.noise2 = OceanEngine.noiseSource(ctx);
+    // 泡沫嘶聲。Pan 2026-08-04：「模仿海浪的白噪音很假」——這一層是主要來源，原因有兩個，
+    // 都不是音量問題而是頻譜問題：
+    //   ① `foamHP` 是**高通**，接在**白**噪音上而且上面沒有蓋子。白噪音每 Hz 等能量，
+    //      所以 6–24kHz 這段（3 個八度、頻寬 18kHz）帶的能量比它以下全部加起來還多。
+    //      阿朗壹的實測是 2–6kHz 只佔 1.3%、6k+ 幾乎 0%。真實的浪花嘶聲是有限頻寬的
+    //      「噴濺」，不是嘶到聽力上限的白噪音——那個聽起來就是電視雜訊，正是「很假」。
+    //      → 補一個 foamLP（8kHz，Q 0.7）把頂端收掉，變成 1.5–8kHz 的帶通嘶聲。
+    //   ② 白噪音本身。海是 pink-ish（能量隨頻率下降）；`noiseSource` 給的是平的。
+    //      → 改用 pinkNoiseSource：−3dB/octave，Farnell 也是這樣做水體的寬頻底。
+    //      這一層要的是「濺」而不是「嘶」，pink 給它自然的頻譜斜率。
+    this.noise2 = OceanEngine.pinkNoiseSource(ctx);
     this.foamHP = ctx.createBiquadFilter();
     this.foamHP.type = "highpass";
     this.foamHP.frequency.value = 1500;   // 錄音幾乎無高頻，泡沫嘶聲壓低頻段
+    this.foamLP = ctx.createBiquadFilter();
+    this.foamLP.type = "lowpass";
+    this.foamLP.frequency.value = 8000;   // 頂端的蓋子：不要嘶到聽力上限（阿朗壹 6k+ ≈ 0%）
+    this.foamLP.Q.value = 0.7;
     this.foamGain = ctx.createGain();
     this.foamGain.gain.value = 0;
-    this.noise2.connect(this.foamHP);
-    this.foamHP.connect(this.foamGain);
-    // foam 是唯一在 1.5kHz 以上的層，HRIR 在那裡反而 +1.4dB，所以補償小於 1
+    // foam 是唯一在 1.5kHz 以上的層，HRIR_TILT_FIX 之後帶內只剩 +0.16dB，所以補償略小於 1
+    // （這個 0.16dB 是把 foamLP 的頂端蓋子算進去之後的值——沒算蓋子會誤得到 +0.93dB）
     this.foamMk = ctx.createGain();
     this.foamMk.gain.value = SPATIAL_MAKEUP.foam;
+    this.noise2.connect(this.foamHP);
+    this.foamHP.connect(this.foamLP);
+    this.foamLP.connect(this.foamGain);
     this.foamGain.connect(this.foamMk);
     this.foamMk.connect(this.busIn);
 
-    // 鵝卵石沿岸：退浪時海水捲動大量石頭的沙沙／喀啦聲（Pan 2026-07-09).
+    // 鵝卵石沿岸：退浪時海水捲動大量石頭的沙沙／喀啦聲（Pan 2026-07-09）。
     // 預生成密集小石撞擊的循環紋理 → bandpass 塑成石質 → 由「退浪閘門」與能量調變，與海濤呼應。
     this.pebble = ctx.createBufferSource();
     this.pebble.buffer = OceanEngine.pebbleBuffer(ctx, 4.5);
@@ -1298,16 +1477,16 @@ class OceanEngine {
     this.pebbleBP.Q.value = 0.6;
     this.pebbleGain = ctx.createGain();
     this.pebbleGain.gain.value = 0;
-    this.pebble.connect(this.pebbleBP);
-    this.pebbleBP.connect(this.pebbleGain);
-    // makeup：HRIR 在 LP700 頻帶內掉 11.2dB。（pebble 是立體聲來源，卷積前會被
-    // HrirSource 攤平成 mono——那是必要的，見那個 class 的註解第 2 點。）
+    // makeup：HRIR_TILT_FIX 之後 LP700 頻帶內只剩 −0.12dB 殘差。（pebble 是立體聲來源，
+    // 卷積前會被 HrirSource 攤平成 mono——那是必要的，見那個 class 的註解第 2 點。）
     this.pebbleMk = ctx.createGain();
     this.pebbleMk.gain.value = SPATIAL_MAKEUP.pebble;
+    this.pebble.connect(this.pebbleBP);
+    this.pebbleBP.connect(this.pebbleGain);
     this.pebbleGain.connect(this.pebbleMk);
     this.pebbleMk.connect(this.busIn);
 
-    // 低頻包覆床（阿朗壹「被低頻與天地包圍」的壓感）：非定位——直接進 clip、不過 panner, 
+    // 低頻包覆床（阿朗壹「被低頻與天地包圍」的壓感）：非定位——直接進 clip、不過 panner，
     // 低頻本就無方向性，繞過 HRTF 讓它裹住整個聲場而非指向某處。
     this.sub = OceanEngine.noiseSource(ctx);
     this.subLP = ctx.createBiquadFilter();
@@ -1375,7 +1554,7 @@ class OceanEngine {
     this.shimmerGain.connect(this.convolver);        // 帶空間（房間殘響）
     this.lastGlint = 0;
 
-    //  (Pan 2026-07-14：移除純正弦低頻「湧」本體——那是「電平聲」的來源，每次握壓就冒出來。
+    // （Pan 2026-07-14：移除純正弦低頻「湧」本體——那是「電平聲」的來源，每次握壓就冒出來。
     //  低頻湧動改回只靠上面的 sub 噪音床＝海底湧動、氣泡感，不是純音。subOsc 已刪除。）
 
     // 寬幅海床：立體聲去相關噪音，不過 HRTF 點聲源——讓海是一「片」而不是一個點。
@@ -1394,8 +1573,8 @@ class OceanEngine {
     this.sideL = this.buildSideChain(-1);
     this.sideR = this.buildSideChain(1);
 
-    // 駐音層（4-7-8 停屏的「懸止」，見 BREATHING.md §9）：**只用帶通噪音、無純正弦** (Pan 2026-07-14: 
-    // 純正弦＝持續電平/嗡音；駐音改成airy 的風鳴感）。且**只在 4-7-8 停屏時浮起，其他時候完全為 0**（不 drone).
+    // 駐音層（4-7-8 停屏的「懸止」，見 BREATHING.md §9）：**只用帶通噪音、無純正弦**（Pan 2026-07-14：
+    // 純正弦＝持續電平/嗡音；駐音改成airy 的風鳴感）。且**只在 4-7-8 停屏時浮起，其他時候完全為 0**（不 drone）。
     this.droneGain = ctx.createGain();
     this.droneGain.gain.value = 0;
     this.droneBP = ctx.createBiquadFilter();
@@ -1488,12 +1667,12 @@ class OceanEngine {
         this.convolver.buffer = buf;
         this.wet.gain.setTargetAtTime(0.8, this.ctx.currentTime, 0.5);
         this.dry.gain.setTargetAtTime(0.4, this.ctx.currentTime, 0.5);
-        log("Loaded  MeshRIR room.wav ("+url+").");
+        log("已載入 MeshRIR room.wav（"+url+"）。");
         return;
-      }catch(_err){ /* trying the next candidate path */ }
+      }catch(_err){ /* 試下一個候選路徑 */ }
     }
     // 全部候選都拿不到（多半是 server 從 web/ 開，assets 在上一層）：以 HRTF 乾聲運行，海仍成立。
-    log("Not loaded IR, running first as  HRTF running dry (room.wav needs to be opened from  Tidal/  level server).");
+    log("未載入 IR，先以 HRTF 乾聲運行（room.wav 需從 Tidal/ 這層開 server）。");
   }
 
   static tanhCurve(){
@@ -1546,6 +1725,37 @@ class OceanEngine {
     return s;
   }
 
+  // Pink 噪音（−3dB/octave）。Pan 2026-08-04：「模仿海浪的白噪音很假」。
+  // 自然界的寬頻聲源（海、雨、風）能量都隨頻率下降；白噪音每 Hz 等能量＝聽起來是電視雜訊。
+  // Voss-McCartney 的 Paul Kellet 濾波器版本：7 個一階低通並聯，係數是公認的近似解，
+  // 誤差 ±0.05dB / 10Hz–20kHz，比 FFT 整形便宜且不需要額外節點。
+  static pinkNoiseSource(ctx){
+    const len = ctx.sampleRate * 4;      // 4 秒（比白噪音的 2 秒長：pink 的長週期起伏比較聽得出循環）
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    for(let i = 0; i < len; i++){
+      const w = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + w * 0.0555179;
+      b1 = 0.99332 * b1 + w * 0.0750759;
+      b2 = 0.96900 * b2 + w * 0.1538520;
+      b3 = 0.86650 * b3 + w * 0.3104856;
+      b4 = 0.55000 * b4 + w * 0.5329522;
+      b5 = -0.7616 * b5 - w * 0.0168980;
+      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+      b6 = w * 0.115926;
+    }
+    // 正規化到跟白噪音相當的 RMS，讓既有的各層音量常數不用重調
+    let sum = 0;
+    for(let i = 0; i < len; i++) sum += d[i] * d[i];
+    const rms = Math.sqrt(sum / len);
+    if(rms > 0){ const k = 0.577 / rms; for(let i = 0; i < len; i++) d[i] *= k; }   // 0.577 ≈ 白噪音 U(−1,1) 的 RMS
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    s.loop = true;
+    return s;
+  }
+
   static stereoNoiseSource(ctx){
     // 兩聲道各自獨立的噪音（去相關）→ 聽起來是「一片」而非中央一點
     const len = ctx.sampleRate * 2;
@@ -1561,7 +1771,8 @@ class OceanEngine {
   }
 
   buildSideChain(side){
-    // 一條固定方位的岸浪道：噪音 → lowpass → gain → HRTF panner (±60°），走既有 dry/wet 空間鏈
+    // 一條固定方位的岸浪道：噪音 → lowpass → gain → 實測 HRIR（±60°），走既有 dry/wet 空間鏈。
+    // 這兩條是**固定方位**的，所以 HRIR 只會挑一次角度、不會一直換——最省的一種用法。
     const ctx = this.ctx;
     const src = OceanEngine.noiseSource(ctx);
     const lp = ctx.createBiquadFilter();
@@ -1578,12 +1789,12 @@ class OceanEngine {
     const rad = side * Math.PI / 3;
     pan.positionX.value = Math.sin(rad) * 3.2;
     pan.positionZ.value = -Math.cos(rad) * 3.2;
-    src.connect(lp);
-    lp.connect(g);
     // makeup：HRIR 在 LP640 頻帶內掉 12.3dB
     const sp = new HrirSource(ctx, this.hrir, SPATIAL_MAKEUP.shore, pan);
     this.spatialSources.push(sp);
     sp.setDirection(side * (60 / 90), 3.2, 0.01);     // ±60°：pan 單位是 ±1＝±90°
+    src.connect(lp);
+    lp.connect(g);
     g.connect(sp.input);
     sp.connect(this.dry);
     sp.connect(this.convolver);
@@ -1619,7 +1830,7 @@ class OceanEngine {
     const buf = ctx.createBuffer(2, len, rate);
     for(let ch = 0; ch < 2; ch++){
       const d = buf.getChannelData(ch);
-      let lp = 0;                                     // 一極 lowpass Status
+      let lp = 0;                                     // 一極 lowpass 狀態
       for(let i = 0; i < len; i++){
         const tt = i / len;
         const env = Math.exp(-5.5 * tt);              // 指數長衰減（平滑收尾，非硬截）
@@ -1661,7 +1872,7 @@ class OceanEngine {
     const heartSoftening = guided.influence * (0.10 - 0.08 * guided.heart);
     const energy = clamp(0.20 + 0.90 * this.tide + breathLift + guided.activate * 0.10);
     const sp = Math.pow(clamp(this.spread), 0.55);            // Ball1 grip 響應曲線：不用很用力就有感
-    const cutoff = 250 + 700 * energy * (0.5 + 0.5 * swell) + 200 * sp + 100 * this.rw - 80 * heartSoftening;  // 依阿朗壹錄音頻譜對齊（合成中心~450Hz vs 錄音~430Hz)
+    const cutoff = 250 + 700 * energy * (0.5 + 0.5 * swell) + 200 * sp + 100 * this.rw - 80 * heartSoftening;  // 依阿朗壹錄音頻譜對齊（合成中心~450Hz vs 錄音~430Hz）
     const gate = Math.max(0, swell - 0.55) * energy * (0.82 + 0.18 * this.rw2);           // 泡沫時機不規則
     this.metrics = { swell, set, energy, foam: gate, cutoff, spread: sp, rw: this.rw, rw2: this.rw2 };
 
@@ -1669,11 +1880,16 @@ class OceanEngine {
     this.surgeGain.gain.setTargetAtTime(0.15 + 0.34 * energy * (0.6 + 0.4 * swell * set) + 0.18 * sp + 0.03 * this.rw2, now, 0.72); // 握→更有存在感
     this.foamGain.gain.setTargetAtTime(0.060 * gate + 0.05 * guided.activate * (0.35 + 0.65 * guided.phase), now, 0.45);   // 有界；風箱模式泡沫隨呼吸短促明滅
 
-    // 鵝卵石捲動：由 Ball2 grip (this.spread）主控其「量」，退浪相位給節奏（Pan 2026-07-09 置換後為 Ball2).
+    // 鵝卵石捲動：由 Ball2 grip（this.spread）主控其「量」，退浪相位給節奏（Pan 2026-07-09 置換後為 Ball2）。
     const stoneAmt = Math.pow(clamp(this.spread), 0.6);                       // Ball2 grip → 石頭捲動量
     const roll = 0.35 + 0.65 * clamp((0.55 - swell) * 2.0);                   // 退浪相位滾得最盛
-    this.pebbleGain.gain.setTargetAtTime((0.030 + 0.52 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.24);
-    this.pebbleBP.frequency.setTargetAtTime(380 + 420 * stoneAmt, now, 1.0);  // 石頭壓在低-中頻（錄音主體 120-2000Hz)
+    // Pan 2026-08-04：「pebble 的聲音幾乎都是沒有的」。原因不是 makeup，是**底量**：
+    // 常數項只有 0.030，而 stoneAmt 由 Ball2 握力驅動，所以沒握球時整層就坐在 0.030×roll
+    // ＝實質靜音。但 DESIGN.md §4.4 說鵝卵石是**本聲景的定位聲**（阿朗壹大圓石灘，石頭撞擊
+    // ~47/s，是高辨識度的自然聲源）——它必須在放鬆狀態下就聽得到，握力只是讓它「更多更響」。
+    // 0.030 → PEBBLE_FLOOR(0.14) ＝ +13dB 的靜止底量，握滿仍是 0.14+0.52＝0.66（有界）。
+    this.pebbleGain.gain.setTargetAtTime((PEBBLE_FLOOR + 0.52 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.24);
+    this.pebbleBP.frequency.setTargetAtTime(380 + 420 * stoneAmt, now, 1.0);  // 石頭壓在低-中頻（錄音主體 120-2000Hz）
     // 低頻包覆床＝海底湧動（噪音床，非純音）。Pan 2026-07-14：低頻不能音量一致——
     // 浪靠近岸（tide 高）要飽滿、包覆；退去（tide 低）要明顯變小、變遠。加大 tide 動態範圍、縮短時間常數跟得上。
     const breathBody = guided.influence * guided.phase;                       // 吸氣相位 → 低頻水體靠近
@@ -1708,7 +1924,7 @@ class OceanEngine {
     this.bubbleSpatial.setDirection(clamp(this.gripPan, -1, 1), bDist, 0.12);
     this.metrics.pebble = stoneAmt * roll;
 
-    // 波光：參考 0005 的中頻水光，能量集中在 350–1600Hz, centroid 約 750Hz. 
+    // 波光：參考 0005 的中頻水光，能量集中在 350–1600Hz、centroid 約 750Hz。
     // 不是高頻叮聲，而是幾個柔和模態音以慢速包絡互相明滅。
     const caustic = 0.45 + 0.30 * Math.sin(t * 2 * Math.PI * 0.10) + 0.18 * Math.sin(t * 2 * Math.PI * 0.20 + 1.4) + 0.10 * Math.sin(t * 2 * Math.PI * 5.18);
     // SHIMMER_LEVEL：Pan 2026-08-04「shimmer 的相對音量可以再大點」→ 1.6×（+4.1dB）。
@@ -1817,7 +2033,7 @@ class OceanEngine {
     if(now - this.lastImpact < 1.5) return false;
     this.lastImpact = now;
     // 有界隨機（guardrail 3：有界，不自由生成）：每道浪的份量、蓄積、亮度、位置、尾巴都不同——
-    // 真正的海裡沒有兩道一樣的浪（Pan 2026-07-13).
+    // 真正的海裡沒有兩道一樣的浪（Pan 2026-07-13）。
     const size = 0.7 + 0.6 * Math.random();                              // 份量 0.7–1.3
     const swellT = 0.30 + 0.28 * Math.random();                          // 蓄積 0.30–0.58s
     const peak = clamp((0.26 + 0.26 * this.tide) * size, 0, 0.60);       // 峰值仍有上限
@@ -1829,7 +2045,7 @@ class OceanEngine {
     this.impactPanner.positionX.setValueAtTime(Math.sin(rad) * dist, now);
     this.impactPanner.positionZ.setValueAtTime(-Math.cos(rad) * dist, now);
     this.impactBurst(now, swellT, peak, brightness, tailDecay);
-    // 拍岸的低頻 body：改用「低通噪音爆」而非純正弦，避免電平/嗡音；仍有胸口的悶感（Pan 2026-07-14).
+    // 拍岸的低頻 body：改用「低通噪音爆」而非純正弦，避免電平/嗡音；仍有胸口的悶感（Pan 2026-07-14）。
     const body = OceanEngine.noiseSource(this.ctx);
     const blp = this.ctx.createBiquadFilter();
     blp.type = "lowpass";
@@ -1854,10 +2070,10 @@ class OceanEngine {
     return true;
   }
 
-  // 頌缽（Tibetan singing bowl)——模態合成物理建模（Pan 2026-07-14).
+  // 頌缽（Tibetan singing bowl）——模態合成物理建模（Pan 2026-07-14）。
   // 依文獻：(2,0) 主模主導、輕度非諧泛音、每模一對微失諧正弦＝招牌 beating、長衰減。
   // 走 HRTF panner → 既有 dry/wet 空間鏈；方位/遠近由呼叫端用雙手力道向量給。
-  // azimuth −1(左)…+1(右); distance 越小越近；intensity 0–1. 
+  // azimuth −1(左)…+1(右)；distance 越小越近；intensity 0–1。
   singingBowl(azimuth = 0, distance = 3, intensity = 0.6){
     const now = this.ctx.currentTime;
     if(now - (this.lastBowl || 0) < 0.35) return;      // 冷卻：連甩不會堆疊爆音
@@ -1877,7 +2093,7 @@ class OceanEngine {
     out.connect(pan);
     pan.connect(this.dry);
     pan.connect(this.convolver);                        // 房間殘響（空間著色）
-    pan.connect(this.impactPre);                        // 再送長殘響尾巴＝很好的包覆感（Pan 2026-07-14)
+    pan.connect(this.impactPre);                        // 再送長殘響尾巴＝很好的包覆感（Pan 2026-07-14）
     const f0 = 300 + (Math.random() * 2 - 1) * 8;       // 主模 ~300Hz，每次略不同
     const ratios = [1, 2.75, 5.38, 8.90];               // 輕度非諧（文獻：各缽相近）
     const amps   = [1.0, 0.5, 0.26, 0.13];
@@ -1919,7 +2135,74 @@ class OceanEngine {
     nz.stop(now + 0.4);
   }
 
-  // 粼光（Pan 2026-07-16, 0005）：中頻小群閃點，像水面折射在耳邊一簇一簇亮起。
+  // ── 水中圓石相撞（Pan 2026-08-04，4-7-8 的梆子節拍用）───────────────────────
+  // 「圓圓的石頭之間在水中碰撞的低沉的聲音」。跟 singingBowl 同一套模態合成，但三處刻意不同，
+  // 差別就是「缽」與「水下石頭」的差別：
+  //   ① 部分音比例用**接近整數但更擠**的非諧列（石頭是實心塊體，不像缽那樣有規則的殼模態），
+  //      而且高模衰減得非常快 ⇒ 只剩一聲悶悶的「篤」，沒有缽的長鳴；
+  //   ② 整體低八度（f0 ~150Hz，缽是 300Hz）＝Pan 要的「低沉」，也正落在阿朗壹的 120–500Hz
+  //      主帶（DESIGN.md §4.4：石頭撞擊是本聲景的定位聲）；
+  //   ③ 過一個 lowpass ~900Hz：水把高頻吃掉。這是「在水裡」最關鍵的線索，不是殘響而是失去高頻。
+  // 衰減短（0.10–0.45s）＝可以密集連擊而不糊成一團，梆子由快到慢才聽得出節奏。
+  underwaterStone(azimuth = 0, distance = 2.6, intensity = 0.6, size = 0.5){
+    const now = this.ctx.currentTime;
+    const p = this.ctx.createPanner();
+    p.panningModel = "HRTF";
+    p.distanceModel = "inverse"; p.refDistance = 1; p.maxDistance = 24; p.rolloffFactor = 1.0;
+    const rad = clamp(azimuth, -1, 1) * Math.PI / 2;
+    const d = Math.max(1.2, distance);
+    p.positionX.setValueAtTime(Math.sin(rad) * d, now);
+    p.positionZ.setValueAtTime(-Math.cos(rad) * d, now);
+    // 水的低通：石頭在水下，高頻被水吃掉（＝「在水裡」的主要線索）
+    const water = this.ctx.createBiquadFilter();
+    water.type = "lowpass";
+    water.frequency.value = 900;
+    water.Q.value = 0.7;
+    const out = this.ctx.createGain();
+    out.gain.value = 1;
+    out.connect(water);
+    water.connect(p);
+    p.connect(this.dry);
+    p.connect(this.convolver);                          // 房間殘響
+    p.connect(this.impactPre);                          // 長尾巴＝水的包覆感
+    // 石頭越大聲音越低（size 0=小石 1=大石）：120–190Hz，每次略不同（有界隨機，guardrail 3）
+    const f0 = 190 - 70 * clamp(size) + (Math.random() * 2 - 1) * 6;
+    const ratios = [1, 1.62, 2.41, 3.34];               // 實心塊體：比缽更擠、更不規則
+    const amps   = [1.0, 0.42, 0.20, 0.09];
+    const decays = [0.45, 0.26, 0.16, 0.10];            // 很短＝「篤」而不是「鳴」
+    const peak = clamp(intensity, 0.15, 1) * 0.30;
+    ratios.forEach((rt, i) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = f0 * rt * (0.995 + Math.random() * 0.01);
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      osc.connect(g);
+      g.connect(out);
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(peak * amps[i], now + 0.004);   // 撞擊＝極快起音
+      g.gain.setTargetAtTime(0, now + 0.004, decays[i]);
+      osc.start(now);
+      osc.stop(now + decays[i] * 5 + 0.2);
+    });
+    // 撞擊瞬態：一小簇低頻噪音（兩塊石頭接觸面的那一下），也走水的低通
+    const nz = OceanEngine.noiseSource(this.ctx);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = f0 * 2.2;
+    bp.Q.value = 1.1;
+    const ng = this.ctx.createGain();
+    ng.gain.value = 0;
+    nz.connect(bp);
+    bp.connect(ng);
+    ng.connect(out);
+    ng.gain.setValueAtTime(peak * 0.5, now);
+    ng.gain.setTargetAtTime(0, now, 0.018);             // 極短：是「撞」的質感，不是嘶聲
+    nz.start(now);
+    nz.stop(now + 0.25);
+  }
+
+  // 粼光（Pan 2026-07-16，0005）：中頻小群閃點，像水面折射在耳邊一簇一簇亮起。
   // 頻率固定在分析峰值附近，短促但不尖銳；避免變成 UI 提示音。
   glint(pan = 0, amp = 0.09){
     const now = this.ctx.currentTime;
@@ -2636,16 +2919,13 @@ function requestAudioFadeIn(){
 function setGrip(slot, level){
   const previous = state.grip[slot] || 0;
   state.grip[slot] = level;
-  if(state.phase === "session" && state.guided.preset === "hold478"){
-    const maxLevel = Math.max(state.grip[1] || 0, state.grip[2] || 0);   // 任一手握都算數
-    // 簡單遲滯：握過 ON 數一拍、掉到 OFF 以下才重新武裝。底部死區保證放開＝0，能確實掉到 OFF 以下（不卡）。
-    if(state.guided.manual478Pressed){
-      if(maxLevel <= MANUAL_478_OFF) state.guided.manual478Pressed = false;
-    } else if(maxLevel >= MANUAL_478_ON){
-      state.guided.manual478Pressed = true;
-      requestAudioFadeIn();
-      advanceManual478();
-    }
+  // 4-7-8 不再抓捏握（Pan 2026-08-04）：整套 per-ball 數拍武裝（武裝旗標、峰值桶、相對放開
+  // 門檻）都拿掉了——它們存在的唯一理由是「用握壓數拍」。現在只剩「握一下開始」，
+  // 而且只在 intro 階段有意義，所以條件收成一行。
+  if(state.phase === "session" && state.guided.preset === "hold478"
+     && state.guided.manual478 && state.guided.manual478.intro
+     && level >= MANUAL_478_ON && previous < MANUAL_478_ON){
+    beginManual478();
   }
   // cue 校正的「哪隻手在響應」計分已移除（Pan 2026-08-04，不校正）
   if(engine && !state.audioFadedIn && level >= ARRIVAL_PRESS_ON){
@@ -2856,6 +3136,7 @@ function onReport(e, slot){
       requestAudioFadeIn();
     }
     setGrip(slot, level);
+    if(c.edge && c.edge.pulse) trigger478Press("edge", slot);   // 真球 4-7-8 主路徑：per-ball 相對 rest floor 的「握一拍」
   } else if(e.reportId === 3 && dv.byteLength >= 16){
     const ax = dv.getFloat32(4, true);
     const ay = dv.getFloat32(8, true);
@@ -2880,7 +3161,7 @@ function handleSwing(slot, ax, ay, az){
     return;
   }
   if(engine) engine.setSwing(dir, clamp(motion));
-  // 4-7-8 的頌缽改由「每段第一次握」觸發（見 advanceManual478），不再用晃動——晃動太敏感、會一次好幾聲（Pan 2026-07-14).
+  // 4-7-8 的段落聲音改由梆子時間表擊發水中圓石（見 playBangziPhase），不再用晃動、也不再由捏握觸發（Pan 2026-08-04）。
   if(state.phase === "session" && state.guided.preset === "hold478") return;
   if(state.grip[slot] >= HARD_GRIP && motion >= STRONG_SWING){
     if(engine && state.audioFadedIn && engine.impact()) sendHaptic(slot, 110, 80);
@@ -2948,12 +3229,118 @@ const MANUAL_478_PHASES = [
 
 const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成這麼多輪才算「完全結束」→ 淡出（Pan 2026-07-14).
 
+// ══ 4-7-8 的梆子節拍（Pan 2026-08-04）════════════════════════════════════════
+// Pan 的原話：「4震動一下 然後一個由快到慢的系列震動三次 然後7震動一下 然後一個由快到慢的
+// 系列震動六次 然後8 也如法炮製 就不抓取使用者的捏握了」。
+//
+// 為什麼是「由快到慢」而不是等速：這一段的設計依據是 Pan 指的那篇
+//   Miu et al. / doi 相關研究：《The calming effect of a new wearable device during the
+//   anticipation of public speech》(2016)——穿戴裝置在等待公開演講（一個標準的預期焦慮情境）
+//   時給出**比使用者當下呼吸更慢**的觸覺節律，受試者的焦慮下降。關鍵機制不是「跟著拍子呼吸」，
+//   而是裝置提供一個**明確比現在慢的外部節律**讓身體去跟（entrainment），而且是被動接收、
+//   不需要使用者出力。
+// 這正好解釋了兩個設計決定：
+//   ・**由快到慢**：一開始的快拍貼近使用者當下（偏快、緊繃）的節律，先「接上」；接著逐漸拉長
+//     間隔，把節律往慢的方向帶。等速拍會太快（跟不上就變壓力）或太慢（一開始接不上）。
+//   ・**不抓捏握**：該研究裡使用者是被動接收節律的。原本的握壓數拍要求使用者出力＋計數，
+//     那是任務負荷，跟「等待演講時放鬆」的情境相反。Pan 拿掉它是對的。
+//
+// 梆子（中國戲曲的打擊節拍）給的是**形狀**：一記重音（板）起頭，接著一串漸疏的點（眼），
+// 整體是「緊起慢收」。所以每一段＝1 記重音 + N 個由快到慢的點，N 取自 4/7/8 的數字本身
+// （4→3、7→6、8→7＝「數字減去起頭那一記」，讓總點數正好等於該段的數字）。
+// 這三個數字一起決定「4/7/8 三段各有多長」。挑選的依據是讓段落長度落在真的能照著呼吸的範圍
+// （吸 ~3.4s、停 ~9.9s、吐 ~12.8s，一輪 ~26s ≈ 2.3 次呼吸/分——比平靜時的 12–16 次/分慢得多，
+// 正是該論文「給一個比使用者當下更慢的外部節律」的做法）。由快到慢的幾何級數會讓後段被拉長，
+// 所以段落長度不會剛好是 4:7:8 的比例——聽起來的「數字」是石頭的**數量**，不是秒數。
+const BANGZI_UNIT_MS = 900;        // 起頭重音之後，第一個點的間隔（最快的那一拍）
+const BANGZI_SLOWDOWN = 1.24;      // 每一點的間隔乘這個倍率＝由快到慢（幾何級數，聽起來最自然）
+const BANGZI_LEAD_MS = 300;        // 起頭重音到第一個點之間的空隙（讓重音站得住）
+const BANGZI_ACCENT = { intensity: 165, duration: 78 };   // 板：重、長一點
+const BANGZI_TICK_MIN = 62;        // 眼：由強到弱，最後一點的強度
+const BANGZI_TICK_MAX = 118;
+
+// 一段（4 或 7 或 8）的完整節拍時間表。回傳 [{ at, accent, intensity, duration, size, idx }]，
+// 純函式＝可以被對拍測試直接驗證（tmp/sim_bangzi_478.js），不需要真的球或 AudioContext。
+
+function bangziPattern(count){
+  const n = Math.max(1, count) - 1;                 // 減去起頭那一記重音 ⇒ 總點數＝count
+  const out = [{ at: 0, accent: true, intensity: BANGZI_ACCENT.intensity, duration: BANGZI_ACCENT.duration, size: 0.85, idx: 0 }];
+  let t = BANGZI_LEAD_MS;
+  let gap = BANGZI_UNIT_MS;
+  for(let i = 0; i < n; i++){
+    // 強度與石頭大小都隨著變慢而遞減／變小＝聲音跟著節奏一起沉下去（不是機械的等強度）
+    const k = n <= 1 ? 0 : i / (n - 1);
+    out.push({
+      at: Math.round(t),
+      accent: false,
+      intensity: Math.round(BANGZI_TICK_MAX - (BANGZI_TICK_MAX - BANGZI_TICK_MIN) * k),
+      duration: 34,
+      size: 0.5 - 0.25 * k,
+      idx: i + 1,
+    });
+    t += gap;
+    gap *= BANGZI_SLOWDOWN;
+  }
+  return out;
+}
+
+// 一段梆子的總長度（ms）＝這一段要停留多久，之後自動進下一段。
+function bangziDuration(count){
+  const p = bangziPattern(count);
+  const last = p[p.length - 1];
+  // 最後一點之後留一個「呼吸的餘白」：等於最後一個間隔，讓段落之間不會擠在一起
+  const lastGap = p.length >= 3 ? last.at - p[p.length - 2].at : BANGZI_UNIT_MS;
+  return last.at + lastGap;
+}
+
+// 擊發一段梆子：聲音（水中圓石）＋震動（梆子的板／眼）＋畫面明滅，三者同一個時間表。
+// 震動是 Pan 2026-08-04 明確要求的（HAPTICS_ENABLED 的守則要 Pan 確認，這就是那個確認）；
+// 仍然遵守「震動絕不用作懲罰或催促」——這裡的震動只標記節拍，不因使用者做了什麼而觸發。
+function playBangziPhase(phase){
+  clearGuidedHaptics();
+  const pattern = bangziPattern(phase.count);
+  for(const p of pattern){
+    // 石頭在左右之間交替（梆子的板/眼也是兩手交替打的），空間上有來回感
+    const az = p.accent ? 0 : (p.idx % 2 === 0 ? -0.45 : 0.45);
+    const timer = setTimeout(() => {
+      if(state.phase !== "session" || state.guided.preset !== "hold478") return;
+      if(engine) engine.underwaterStone(az, p.accent ? 2.2 : 2.8, p.accent ? 0.85 : 0.55, p.size);
+      sendHapticAll(p.intensity, p.duration, true);   // force：4-7-8 的引導震動是 Pan 要的
+      beatPulse(phase.rgb);
+    }, p.at);
+    state.guided.hapticTimers.push(timer);
+  }
+  return bangziDuration(phase.count);
+}
+
 function resetManual478(){
-  state.guided.manual478 = { phaseIndex: 0, remaining: MANUAL_478_PHASES[0].count, completedCycles: 0, lastVoice: "", pressGaps: [], startedAt: performance.now(), done: false, intro: true, firstBeatPending: false };
-  // 進場先當成「已握住」＋高 peak：必須先真正放開才會開始數，避免「進入用的那一握」直接扣一拍（Pan 2026-07-14).
-  state.guided.manual478Pressed = true;
-  state.guided.manual478Peak = 1;
+  // 不再抓捏握（Pan 2026-08-04）：改成裝置自己走梆子節拍，使用者只要跟著呼吸。
+  // phaseIndex / completedCycles 保留（畫面與紀錄都在用）；remaining 改成「這一段還剩幾點」，
+  // 由 bangziPattern 的時間表推進，不再由使用者的握壓扣。
+  state.guided.manual478 = {
+    phaseIndex: 0,
+    remaining: MANUAL_478_PHASES[0].count,
+    completedCycles: 0,
+    lastVoice: "",
+    pressGaps: [],                  // 保留欄位（紀錄格式不變），自走模式下不會有內容
+    startedAt: performance.now(),
+    done: false,
+    intro: true,
+    phaseStartedAt: null,           // 這一段的梆子是什麼時候起頭的
+    phaseEndsAt: null,              // 這一段預計結束的時間（＝bangziDuration 之後）
+  };
   state.guided.manual478LastPressAt = 0;
+  clearGuidedHaptics();
+}
+
+// 起頭一段梆子：排好聲音/震動/畫面的時間表，並記下這一段何時結束。
+function startBangziPhase(){
+  const { m, phase } = manual478State();
+  const now = performance.now();
+  m.phaseStartedAt = now;
+  m.remaining = phase.count;
+  m.phaseEndsAt = now + playBangziPhase(phase);
+  play478Voice(phase);
 }
 
 function manual478State(){
@@ -2964,6 +3351,9 @@ function manual478State(){
 }
 
 // 依兩手當下握力的向量中心，擊發一聲頌缽（HRTF 方位＋遠近＝空間感）。
+// ⚠️ 2026-08-04 起沒有呼叫點：4-7-8 的段落聲音換成水中圓石（underwaterStone）了。
+// 刻意保留（連同 engine.singingBowl）而不刪除——頌缽是既有聲景的一個聲音，Pan 若想在別的段落
+// 用回它、或想把兩種聲音混用，這裡是現成的接點。（若確定不再需要，兩者可一起移除。）
 function playBowlForHands(){
   if(!engine) return;
   const L = state.grip[state.handMap.left || 1] || 0;
@@ -2976,46 +3366,49 @@ function playBowlForHands(){
   engine.singingBowl(az, dist, intensity);
 }
 
-function advanceManual478(){
-  const now = performance.now();
+// 4-7-8 的握壓入口。自走化之後（Pan 2026-08-04）這裡只剩一個作用：**開始**。
+// 段落推進改由 tickManual478 依時間走，所以不再需要 per-ball 武裝、也不需要 refractory 去重
+// ——重複呼叫是無害的（beginManual478 自己會擋掉非 intro 的呼叫）。
+function trigger478Press(source, slot = 0){
   if(state.phase !== "session" || state.guided.preset !== "hold478") return;
-  if(now - state.guided.manual478LastPressAt < 220) return;
+  const { m } = manual478State();
+  if(!m.intro || m.done) return;             // 已經開始（或已完成）＝這一握沒有任何作用
+  beginManual478();
+}
+
+// 自走的 4-7-8：由時間推進，不再由捏握推進（Pan 2026-08-04）。
+// 每一幀從 updateManual478Session 呼叫；只做兩件事——更新「這一段還剩幾點」、到時候換段。
+function tickManual478(){
   const { m, phase } = manual478State();
-  if(m.done) return;
-  const wasIntro = m.intro;
-  if(wasIntro){
-    m.intro = false;   // 第一次真正握下只讓「4」出現。
-    m.firstBeatPending = true;
-    state.guided.manual478LastPressAt = now;
-    beatPulse(phase.rgb);
-    updateGuidedSession(true);
-    return;
+  if(m.done || m.intro) return;
+  const now = performance.now();
+  if(m.phaseEndsAt == null){ startBangziPhase(); return; }
+  // 還剩幾點：從時間表反推（畫面的倒數要跟實際聽到的點對上，不能各走各的）
+  const pattern = bangziPattern(phase.count);
+  const elapsed = now - m.phaseStartedAt;
+  let done = 0;
+  for(const p of pattern) if(elapsed >= p.at) done++;
+  m.remaining = Math.max(0, phase.count - done);
+  if(now < m.phaseEndsAt) return;
+  // 這一段走完 → 進下一段
+  m.phaseIndex = (m.phaseIndex + 1) % MANUAL_478_PHASES.length;
+  if(m.phaseIndex === 0){
+    m.completedCycles += 1;
+    if(m.completedCycles >= MANUAL_478_TARGET_CYCLES){ complete478(); return; }
   }
-  const gap = state.guided.manual478LastPressAt ? now - state.guided.manual478LastPressAt : 0;
-  state.guided.manual478LastPressAt = now;
-  if(gap > 150 && gap < 12000) m.pressGaps.push(gap);   // 按壓間距 → 之後判「呼吸平均程度」
-  state.grip478Count = (state.grip478Count || 0) + 1;   // 累計握放次數（結束後鼓勵用）
-  beatPulse(phase.rgb);
-  sendHapticAll(95, 42, true);
-  if(m.firstBeatPending){
-    m.firstBeatPending = false;                          // 第二次握：為「4」發聲，但畫面仍停在 4. 
-    playBowlForHands();
-    updateGuidedSession(true);
-    return;
-  }
-  // 頌缽在「數字出現的那一下」響，不晚一個數字（Pan 2026-07-15）：
-  //  吸氣＝第一次握（看到 4）響；進入停/吐＝把數字換成 7/8 的那一下同時響。每回 4-7-8＝三聲。
-  m.remaining -= 1;
-  if(m.remaining <= 0){
-    m.phaseIndex = (m.phaseIndex + 1) % MANUAL_478_PHASES.length;
-    if(m.phaseIndex === 0){
-      m.completedCycles += 1;
-      if(m.completedCycles >= MANUAL_478_TARGET_CYCLES){ complete478(); return; }   // 完全結束才淡出
-    }
-    m.remaining = MANUAL_478_PHASES[m.phaseIndex].count;
-    playBowlForHands();                                  // 數字剛變成新一段（7/8 或下一輪的 4）＝立刻響
-    play478Voice(MANUAL_478_PHASES[m.phaseIndex]);
-  }
+  startBangziPhase();
+}
+
+// 開始自走（使用者握一下表示「我準備好了」，之後就不用再出力）。
+// 保留這一握是刻意的：它同時解鎖 audio（瀏覽器要求手勢）並讓使用者掌握開始的時機。
+function beginManual478(){
+  const { m } = manual478State();
+  if(!m.intro || m.done) return;
+  m.intro = false;
+  m.phaseIndex = 0;
+  m.completedCycles = 0;
+  requestAudioFadeIn();
+  startBangziPhase();
   updateGuidedSession(true);
 }
 
@@ -3024,6 +3417,7 @@ function complete478(){
   const m = state.guided.manual478;
   if(!m || m.done) return;
   m.done = true;
+  clearGuidedHaptics();                   // 完成：取消這一段還沒發完的梆子點
   $("breathWord").textContent = "Done";
   $("orbPhaseLabel").textContent = "Completed ";
   $("orbCount").textContent = "✓";
@@ -3060,6 +3454,7 @@ function setBreathPreset(id){
   } else {
     state.guided.manual478 = null;
     state.guided.manual478Pressed = false;
+    clearGuidedHaptics();                 // 離開 4-7-8：把還沒發的梆子點全部取消
   }
   document.querySelectorAll(".preset-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.preset === id));
   if(state.phase === "session") updateGuidedSession(true);
@@ -3088,33 +3483,9 @@ function guideHapticsForPhase(presetId, phase, phaseKey){
   clearGuidedHaptics();
   const unitMs = Math.max(180, (phase.dur * 1000) / Math.max(1, Math.round(phase.dur)));
 
-  // 4-7-8：保留畫面的相位色明滅（beatPulse）作為數拍；sendHaptic 已關閉為 no-op. 
-  if(presetId === "hold478"){
-    const rgb478 = phase.name === "hold" ? [236, 190, 120] : phase.name === "exhale" ? [116, 138, 224] : [78, 206, 178];
-    const nBeats = phase.name === "inhale" ? 4 : phase.name === "hold" ? 7 : 8;
-    if(phase.name === "inhale"){
-      // 進吸＝三下快速上行 marker；之後每拍一短 tick、強度逐拍上升
-      scheduleUnitPulsePattern(4, unitMs, (i) => i === 0
-        ? [{ offset: 0, intensity: 80, duration: 26 }, { offset: 110, intensity: 112, duration: 26 }, { offset: 220, intensity: 150, duration: 32 }]
-        : ({ offset: 0, intensity: 100 + i * 16, duration: 40 }));
-    } else if(phase.name === "hold"){
-      // 進停＝一下沉穩較長 marker；之後每拍一極短、穩定、稀疏的 tick
-      scheduleUnitPulsePattern(7, unitMs, (i) => i === 0
-        ? ({ offset: 0, intensity: 150, duration: 70 })
-        : ({ offset: 0, intensity: 74, duration: 26 }));
-    } else if(phase.name === "exhale"){
-      // 進吐＝三下快速下行 marker；之後每拍一短 tick、強度逐拍下降
-      scheduleUnitPulsePattern(8, unitMs, (i) => i === 0
-        ? [{ offset: 0, intensity: 150, duration: 32 }, { offset: 110, intensity: 112, duration: 26 }, { offset: 220, intensity: 74, duration: 26 }]
-        : ({ offset: 0, intensity: 130 - i * 8, duration: 44 }));
-    }
-    // 每拍的畫面明滅（相位色）——視覺計數，明顯可見
-    for(let i = 0; i < nBeats; i++){
-      const timer = setTimeout(() => beatPulse(rgb478), i * unitMs);
-      state.guided.hapticTimers.push(timer);
-    }
-    return;
-  }
+  // 4-7-8 不走這裡：updateGuidedSession 在 hold478 時會先轉去 updateManual478Session，
+  // 它的節拍（聲音＋震動＋畫面明滅）由 playBangziPhase 依梆子時間表自己排（Pan 2026-08-04）。
+  // 原本這裡有一段 478 的 unit pulse pattern，自走化之後永遠到不了，已移除以免誤導。
 
   if(presetId === "resonance"){
     if(phase.name === "inhale") scheduleUnitPulsePattern(Math.round(phase.dur), unitMs, () => ({ offset: 0, intensity: 86, duration: 125 }));
@@ -3228,6 +3599,7 @@ function updateGuidedSession(force = false){
 }
 
 function updateManual478Session(preset){
+  tickManual478();                       // 自走：由時間推進段落（Pan 2026-08-04，不再抓捏握）
   const { m, phase } = manual478State();
   const gripWater = clamp(Math.max(state.grip[1], state.grip[2]));
   const motionHeat = clamp(state.motionSmoothed / STRONG_SWING);

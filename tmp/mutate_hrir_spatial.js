@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * 突變測試：驗證 tmp/test_hrir_spatial.js 真的會擋下錯誤，而不是只會通過。
+ * 突變測試：驗證 tmp/test_hrir_spatial.js 與 tmp/check_alangyi_match.js 真的會擋下錯誤，
+ * 而不是只會通過。
  *
  * 做法：把 web/index.html 複製一份、注入一個真實可能犯的錯、跑測試、看它是否失敗。
  * 每個突變都是「寫成這樣不會報錯、只會聽起來怪」的那種——正是需要測試守門的。
@@ -31,12 +32,47 @@ const MUTANTS = [
    s => s.replace(/c\.normalize = false/g, "c.normalize = true")],
   ["漏掉 channelCount = 1 ＝ 立體聲影像汙染 HRIR 的耳間資訊",
    s => s.replace("this.mono.channelCount = 1;", "")],
-  ["makeup 抄錯一位（bubble 4.82 → 4.28）＝ 低頻悄悄少 1dB",
-   s => s.replace("bubble: 4.82", "bubble: 4.28")],
-  ["surge 完全沒補償（3.11 → 1）＝ 主浪掉 9.9dB",
-   s => s.replace("surge: 3.11", "surge: 1")],
-  ["foam 的補償方向搞反（0.85 → 1.18）",
-   s => s.replace("foam: 0.85", "foam: 1.18")],
+  // makeup 的值在 2026-08-04 全部塌回 ~1（傾斜改由 HRIR_TILT_FIX 處理），所以這幾個
+  // 突變改成「留著舊的 3–5 倍」＝同一個傾斜被補兩次（低頻轟）。
+  ["makeup 還留著舊的 3–5 倍 ＝ 傾斜被修正鏈與 makeup 補了兩次（低頻轟）",
+   s => s.replace(/const SPATIAL_MAKEUP = \{[^}]*\}/,
+                  "const SPATIAL_MAKEUP = { surge: 3.11, foam: 0.85, pebble: 3.61, bubble: 4.82, shore: 4.10 }")],
+  ["surge 完全沒補償（1.02 → 1 之外的極端值）＝ 主浪音量錯",
+   s => s.replace("surge: 1.02", "surge: 0.2")],
+  ["foam 的補償方向搞反（0.98 → 1.6）",
+   s => s.replace("foam: 0.98", "foam: 1.6")],
+  // ── 傾斜修正鏈本身（2026-08-04 新增，Pan「頻帶差很多／白噪音很假」的主要修法）──
+  ["整條傾斜修正鏈拿掉 ＝ 回到 26.9dB 上斜（Pan 聽到的「白噪音很假」）",
+   s => s.replace("g.connect(this.tilt);", "g.connect(this.output);")],
+  ["修正鏈的低頻抬升拿掉 ＝ 低頻仍然掉 20dB",
+   s => s.replace('{ type: "lowshelf",  f: 250,  q: 0.5, gain: 15.6 }',
+                  '{ type: "lowshelf",  f: 250,  q: 0.5, gain: 0 }')],
+  ["修正鏈變成把傾斜加倍（增益正負號反了）",
+   s => s.replace("gain: 15.6 }", "gain: -15.6 }")],
+  ["修正鏈的總 trim 拿掉 ＝ 整體音量差 2.2dB",
+   s => s.replace(/const HRIR_TILT_TRIM = [\d.]+/, "const HRIR_TILT_TRIM = 1.0")],
+  ["修正鏈接在卷積**之前** ＝ 左右耳各修一次、而且順序錯",
+   s => s.replace("this.mono.connect(c); c.connect(g); g.connect(this.tilt);",
+                  "this.mono.connect(this.tilt); this.tilt.connect(c); c.connect(g); g.connect(this.output);")],
+  // ── pink 噪音（白噪音很假的第二個成因）──
+  ["surge 回到白噪音（Pan：「模仿海浪的白噪音很假」）",
+   s => s.replace("this.noise = OceanEngine.pinkNoiseSource(ctx)", "this.noise = OceanEngine.noiseSource(ctx)")],
+  ["foam 回到白噪音",
+   s => s.replace("this.noise2 = OceanEngine.pinkNoiseSource(ctx)", "this.noise2 = OceanEngine.noiseSource(ctx)")],
+  // 名字叫 pink、實際輸出卻是平的：−3dB/oct 的斜率全部拿掉（極點都設成 0＝各級變成純增益）。
+  ["pink 濾波器其實是白的（名字對、頻譜平）",
+   s => s.replace("d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;",
+                  "d[i] = w * 0.577;")],
+  // ── foam 的頂端蓋子（嘶到聽力上限＝電視雜訊感）──
+  ["foam 的頂端蓋子拿掉 ＝ 嘶到 24kHz（阿朗壹 6k+ 幾乎 0%）",
+   s => s.replace("this.foamHP.connect(this.foamLP)", "this.foamHP.connect(this.foamGain)")],
+  ["foam 的蓋子開到 20kHz ＝ 等於沒有蓋子",
+   s => s.replace("this.foamLP.frequency.value = 8000", "this.foamLP.frequency.value = 20000")],
+  // ── pebble 的靜止底量（Pan：「pebble 的聲音幾乎都是沒有的」）──
+  ["pebble 沒有靜止底量 ＝ 不握球就實質靜音（Pan 說幾乎聽不到）",
+   s => s.replace(/const PEBBLE_FLOOR = [\d.]+/, "const PEBBLE_FLOOR = 0.03")],
+  ["PEBBLE_FLOOR 定了但沒接上 ＝ 常數寫對、聲音還是沒有",
+   s => s.replace("PEBBLE_FLOOR", "0.030")],
   ["surgeMk 建了但沒接進 busIn ＝ 補償等於沒生效",
    s => s.replace("this.surgeMk.connect(this.busIn)", "this.surgeMk.connect(this.dry)")],
   ["surgeGain 直接接 busIn、繞過補償節點",
@@ -123,10 +159,14 @@ for (const [label, mutHtml, mutReadme] of MUTANTS) {
       if (readme === origReadme) { escaped.push(`${label}  ← 突變沒套用（regex 對不到）`); continue; }
       fs.writeFileSync(readmePath, readme);
     }
+    // 兩支測試都跑：訊號鏈/角度慣例在 test_hrir_spatial.js，頻譜對阿朗壹的還原度在
+    // check_alangyi_match.js。任一支失敗就算擋下——它們守的是同一份碼的不同面向。
     let died = false;
-    try {
-      execFileSync("node", [path.join(__dirname, "test_hrir_spatial.js")], { stdio: "pipe" });
-    } catch { died = true; }
+    for (const t of ["test_hrir_spatial.js", "check_alangyi_match.js"]) {
+      try {
+        execFileSync("node", [path.join(__dirname, t)], { stdio: "pipe" });
+      } catch { died = true; break; }
+    }
     restore();
     if (died) { caught++; console.log(`  ✓ 擋下  ${tag}${label}`); }
     else escaped.push(tag + label);

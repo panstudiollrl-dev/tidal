@@ -211,19 +211,35 @@ PAGES.forEach((page, pi) => {
       return tot / n;
     };
     const median = (v) => v.slice().sort((a, b) => a - b)[v.length >> 1];
+    // ⚠️ 2026-08-04 起 makeup 的角色改了，所以這裡量的東西也改了。
+    // 以前：makeup 是唯一的補償，所以它必須等於「真 IR 在該層頻帶掉了多少」（3–5 倍）。
+    // 現在：卷積後多了 HRIR_TILT_FIX 那條鏈，傾斜在那裡被拉平，makeup 只補**殘差**（~1.0）。
+    // 這支測試的模型裡沒有那條鏈，所以它算出來的 want 仍然是舊的 3–5 倍——拿它當標準會逼著
+    // 把補償做兩次（＝低頻轟）。真正比對「makeup 是否等於修正後殘差」的是
+    // tmp/check_alangyi_match.js [2]（它把 HRIR + 修正鏈一起算）。這裡只留兩件這個模型
+    // 仍然能誠實驗證的事：① 傾斜的**方向**（哪些層掉得多）；② makeup 已經塌回 ~1。
+    const loss = {};
     for (const [layer, [f0, f1]] of Object.entries(bands)) {
-      const m = median(cache.map(c => bandPower(c, f0, f1)));
-      const want = 1 / Math.sqrt(m);          // 要補回 0dB 的倍數
+      loss[layer] = 1 / Math.sqrt(median(cache.map(c => bandPower(c, f0, f1))));
       ok(MK[layer] !== undefined, `SPATIAL_MAKEUP 要有 ${layer}`);
-      // 5% 容忍：常數是 3 位有效位數寫死的
-      ok(Math.abs(MK[layer] - want) / want < 0.05,
-         `${layer} 的 makeup 要等於真 IR 量出來的值`,
-         `碼裡 ${MK[layer]}，量到 ${want.toFixed(2)}`);
     }
-    // foam 是唯一在 1.5kHz 以上的層，補償應該小於 1（HRIR 在那裡反而略增）
+    // ① 未修正時的傾斜方向：低頻層掉得多、foam（1.5kHz 以上）反而略增。
+    //    這是 HRIR_TILT_FIX 存在的理由，也是 Pan「白噪音很假」的成因，必須量得出來。
+    ok(loss.bubble > 3, "未修正時 bubble（BP320）要掉最多——這就是要修正的傾斜",
+       `${loss.bubble.toFixed(2)}×`);
+    ok(loss.foam < 1.2, "未修正時 foam（1.5kHz 以上）幾乎不掉，甚至略增", `${loss.foam.toFixed(2)}×`);
+    ok(loss.bubble > loss.foam * 2.5, "低頻掉的比高頻多得多＝上斜（阿朗壹剛好相反）",
+       `bubble ${loss.bubble.toFixed(2)}× vs foam ${loss.foam.toFixed(2)}×`);
+    // ② 有了修正鏈之後 makeup 全部塌回 ~1：如果還留著 3–5 倍就是補了兩次。
+    for (const [layer, v] of Object.entries(MK)) {
+      ok(v > 0.7 && v < 1.5, `${layer} 的 makeup 要已經塌回 ~1（傾斜由修正鏈處理）`, String(v));
+    }
+    // 修正鏈必須真的存在——否則上面「塌回 ~1」等於完全沒補償
+    ok(/const HRIR_TILT_FIX = \[/.test(src), "要有 HRIR_TILT_FIX 修正鏈（makeup 塌回 1 的前提）");
+    ok(/this\.tiltOut\.gain\.value = HRIR_TILT_TRIM/.test(src), "修正鏈的總 trim 要接上");
+    ok(/g\.gain\.value = 0;\s*\n\s*this\.mono\.connect\(c\); c\.connect\(g\); g\.connect\(this\.tilt\)/.test(src),
+       "兩顆 convolver 都要接進修正鏈（接到 output 就是繞過修正）");
     ok(MK.foam < 1, "foam 的補償要小於 1（高頻反而略增）", String(MK.foam));
-    // 低頻層一定要大幅補
-    ok(MK.bubble > 4, "bubble 要補最多（BP320 掉 13.7dB）", String(MK.bubble));
     // 每層都要真的接上 makeup 節點——常數寫對但沒接等於沒補
     for (const layer of ["surge", "foam", "pebble"]) {
       const mk = layer + "Mk";
