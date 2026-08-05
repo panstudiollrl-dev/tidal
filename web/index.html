@@ -859,6 +859,62 @@ const GRIP_REZERO_MS = 8000;       // 只在連上後這段時間內積極重取
                                    // 而積極重取零點的代價就是上面那個取捨。過了這段就交回給既有的
                                    // restRef 慢跟 + phantom 修復（它們溫和得多，不會塌水位）。
 const GRIP_REZERO_MIN_SHIFT = 90;  // 零點要挪動這麼多 raw 才值得換（小於死區的一半，避免抖來抖去）
+// ── 鬆開就重設零點（Pan 2026-08-05 回饋）─────────────────────────────────────
+// Pan：「從一開始沒有握起來水位就是全滿的，握了再放掉也會一直停留在半滿…如果一剛開始
+//       有需要使用者一握一放來讓飄移歸0 還是可以做的，但越簡單越快越好」。
+//
+// 為什麼原本的 8 秒窗不夠：它只在「連上後 8 秒內」有效。真實順序是——拿起球、**握著**、
+// 等頁面連上、看說明、然後才放開。握超過 8 秒才放開，就掉進一個**三方死鎖**：
+//   ① 握著連上 → 零點（與 restRef）寫成握著的值；放開後偏差 ~700 raw。
+//   ② 偏差 700 → shaped 0.65 → 判定「握持中」→ baseline 凍結（0.00005/幀，刻意的，
+//      為了 4-7-8 憋氣不要水位下沉）→ 錯的零點被一起凍住。
+//   ③ 唯一能修 restRef 的那行有 `< GRIP_REST_MARGIN`(45) 守衛，700 >> 45 → 永遠不進去；
+//      而「放開」分支要 shaped<=0 才走，shaped 又因為零點錯而恆 >0 → 也永遠不走。
+// 三者互鎖：水位高因為零點錯、零點不修因為水位高、restRef 不修因為離太遠。
+// 在 30Hz 下光靠 0.00005 的凍結率要 **30 分鐘** 才收斂——使用者體感就是「永遠卡住」。
+//
+// 修法：**訊號停住不動、而且停在比零點更低的位置，那個位置就是真正的零點。**
+//
+// 為什麼「更低」這個方向是安全的、而且不需要任何額外守衛：施力只會讓 raw **上升**。
+// 這不是猜的，是量的——
+//   ・`GRIPBALL_PROTOCOL.md`：用力握相對 baseline 約 **+1250**；
+//   ・Pan 2026-07-22 的真球 log（28 分鐘、兩顆 MB01、20653 筆）：兩顆球的靜止值都坐在
+//     分布的**底部**，眾數 slot1≈34320 / slot2≈34224，往上到 p99 是 +683/+2168、
+//     max 是 +1521/+2911，往下離眾數最多只有 −454/−225（＝雜訊與慢漂移的量級）。
+// 所以「持續停在零點下方 60 raw 以上」在物理上不可能是一次握壓，只可能是零點取錯了。
+// 這正是 Pan 的症狀：握著連上 → 零點寫在握著的高位 → 一放開，raw 掉到真正的靜止值
+// ＝零點**下方** 700 raw → 立刻被這一條抓到、0.6 秒後零點搬回正確位置。
+//
+// 為什麼不能沿用上面那套「佔用最久」（眾數）：眾數要求挑戰者贏過現任者（ms > baseMs），
+// 而握著連上握了 20 秒才放開時，那 20 秒全記在**握著**那一格，放開後的新平台永遠贏不過它
+// ——那就是死鎖③。零點錯的時候，歷史佔用時間是**被汙染的證據**。兩套因此分工：
+//   ・連上後 8 秒內、零點錯在上方或下方都要救 → 眾數那套（保守，要贏過現任者）；
+//   ・任何時候、零點錯在**上方**（唯一可能的方向）→ 這一套（積極，不看歷史只看現在）。
+//
+// 為什麼不會吃掉任何刻意的長握（4-7-8 憋氣、緊繃度那題要握住 1.8 秒）：長握是 raw **上升**，
+// 這一條只在 raw 停在零點**下方**時動作，兩者方向相反，在定義上不可能誤觸。這也是為什麼
+// 它不需要像眾數那套一樣被關在 8 秒的窗裡——它整場都可以開著。
+//
+// ⚠️ 誠實記錄兩個界限：
+// (a) 這一條**依賴「握＝raw 上升」**。若哪天遇到極性相反的球（舊校正曾在 ball2 上量到
+//     pressMinusRest −114，但那是校正本身壞掉的量測，不是硬體證據），這一條不會出手，
+//     該球仍靠眾數那套 + phantom 修復。要改成雙向的話就得先解決「往上的平台分不出是長握
+//     還是錯零點」——那個歧義是真的存在（見 GRIP_HIST_MIN_MS 那段），不是實作偷懶。
+// (b) **把球放到桌上**也是「零點下方的平台」（舊註解實測 Ball2 放下差 1860 raw），所以這一條
+//     會把零點搬到桌面值，之後再拿起來就是滿水位——正是下面「放手」分支那段註解警告的事。
+//     這跟 (a) 是同一個歧義的鏡像：「放開手」與「放下球」在 raw 串流裡都是「掉到一個更低的
+//     位置停住」，只差幅度，而幅度會重疊（用力握 +1250 vs 放下 1860）。所以**分不開**。
+//     取捨往哪邊倒：「握著連上」Pan 兩次回饋都遇到、每個 session 都會碰；「中途把球放到桌上
+//     再拿起來」少見，而且**修好前就已經是壞的**（實測：修好前再拿起後 30s 水位 0.75、
+//     修好後 0.85，都靠 phantom 修復在 ~60s 內收斂，量級沒變）。所以選擇修 Pan 真的會遇到的，
+//     並把桌面情形釘在 sim_grip_rezero.js [7d] 裡，免得有人以為它已經好了。
+//     （想真的分開就需要「球是否在手上」的獨立證據——例如 IMU 的靜止判定。要真球實驗，
+//      記在 AGENTS.md 的開放項目。）
+//
+// 對使用者的意義：不需要學任何手勢。Pan 說「如果一剛開始有需要使用者一握一放來讓飄移歸0
+// 還是可以做的，但越簡單越快越好」——連一握一放都不用，光是把手鬆開就會被偵測到。
+const GRIP_SETTLE_MS = 600;        // 停在同一個位置這麼久＝一個「平台」（比一次握放的放開段短，才來得及救）
+const GRIP_SETTLE_MIN_SHIFT = 60;  // 平台要低於零點這麼多 raw 才值得搬（小於死區 143，免得雜訊搬來搬去）
 // 「握一拍」的最短間隔。真實數拍是 ~1 拍/秒，擠在 0.4 秒內的連發不可能是使用者數的：
 // 它只會是雜訊尖峰、或零點剛換掉時的殘響——也就是 Pan 的「突然 bang＋震動好幾次」。
 const GRIP_BEAT_REFRACTORY_MS = 400;
@@ -1000,7 +1056,11 @@ class GripCalibrator {
     this.hist = new Map();                                           // bin index → { ms, sum, n }
     this.lastHistAt = null;                                          // 上一筆的時間（算這一筆佔用多久）
     this.firstReportAt = null;                                       // 第一筆 report 的時間（GRIP_REZERO_MS 的起點）
-    this.rezeroCount = 0; }                                          // 重取零點的次數（診斷面板/log 用）
+    this.rezeroCount = 0;                                            // 重取零點的次數（診斷面板/log 用）
+    // 「零點下方的平台」偵測（見 GRIP_SETTLE_MS 上面的註解）：救「握著連上」的錯零點。
+    this.plateauAt = null;                                           // 目前這個平台從何時開始停住
+    this.plateauRaw = null;                                          // 平台的位置（raw）
+    this.settleCount = 0; }                                          // 用平台救回零點的次數（診斷面板/log 用）
   median(values){
     if(!values.length) return null;
     const v = values.slice().sort((a, b) => a - b);
@@ -1067,6 +1127,31 @@ class GripCalibrator {
         this.level = 0;                                               // 水位也歸零：舊零點算出來的水位是假的
         this.smRaw = raw;                                             // 平滑器也重新起算，不要拖著舊零點的殘影
       }
+    }
+    // ── 零點下方的平台＝真正的靜止值（見 GRIP_SETTLE_MS 上面那段註解）─────────────
+    // 施力只會讓 raw 上升（協定 +1250、真球 log 兩顆球的靜止值都在分布底部），所以
+    // 「持續停在零點下方」不可能是握壓，只可能是零點取錯了（握著連上）。整場都開著：
+    // 它跟長握的方向相反，不可能誤觸。
+    if(this.baseline != null){
+      const below = this.baseline - raw;                              // 正值＝在零點下方
+      if(below >= GRIP_SETTLE_MIN_SHIFT){
+        // 平台要「停住」：離開這個位置超過一格直方圖寬度就重新起算，免得慢慢滑下去的
+        // 漂移被當成平台（漂移本來就由 restRef 的慢跟吸收，不該動零點）。
+        if(this.plateauAt == null || Math.abs(raw - this.plateauRaw) > GRIP_HIST_BIN){
+          this.plateauAt = now; this.plateauRaw = raw;
+        } else if(now - this.plateauAt >= GRIP_SETTLE_MS){
+          this.baseline = this.plateauRaw;
+          this.restRef = this.plateauRaw;
+          this.settleCount++;
+          // 跟重取零點一樣要清掉相對舊零點算的狀態，否則積在那裡的上升邊會一起認列
+          // ＝Pan 2026-08-04 的「突然 bang＋震動好幾次」。
+          this.edge.armed = true; this.edge.floor = 0; this.edge.peak = 0; this.edge.pulse = false;
+          this.holdRun = 0; this.healing = false;
+          this.level = 0;
+          this.smRaw = raw;
+          this.plateauAt = null; this.plateauRaw = null;
+        }
+      } else this.plateauAt = null;
     }
     this.smRaw += (raw - this.smRaw) * 0.3;                     // 輕度平滑，抗單筆雜訊
     const rawDev = this.smRaw - this.baseline;                  // 帶正負：離開靜止基線的方向與幅度
@@ -1174,6 +1259,10 @@ function gripCalibSnapshot(slot, raw = null){
     span: Math.round(c.span || 0),
     restRef: c.restRef == null ? null : Math.round(c.restRef),
     noiseEma: Math.round(c.noiseEma || 0),
+    // 零點被換過幾次、以及是**哪一條路**換的。兩條路的觸發條件完全不同（眾數 vs 零點下方的
+    // 平台），所以下次看 Pan 的 log 時這兩個數字直接告訴我們發生了什麼，不必回頭猜。
+    rezeroCount: c.rezeroCount || 0,
+    settleCount: c.settleCount || 0,
     edgeArmed: c.edge ? !!c.edge.armed : null,
     edgeFloor: c.edge ? Math.round(c.edge.floor) : null,
     level: Number((state.grip[slot] || 0).toFixed(4)),

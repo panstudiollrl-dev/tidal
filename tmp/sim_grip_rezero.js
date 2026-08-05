@@ -40,7 +40,7 @@ function build(src) {
     "GRIP_FULL_SCALE", "GRIP_BASELINE_MS", "GRIP_HEADROOM", "GRIP_LEVEL_ATTACK", "GRIP_LEVEL_RELEASE",
     "GRIP_REST_MARGIN", "EDGE_ON_FRAC", "EDGE_ON_MIN_RAW", "EDGE_REARM_FRAC", "EDGE_FLOOR_RISE",
     "GRIP_GAMMA", "GRIP_DEADZONE", "GRIP_HIST_BIN", "GRIP_HIST_MIN_MS", "GRIP_REZERO_MS",
-    "GRIP_REZERO_MIN_SHIFT", "GRIP_BEAT_REFRACTORY_MS",
+    "GRIP_REZERO_MIN_SHIFT", "GRIP_BEAT_REFRACTORY_MS", "GRIP_SETTLE_MS", "GRIP_SETTLE_MIN_SHIFT",
   ];
   const consts = names.map(n => {
     const m = src.match(new RegExp(`const ${n} = ([\\d.]+)`));
@@ -109,7 +109,14 @@ PAGES.forEach((page, pi) => {
     const maxAfter = Math.max(...settled.map(o => o.level));
     ok(maxAfter < 0.06, "收斂之後水位要穩住在 0（不能修好又飄回去）",
        `之後最高水位 ${maxAfter.toFixed(2)}`);
-    ok(c.rezeroCount >= 1, "應該要偵測到零點錯了並重取", `rezeroCount=${c.rezeroCount}`);
+    // 「零點真的被換掉了」而不是「水位剛好掉下來」——後者可能是漂移吸收假裝出來的。
+    // ⚠️ 不要寫成 `rezeroCount >= 1`：那是在斷言**用哪條路修的**，不是修好了沒有。
+    // 2026-08-05 加了「零點下方的平台」那條之後，這個情境會由它先修（放開後 600ms，
+    // 比眾數那套的 GRIP_HIST_MIN_MS 1500ms 早），於是零點在眾數還沒湊到門檻前就已經正確，
+    // `Math.abs(sum/n - baseline) >= GRIP_REZERO_MIN_SHIFT` 不再成立 → rezeroCount 停在 0。
+    // 那是**正確的優先順序**（證據更強、更快的先出手），不是回歸。
+    ok(c.rezeroCount + c.settleCount >= 1, "應該要偵測到零點錯了並換掉（哪一條路修的都算）",
+       `rezeroCount=${c.rezeroCount} settleCount=${c.settleCount}`);
     ok(Math.abs(c.baseline - REST) < 60, "修正後的零點要落在真正的靜止值附近",
        `baseline=${c.baseline.toFixed(0)}，真值 ${REST}`);
     if (pi === 0) console.log(`      放開後峰值 ${peak.toFixed(2)}、持續 ${healedAt.toFixed(0)}ms 後消掉；之後最高 ${maxAfter.toFixed(2)}；重取 ${c.rezeroCount} 次；baseline ${c.baseline.toFixed(0)}（真值 ${REST}）`);
@@ -290,6 +297,131 @@ PAGES.forEach((page, pi) => {
     }
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  if (pi === 0) console.log("[7] 30Hz × 握超過 8 秒才放開＝三方死鎖（Pan 2026-08-05 回報）");
+  {
+    // ⚠️ 這一項**必須跑 30Hz**。上面 [1]-[5] 全部用預設的 80Hz，而真實硬體是 30Hz
+    // （Pan 2026-07-22 的 log：20653 筆／28 分鐘／兩顆 MB01）。這個 bug 藏在那個差別裡，
+    // 所以 541 條斷言全部通過、Pan 卻回報「水位一直卡在半滿」。不要把 hz 拿掉。
+    //
+    // Pan 的實際順序是「拿起球、**握著**、等頁面連上、看說明、然後才放開」——握超過
+    // GRIP_REZERO_MS(8s) 才放開，於是掉進三方死鎖：
+    //   ① 握著連上 → 零點寫成握著的值；放開後偏差 ~700 raw。
+    //   ② 偏差 700 → shaped 0.65 → 判定「握持中」→ baseline 凍結(0.00005/幀) → 錯零點被凍住。
+    //   ③ 修 restRef 那行有 `< GRIP_REST_MARGIN`(45) 守衛，700 >> 45 → 進不去；
+    //      「放開」分支要 shaped<=0，而 shaped 因為零點錯而恆 >0 → 也進不去。
+    // 在 30Hz 下光靠 0.00005 的凍結率要 ~30 分鐘才收斂＝使用者體感「永遠卡住」。
+    // 修法見 index.html 的 GRIP_SETTLE_MS：施力只會讓 raw **上升**（協定 +1250、真球 log
+    // 兩顆球的靜止值都在分布底部），所以「持續停在零點下方」只可能是零點取錯了。
+    const HZ = 30;
+    const sec = n => seconds(n, HZ);
+    // 3 秒（窗內、眾數救得到）到 25 秒（遠超窗）都要好。6 秒那一格是原本的分界：
+    // 修好之前 3s 正常、6s 之後就永久卡在 0.65。
+    for (const holdS of [3, 6, 9, 15, 25]) {
+      const s = [];
+      for (let i = 0; i < sec(holdS); i++) s.push(REST + GRIP + noise(i));   // 握著（含連上那一刻）
+      for (let i = 0; i < sec(45); i++) s.push(REST + noise(i));             // 放開，之後都不握
+      const { out, c } = run(src, s, HZ);
+      const rel = sec(holdS);
+      // 「放開後 3 秒內要回到 0」：Pan 要的是「越簡單越快越好」，不是等半分鐘。
+      const lv3 = out[rel + sec(3)].level;
+      ok(lv3 < 0.06, `握 ${holdS}s 才放開：放開後 3 秒內水位要回到 0`, `水位 ${lv3.toFixed(2)}`);
+      // 而且要**穩住**，不能修好又飄回去（症狀是「握了再放掉會一直停留在半滿」）
+      const after = out.slice(rel + sec(5)).map(o => o.level);
+      ok(Math.max(...after) < 0.06, `握 ${holdS}s 才放開：之後水位要穩住在 0`,
+         `之後最高 ${Math.max(...after).toFixed(2)}`);
+      ok(Math.abs(c.baseline - REST) < 60, `握 ${holdS}s 才放開：零點要落在真正的靜止值附近`,
+         `baseline=${c.baseline.toFixed(0)}，真值 ${REST}`);
+    }
+    if (pi === 0) {
+      const r = [3, 25].map(h => {
+        const s = [];
+        for (let i = 0; i < sec(h); i++) s.push(REST + GRIP + noise(i));
+        for (let i = 0; i < sec(45); i++) s.push(REST + noise(i));
+        const { out, c } = run(src, s, HZ);
+        return `握 ${h}s→放開後 3s 水位 ${out[sec(h) + sec(3)].level.toFixed(2)}、零點偏差 ${Math.abs(c.baseline - REST).toFixed(0)}`;
+      });
+      console.log(`      30Hz：${r.join("；")}`);
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  if (pi === 0) console.log("[7b] 零點下方的平台不能吃掉刻意的長握（4-7-8 憋氣／緊繃度那題）");
+  {
+    // 這是新機制唯一可能踩壞的東西，所以要在 30Hz（真實速率）下釘住。
+    // 之所以安全：長握是 raw **上升**、新機制只看零點**下方**，方向相反。
+    const HZ = 30;
+    const sec = n => seconds(n, HZ);
+    const s = [];
+    for (let i = 0; i < sec(12); i++) s.push(REST + noise(i));              // 先靜止（零點取對）
+    for (let i = 0; i < sec(16); i++) s.push(REST + GRIP + noise(i));       // 刻意長握 16 秒
+    for (let i = 0; i < sec(6); i++) s.push(REST + noise(i));               // 放開
+    const { out, c } = run(src, s, HZ);
+    const hold = out.slice(sec(13), sec(28)).map(o => o.level);
+    ok(Math.min(...hold) > 0.5, "長握 16 秒期間水位不能下沉（4-7-8 憋氣的水位要撐住）",
+       `最低 ${Math.min(...hold).toFixed(2)}`);
+    ok(c.settleCount === 0, "零點對的時候，平台機制完全不該出手",
+       `settleCount=${c.settleCount}`);
+    // 放開之後也要乾淨落回 0（不能因為長握把零點推高而卡住）
+    const rel = out.slice(sec(30)).map(o => o.level);
+    ok(Math.max(...rel) < 0.06, "長握放開後水位要回到 0", `最高 ${Math.max(...rel).toFixed(2)}`);
+    if (pi === 0) console.log(`      長握 16s：水位最低 ${Math.min(...hold).toFixed(2)}、平台出手 ${c.settleCount} 次、放開後最高 ${Math.max(...rel).toFixed(2)}`);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  if (pi === 0) console.log("[7c] 往下的慢漂移不該被當成平台（漂移歸 restRef 的慢跟處理）");
+  {
+    // 為什麼要有這一項：新機制只看「零點下方」，而**感測器往下的慢漂移**也在零點下方。
+    // 若不要求「真的停住」，漂移會一路把零點往下拖，等於用一個一直在動的值當零點。
+    // 漂移本來就有既有的處理方式（restRef 的 0.02 慢跟），不該動零點。
+    // 這一項是 [2d] 的鏡像：那邊測往上漂，這邊測往下漂——而只有往下的方向會碰到新機制。
+    const HZ = 30;
+    const sec = n => seconds(n, HZ);
+    const s = [];
+    for (let i = 0; i < sec(1.2); i++) s.push(REST + noise(i, 4));            // 零點在這裡取樣
+    for (let i = 0; i < sec(20); i++) s.push(REST - i * 0.4 + noise(i, 4));   // 20 秒滑下 240 raw
+    const { out, c } = run(src, s, HZ);
+    const lv = Math.max(...out.slice(sec(2)).map(o => o.level));
+    ok(lv < 0.06, "往下慢漂移期間水位要一直是 0", `最高 ${lv.toFixed(3)}`);
+    // 滑動中不該採用（值一直在動）；漂移由 restRef 吸收，零點自己也會跟著慢慢移。
+    ok(c.settleCount === 0, "一路往下滑的期間不該採用平台（值還在動，不是靜止值）",
+       `settleCount=${c.settleCount}`);
+    if (pi === 0) console.log(`      往下滑 240raw：最高水位 ${lv.toFixed(3)}、平台出手 ${c.settleCount} 次`);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  if (pi === 0) console.log("[7d] 記錄現況：把球放到桌上再拿起來仍然會短暫滿水位（已知界限）");
+  {
+    // 這一項**不是**在測「已經修好了」，是在釘住一個**沒有修好**的已知界限，免得下一個人
+    // 以為它好了、或以為它是新機制造成的。見 index.html GRIP_SETTLE_MS 註解的 (b)。
+    //
+    // 為什麼分不開：「放開手」與「放下球」在 raw 串流裡都是「掉到一個更低的位置停住」，
+    // 只差幅度，而幅度會重疊（協定實測用力握 +1250、放下球 1860）。要真的分開需要
+    // 「球是否在手上」的獨立證據（IMU 靜止判定），那是另一個決策。
+    //
+    // 實測（30Hz、放下差 1860 raw）：修好前 再拿起後 30s 水位 0.75、60s 0.14；
+    //                                修好後 30s 0.85、60s 0.20。量級沒變＝新機制沒有把它弄壞。
+    const HZ = 30;
+    const sec = n => seconds(n, HZ);
+    const TABLE_DROP = 1860;   // 舊註解實測：Ball2 放到桌上與拿在手上差 1860 raw
+    const s = [];
+    for (let i = 0; i < sec(20); i++) s.push(REST + noise(i));                 // 拿著不握
+    for (let i = 0; i < sec(40); i++) s.push(REST - TABLE_DROP + noise(i));    // 放到桌上
+    const pickUp = s.length;
+    for (let i = 0; i < sec(90); i++) s.push(REST + noise(i));                 // 再拿起來，放著不握
+    const { out } = run(src, s, HZ);
+    const at = n => out[pickUp + sec(n)].level;
+    // 上界：確認它確實仍會衝高（如果哪天有人真的修好了，這條會失敗——那是好消息，
+    // 請把這一項改寫成「要在 N 秒內回到 0」，不要直接刪掉）。
+    ok(at(5) > 0.5, "（記錄現況）放桌上再拿起來，水位仍會短暫衝高——這是已知界限，不是回歸",
+       `再拿起後 5s 水位 ${at(5).toFixed(2)}`);
+    // 下界才是真正要守的：phantom 修復必須還在工作，不能變成**永久**卡住
+    // （永久卡住才是 Pan 回報的那一類災難）。
+    ok(at(90 - 1) < 0.3, "但它必須會自己收斂（phantom 修復仍然有效，不能變成永久卡住）",
+       `再拿起後 89s 水位 ${at(89).toFixed(2)}`);
+    if (pi === 0) console.log(`      放桌上再拿起：5s ${at(5).toFixed(2)}｜30s ${at(30).toFixed(2)}｜60s ${at(60).toFixed(2)}｜89s ${at(89).toFixed(2)}（已知界限，見 [7d] 註解）`);
+  }
+
   if (pi === 0) console.log("[6] 常數的合理範圍與碼裡的接線");
   {
     ok(consts.GRIP_HIST_BIN > 10 && consts.GRIP_HIST_BIN < 60,
@@ -336,6 +468,49 @@ PAGES.forEach((page, pi) => {
        "不反應期內仍要照常解除武裝與記峰值（只是不算拍）");
     // Math.abs 必須留著：極性不猜是 2026-08-04 的決定，而零點修正正是為它補的保險
     ok(/const dev = Math\.abs\(rawDev\)/.test(src), "極性仍然不猜（Math.abs 要留著）");
+
+    // ── 零點下方的平台（2026-08-05）─────────────────────────────────────────
+    ok(consts.GRIP_SETTLE_MS >= 400 && consts.GRIP_SETTLE_MS <= 1200,
+       "平台時間要比一次握放的放開段短（才來得及救），又長於雜訊", String(consts.GRIP_SETTLE_MS));
+    ok(consts.GRIP_SETTLE_MIN_SHIFT < consts.GRIP_FULL_SCALE * consts.GRIP_DEADZONE,
+       "平台的最小位移要小於死區（否則死區內的錯零點救不到）",
+       `${consts.GRIP_SETTLE_MIN_SHIFT} vs 死區 ${(consts.GRIP_FULL_SCALE * consts.GRIP_DEADZONE).toFixed(0)}`);
+    ok(consts.GRIP_SETTLE_MIN_SHIFT > consts.GRIP_HIST_BIN,
+       "平台的最小位移要大於直方圖分格寬（也就是大於靜止雜訊的量級）",
+       `${consts.GRIP_SETTLE_MIN_SHIFT} vs ${consts.GRIP_HIST_BIN}`);
+    // 方向性是整條機制的安全保證：只看零點**下方**。寫成 Math.abs 或反向就會吃掉長握。
+    ok(/const below = this\.baseline - raw;/.test(src),
+       "必須是「零點 − raw」＝只看零點下方（施力只會讓 raw 上升）");
+    ok(/if\(below >= GRIP_SETTLE_MIN_SHIFT\)/.test(src),
+       "只在低於零點超過門檻時才起算平台");
+    ok(!/Math\.abs\(this\.baseline - raw\)\s*>=\s*GRIP_SETTLE_MIN_SHIFT/.test(src),
+       "不可以寫成雙向（Math.abs）——那會把 4-7-8 的長握當成錯零點");
+    // 「停住」而不是「一路滑下去」：漂移該由 restRef 慢跟吸收，不該動零點
+    ok(/Math\.abs\(raw - this\.plateauRaw\) > GRIP_HIST_BIN/.test(src),
+       "平台要求真的停住（離開一格就重新起算），否則慢漂移會被當成平台");
+    ok(/now - this\.plateauAt >= GRIP_SETTLE_MS/.test(src), "平台要停滿 GRIP_SETTLE_MS 才採用");
+    // 跟重取零點一樣，換零點必須清掉相對舊零點算的狀態（否則就是「突然 bang 好幾次」）
+    const st = src.match(/\} else if\(now - this\.plateauAt >= GRIP_SETTLE_MS\)\{[\s\S]*?\n        \}/);
+    ok(!!st, "要找得到平台採用那段");
+    if (st) {
+      ok(/this\.restRef = this\.plateauRaw/.test(st[0]), "採用平台時 restRef 要一起搬（否則放開分支又把零點拉回錯的地方）");
+      ok(/this\.edge\.armed = true/.test(st[0]), "採用平台要重新武裝 edge detector");
+      ok(/this\.edge\.floor = 0/.test(st[0]), "採用平台要重設 edge 的 floor");
+      ok(/this\.level = 0/.test(st[0]), "採用平台要把水位歸零（舊零點算出來的水位是假的）");
+      ok(/this\.healing = false/.test(st[0]), "採用平台要取消 phantom 修復");
+      ok(/this\.smRaw = raw/.test(st[0]), "採用平台要重設平滑器");
+    }
+    // 這一條**不該**被關在 8 秒窗裡：Pan 的症狀正是「握超過 8 秒才放開」。
+    // 也不該有 rezeroCount 那種一次性額度——放開幾次就該救幾次。
+    const settleBlock = src.match(/if\(this\.baseline != null\)\{[\s\S]*?\n    \} else this\.plateauAt = null;\n    \}/)
+      || src.match(/const below = this\.baseline - raw;[\s\S]*?\n      \} else this\.plateauAt = null;/);
+    ok(!!settleBlock, "要找得到平台偵測那段");
+    if (settleBlock) {
+      ok(!/GRIP_REZERO_MS/.test(settleBlock[0]),
+         "平台機制不可以被關在 GRIP_REZERO_MS 的窗裡（Pan 的症狀就是握超過 8 秒才放開）");
+      ok(!/settleCount === 0/.test(settleBlock[0]),
+         "平台機制不該只做一次（放開幾次就該救幾次）");
+    }
   }
 });
 tag = "";

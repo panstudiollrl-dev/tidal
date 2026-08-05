@@ -19,7 +19,10 @@ const PAGE = path.join(ROOT, "web", "index.html");
 const SIM_SRC = path.join(__dirname, "sim_grip_rezero.js");
 const EN_PAGE = path.join(ROOT, "web", "en", "index.html");
 let SIM = SIM_SRC;
-if (!/GRIP_HIST_MIN_MS/.test(fs.readFileSync(EN_PAGE, "utf8"))) {
+// 判斷條件要用**最新**同步過去的東西，不是最舊的：GRIP_HIST_MIN_MS 從 2026-08-04 就在 en 頁了，
+// 拿它當條件的話 2026-08-05 這批（GRIP_SETTLE_*）還沒同步時也會被當成「已同步」，
+// 於是變異測試會去跑一個 en 頁根本沒有那段碼的測試＝基準就掛掉。改成檢查最新的那個常數。
+if (!/GRIP_SETTLE_MS/.test(fs.readFileSync(EN_PAGE, "utf8"))) {
   const s = fs.readFileSync(SIM_SRC, "utf8");
   const zh = s.replace(/\n\s*\{ label: "en", file: path\.join\(ROOT, "web", "en", "index\.html"\) \},/, "");
   if (zh === s) throw new Error("生成 zh 變體失敗：找不到 en 的 PAGES 條目");
@@ -75,6 +78,35 @@ const MUTANTS = [
   ["現任者的佔用時間算錯格（拿零點以外的格去比）",
    "const baseBin = Math.round(this.baseline / GRIP_HIST_BIN);",
    "const baseBin = Math.round(raw / GRIP_HIST_BIN);"],
+  // ── 零點下方的平台（2026-08-05）：Pan 回報「握了再放掉會一直停留在半滿」的修法 ──
+  ["整段平台偵測拿掉（回到 Pan 2026-08-05 遇到的三方死鎖）",
+   "if(below >= GRIP_SETTLE_MIN_SHIFT){", "if(false){"],
+  ["平台改成雙向（Math.abs）＝會把 4-7-8 的長握當成錯零點",
+   "const below = this.baseline - raw;", "const below = Math.abs(this.baseline - raw);"],
+  ["平台方向反過來（只看零點上方）＝救不到錯零點、反而吃長握",
+   "const below = this.baseline - raw;", "const below = raw - this.baseline;"],
+  ["平台時間拉到 30 秒（使用者體感還是「卡住」）",
+   "const GRIP_SETTLE_MS = 600;", "const GRIP_SETTLE_MS = 30000;"],
+  ["平台時間縮到 0（一筆雜訊就搬零點）",
+   "const GRIP_SETTLE_MS = 600;", "const GRIP_SETTLE_MS = 0;"],
+  ["平台位移門檻設成 0（雜訊搬來搬去）",
+   "const GRIP_SETTLE_MIN_SHIFT = 60;", "const GRIP_SETTLE_MIN_SHIFT = 0;"],
+  ["平台位移門檻拉到死區之上（死區內的錯零點救不到）",
+   "const GRIP_SETTLE_MIN_SHIFT = 60;", "const GRIP_SETTLE_MIN_SHIFT = 400;"],
+  ["不要求平台「停住」（慢慢滑下去的漂移也會被當成平台）",
+   "if(this.plateauAt == null || Math.abs(raw - this.plateauRaw) > GRIP_HIST_BIN){",
+   "if(this.plateauAt == null){"],
+  ["採用平台時忘了搬 restRef（放開分支又把零點拉回錯的地方）",
+   "this.restRef = this.plateauRaw;", "// (mutant) restRef 不搬"],
+  ["採用平台時不重設 edge（＝突然 bang 好幾次）",
+   "this.edge.armed = true; this.edge.floor = 0; this.edge.peak = 0; this.edge.pulse = false;\n          this.holdRun = 0; this.healing = false;",
+   "this.holdRun = 0;"],
+  ["平台機制被關在 8 秒窗裡（Pan 的症狀正是握超過 8 秒才放開）",
+   "if(below >= GRIP_SETTLE_MIN_SHIFT){",
+   "if(below >= GRIP_SETTLE_MIN_SHIFT && now - this.firstReportAt < GRIP_REZERO_MS){"],
+  ["平台機制加上一次性額度（放開幾次就該救幾次）",
+   "if(below >= GRIP_SETTLE_MIN_SHIFT){",
+   "if(below >= GRIP_SETTLE_MIN_SHIFT && this.settleCount === 0){"],
 ];
 
 let caught = 0;

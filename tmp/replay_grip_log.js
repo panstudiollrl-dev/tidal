@@ -38,7 +38,8 @@ const src = fs.readFileSync(path.join(ROOT, "web", "index.html"), "utf8");
 const names = ["GRIP_FULL_SCALE", "GRIP_BASELINE_MS", "GRIP_HEADROOM", "GRIP_LEVEL_ATTACK",
   "GRIP_LEVEL_RELEASE", "GRIP_REST_MARGIN", "EDGE_ON_FRAC", "EDGE_ON_MIN_RAW", "EDGE_REARM_FRAC",
   "EDGE_FLOOR_RISE", "GRIP_GAMMA", "GRIP_DEADZONE", "GRIP_HIST_BIN", "GRIP_HIST_MIN_MS",
-  "GRIP_REZERO_MS", "GRIP_REZERO_MIN_SHIFT", "GRIP_BEAT_REFRACTORY_MS"];
+  "GRIP_REZERO_MS", "GRIP_REZERO_MIN_SHIFT", "GRIP_BEAT_REFRACTORY_MS",
+  "GRIP_SETTLE_MS", "GRIP_SETTLE_MIN_SHIFT"];
 const K = {};
 const consts = names.map(n => {
   const m = src.match(new RegExp(`const ${n} = ([\\d.]+)`));
