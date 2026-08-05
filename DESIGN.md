@@ -168,6 +168,16 @@ EEG 若接入，先作為低權重慢變節奏層與探索性量測；不要把 
 > 並把 shimmer 的匯流權重納入頻帶計算，否則那支測試會對這個改動視而不見）。
 > 仍留 `SHIMMER_WET > 0.1`：全乾會變成貼耳的乾硬電子音。
 >
+> **來源與授權（Pan 2026-08-05 指示「請查詢」，已查證確認）**：`assets/hrir/` 這批 IR 是
+> **ARI（Acoustics Research Institute, Austrian Academy of Sciences）HRTF database,
+> subject `nh2`**，授權 **CC BY-SA 3.0**，引用 Majdak, Goupell & Laback (2010),
+> *Atten Percept Psychophys* 72, 454–469。**不是 MeshRIR、也不是 SADIE**——這兩個舊說法
+> （duck-hunt 的 `.gitignore` 寫 MeshRIR、`gripball_webhid.js` 註解寫 SADIE-style）都是錯的。
+> ⚠️ **share-alike 是新的限制**：`assets/ir/room.wav` 的 MeshRIR 是 CC BY 4.0（沒有 SA），
+> 兩者條款不同，**不要混著寫**；對外發佈的處理方式待 Pan 決定。
+> 證據鏈（格線／維度／頻譜指紋／排除法）與「為什麼波形比對量不出來」見
+> `assets/hrir/README.md`。
+>
 > 訊號鏈：sources → **makeup gain → 實測 HRIR 卷積 → HRIR_TILT_FIX 等化鏈**(方位/距離) → MeshRIR convolver(空間著色) → soft-clip → out。
 > HRIR 未載入時自動退回內建 `PannerNode(HRTF)`（聲音永遠成立）；頁面 **H** 鍵可即時 A/B。
 > 若房間 IR 尚未匯出，`convolver` 先旁路（bypass）。
@@ -204,6 +214,28 @@ EEG 若接入，先作為低權重慢變節奏層與探索性量測；不要把 
 > 最大尖峰（ball1 1494／ball2 2807），於是每一次正常的握只剩 0.1–0.4，「用握力表達緊張」
 > 那題會被記成 0 分。學錯比不學更糟——與 2026-08-04 移除 cue 校正同一個理由。
 > 詳細量測與取捨見 `GRIPBALL_PROTOCOL.md`，驗收在 `tmp/sim_grip_rezero.js [8]`。
+
+> **壞球信任判定：`gripTrust` → `gripStuckSince`（Pan 2026-08-05 指示「要」修）。**
+> 2026-07-22 加過一層防護：一顆卡在高位不會放開的壞球（phantom）不該代表使用者作答，
+> 所以問答那條路走 `trustedHeld()` 而不是原始水位。但它的狀態記的是「**上次放開的時刻**」、
+> 初值 **0**，於是「還沒有任何證據」被當成「**在時間 0 就放開過**」。`performance.now()`
+> 是從**開頁**起算的 ⇒ **頁面開超過 25 秒之後才連上的球，第一個 report 就被判成不可信**，
+> `trustedHeld()` 回 0。而讀說明、按連線、戴耳機本來就要花幾十秒，所以這是**常態**而非例外。
+> ⚠️ **這就是 Pan 2026-08-04 說「只有小小回顧的段落的握力跟水位關係是對的」的真正原因**：
+> 那一段不是對，是**被歸零蓋掉**了——它是唯一走 `trustedHeld()` 的地方。而水位**顯示**
+> 走的是 `Math.max(state.grip…)`（沒經過信任判定），所以同一次 session 會出現
+> 「水位是滿的、但回顧那段完全沒反應」。
+> ⚠️ 更糟的是它**安靜地損壞資料**：兩顆都不可信 ⇒ held 恆 0 ⇒ 作答窗逾時自動跳、
+> `agreement` / `pre_tension` 被記成 0，畫面上看不出任何異常。
+> **改法：語意從「上次放開多久前」換成「卡住多久了」**——`gripStuckSince[slot]`，`null` ＝
+> 沒有卡住的證據 ⇒ **給信任**；高於 `AFTER_OFF` 才開始計時（只記第一次跨過的時刻，
+> 不能每幀重設）；一回到低位立刻清成 `null`；`forgetBallSlot` 也要清（換球不繼承）。
+> 窗口 `GRIP_TRUST_MS = 25000` 不變，所以 07-22 那個 phantom 防護完整保留。
+> 驗收在 `tmp/check_grip_trust.js`（27 項）＋ `tmp/mutate_grip_trust.js`（13/13）。
+> 這一項**特別**需要變異測試，因為壞掉的時候畫面上看不出來（水位照樣滿），純聽純看驗不到。
+> ⚠️ **這條路只有 zh 頁有**：en 頁沒有 `trustedHeld`／`armAgreement`，它直接用
+> `Math.max(state.grip[1], state.grip[2])` ⇒ 本來就沒有這個症狀。要不要把整套（連同
+> `AFTER_ON` 0.24 vs en 0.14 的差異）搬到 en，是 Pan 的決定，見 `AGENTS.md`。
 
 ## 7. Session 流程
 

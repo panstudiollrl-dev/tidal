@@ -1468,6 +1468,15 @@ async function flushLogFile(){
    取代瀏覽器內建的 PannerNode(HRTF)。IR 在 assets/hrir/（90 個水平面方位角，
    來源與量測見那裡的 README.md）。
 
+   ⚠️ 引用義務（2026-08-05 查證確認，Pan 指示「請查詢」）：這批 IR 來自
+   **ARI（Acoustics Research Institute, Austrian Academy of Sciences）HRTF database,
+   subject nh2**，授權 **CC BY-SA 3.0**（share-alike）。必附引用：
+   Majdak, P., Goupell, M. J., and Laback, B. (2010). "3-D localization of virtual sound
+   sources: effects of visual environment, pointing method, and training,"
+   Atten Percept Psychophys 72, 454-469.　出處 http://www.kfs.oeaw.ac.at/hrtf
+   **不是 MeshRIR、也不是 SADIE**（舊註解兩種說法都錯，證據見 assets/hrir/README.md）。
+   assets/ir/room.wav 才是 MeshRIR（CC BY 4.0，Shoichi Koyama et al.）——兩者授權不同。
+
    三個一定要記住的點：
    1. **`normalize = false`**：IR 本身就帶著實測的耳間音量差(ILD)，讓瀏覽器
       正規化會把我們要的方向線索抹平。
@@ -3338,12 +3347,28 @@ function requestAudioFadeIn(){
 // 「信任」的球才可以代表使用者回答問題：某顆球長時間降不回 AFTER_OFF（訊號卡高位，例如壞球 phantom），
 // 它做不到「放開→握」的表達，就別讓它觸發/卡住任何問答（Pan 2026-07-22：卡在『現在身體還緊繃嗎』＋過場自動跳）。
 // 一旦它降回低位就恢復信任。25s 窗口：正常作答節奏 <5s，不會誤傷。
-const gripTrust = { 1: 0, 2: 0 };
+//
+// ⚠️ 2026-08-05（Pan 指示要修）：這裡原本記的是「最後一次低於 AFTER_OFF 的時刻」、初值 **0**，
+// 於是「還沒有任何證據」被當成「在時間 0 就放開過」。`performance.now()` 是從**開頁**起算的，
+// 所以頁面開超過 25 秒之後才連上的球（或連上時正握著的球），**第一個 report 就被判成不可信**
+// ⇒ `trustedHeld()` 回 0。這就是 Pan 說「只有小小回顧的段落的握力跟水位關係是對的」的真正原因：
+// 那一段不是對，是被**歸零蓋掉**了——而水位顯示走的是 `Math.max(state.grip…)` 沒有經過這裡，
+// 所以同一次 session 會出現「水位滿的、但回顧那段完全沒反應」。
+// 更糟的是它**安靜地損壞資料**：兩顆都不可信時 held 恆為 0，作答窗會逾時自動跳，
+// `agreement` / `pre_tension` 被記成 0，而畫面上看不出任何異常。
+// 改法：記「**從什麼時候開始卡在高位**」（`null` ＝ 沒卡住）。沒有證據就不扣信任，
+// 真的卡滿 25 秒才扣，一回到低位立刻恢復——語意從「上次放開多久前」變成「卡住多久了」。
+const gripStuckSince = { 1: null, 2: null };
+const GRIP_TRUST_MS = 25000;
+function ballTrusted(slot, now = performance.now()){
+  const since = gripStuckSince[slot];
+  return since == null || now - since <= GRIP_TRUST_MS;   // null＝還沒有「卡住」的證據 ⇒ 給信任
+}
 function trustedHeld(){
   const now = performance.now();
   let h = 0;
   for(const s of [1, 2]){
-    if(now - (gripTrust[s] || 0) <= 25000) h = Math.max(h, state.grip[s] || 0);
+    if(ballTrusted(s, now)) h = Math.max(h, state.grip[s] || 0);
   }
   return clamp(h);
 }
@@ -3351,7 +3376,9 @@ function trustedHeld(){
 function setGrip(slot, level){
   const previous = state.grip[slot] || 0;
   state.grip[slot] = level;
-  if(level <= AFTER_OFF) gripTrust[slot] = performance.now();
+  // 低於 AFTER_OFF＝這顆球做得到「放開」⇒ 清掉卡住的計時；高於就開始計時（只記第一次跨過的時刻）。
+  if(level <= AFTER_OFF) gripStuckSince[slot] = null;
+  else if(gripStuckSince[slot] == null) gripStuckSince[slot] = performance.now();
   // 4-7-8 不再抓捏握（Pan 2026-08-04）：整套 per-ball 數拍武裝（武裝旗標、峰值桶、相對放開
   // 門檻）都拿掉了——它們存在的唯一理由是「用握壓數拍」。現在只剩「握一下開始」，
   // 而且只在 intro 階段有意義，所以條件收成一行。
@@ -3424,6 +3451,7 @@ function forgetBallSlot(slot, reason = "stale"){
   state.lastModeSentAt[slot] = 0;
   calib[slot] = new GripCalibrator();
   accBaseline[slot] = null;
+  gripStuckSince[slot] = null;    // 重新插上的球要從「可信」開始，不繼承上一顆的卡住紀錄
   setGrip(slot, 0);
   $("s" + slot).textContent = "未連接";
   updateHidStatus();
@@ -3849,8 +3877,10 @@ function manual478State(){
 
 // 依兩手當下握力的向量中心，擊發一聲頌缽（HRTF 方位＋遠近＝空間感）。
 // ⚠️ 2026-08-04 起沒有呼叫點：4-7-8 的段落聲音換成水中圓石（underwaterStone）了。
-// 刻意保留（連同 engine.singingBowl）而不刪除——頌缽是既有聲景的一個聲音，Pan 若想在別的段落
-// 用回它、或想把兩種聲音混用，這裡是現成的接點。（若確定不再需要，兩者可一起移除。）
+// ✅ **Pan 2026-08-05 明確決定「留」**（我問過要留還是刪）。所以這個函式沒有呼叫者是
+// 刻意的，不是漏掉的死碼——下一位接手的人請不要當成清理目標順手刪掉。
+// 頌缽是既有聲景的一個聲音（`engine.singingBowl` 現在被 478 的「板」用著），Pan 若想在
+// 別的段落用回這個「兩手加權方位」的版本、或把兩種聲音混用，這裡是現成的接點。
 function playBowlForHands(){
   if(!engine) return;
   const L = state.grip[state.handMap.left || 1] || 0;

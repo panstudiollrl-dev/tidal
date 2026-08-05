@@ -71,6 +71,117 @@
 
 ## 交接紀錄
 
+### 2026-08-05 (c) — Claude (Opus)｜Pan 回答三個待決問題「1.要 2.留 3.請查詢」：修 gripTrust、保留 playBowlForHands、查證 HRIR 授權
+
+上一則 (b) 的「未完成 / 待 Pan 決策」列了三個問題，Pan 回「**1.要 2.留 3.請查詢**」。三件都做完。
+
+- **(a)「要」＝修 `gripTrust`。** 這是一個**安靜的**bug：狀態記的是「上次放開的時刻」、
+  初值 `0`，而 `performance.now()` 從**開頁**起算 ⇒ 「還沒有任何證據」被當成「在時間 0
+  放開過」⇒ **開頁超過 25 秒後才連上的球，第一個 report 就被判成不可信**，`trustedHeld()`
+  回 0。而讀說明、按連線、戴耳機本來就要幾十秒，所以這是常態不是例外。
+  用舊邏輯單獨跑過確認：連球前等 5s/20s → 0.62（正常），**26s/90s/300s → 0.00**。
+  ⚠️ **這就是 Pan 08-04 說「只有小小回顧的段落的握力跟水位關係是對的」的真正原因**——
+  那段不是對，是**被歸零蓋掉**了（它是唯一走 `trustedHeld()` 的地方）。水位**顯示**走的是
+  `Math.max(state.grip…)`，沒經過信任判定 ⇒ 同一次 session 會「水位滿的、但回顧那段沒反應」。
+  ⚠️ 而且它**損壞資料**：兩顆都不可信 ⇒ held 恆 0 ⇒ 作答窗逾時自動跳、`agreement` /
+  `pre_tension` 記成 0，**畫面上完全看不出異常**。
+  **改法＝換語意**：從「上次放開多久前」變成「**卡住多久了**」（`gripStuckSince`，
+  `null` ＝沒證據 ⇒ 給信任；只記第一次跨過 `AFTER_OFF` 的時刻，不每幀重設；回到低位立刻
+  清 `null`；`forgetBallSlot` 也清）。窗口 `GRIP_TRUST_MS = 25000` 不動 ⇒ 07-22 加的
+  phantom 防護完整保留。
+  **只改 zh 頁**：en 沒有 `trustedHeld`／`gripTrust`／`armAgreement`（0 個出現），它直接用
+  `Math.max(state.grip[1], state.grip[2])`，本來就沒這個症狀。
+- **(b)「留」＝保留 `playBowlForHands`。** 不動程式，只在函式上方把 Pan 的決定寫進註解
+  （zh + en 兩頁），免得下一位當死碼清掉。
+- **(c)「請查詢」＝HRIR 來源與授權，已查證確認。**
+  > **ARI（Acoustics Research Institute, Austrian Academy of Sciences）HRTF database,
+  > subject `nh2`；授權 Creative Commons Attribution-**ShareAlike** 3.0 Unported。**
+  > 引用：Majdak, P., Goupell, M. J., and Laback, B. (2010). "3-D localization of virtual
+  > sound sources: effects of visual environment, pointing method, and training,"
+  > *Atten Percept Psychophys* 72, 454–469.　出處 `http://www.kfs.oeaw.ac.at/hrtf`
+
+  這是**直接從 SOFA 檔自己的 global attributes 讀出來的**（`License` / `Organization` /
+  `DatabaseName` / `ListenerShortName`），不是推論。
+  **原本 repo 裡的兩個說法都錯**：❌ MeshRIR（那是房間麥克風陣列，沒有 HRTF）、
+  ❌ 「SADIE-style，SADIE II 是 CC BY 4.0」（不是 SADIE；而且 SADIE II 其實是 **Apache 2.0**、
+  © 2018 University of York，連那個授權數字也錯）。
+  **四條獨立證據**：① manifest 的 90 個方位角**恰好**是「正面 2.5°／側面 5°」格線經
+  banker's rounding 到整數（程式驗的，不是目測）；② ARI `hrtf b_nh2.sofa` ＝1550 方向／
+  256 taps／48kHz／水平面剛好 90 個方位角，與 manifest `identical: True`，而 duck-hunt 自己
+  的文件寫來源池「1551 檔、23 個仰角層」＝ARI 的 −30…+80 每 5°；③ 全 90 方向（180 耳）的
+  log-magnitude 頻譜相關 `nh2 +0.6058` vs 次高 `nh14 +0.3486`（1.7×，中位數 0.6014 一致）；
+  ④ SADIE D1/D2/H3 與 SonicSquid 用的 Binamix IR 全部測過並排除。
+  ⚠️ **share-alike 是這個專案原本沒考慮到的新限制**——`assets/ir/room.wav` 的 MeshRIR 是
+  CC BY 4.0（沒有 SA），兩者條款不同。**依 §1「與 guardrail 衝突就停下來讓 Pan 決定」，
+  對外發佈怎麼處理 SA 是 Pan 的決定，我只補上標註、沒有代為取捨。**
+
+**怎麼驗證**（十一支全綠，都從 `Tidal/` 這層跑）：
+
+| 指令 | 結果 |
+|---|---|
+| `node tmp/check_grip_trust.js` | 27 項（**新檔**） |
+| `node tmp/mutate_grip_trust.js` | 13/13（**新檔**，zh only——en 沒這條路） |
+| `node tmp/sim_bangzi_478.js` | 332 項 |
+| `node tmp/mutate_bangzi_478.js` | 82/82 |
+| `node tmp/sim_grip_rezero.js` | 198 項 |
+| `node tmp/mutate_grip_rezero.js` | 33/33 |
+| `node tmp/check_pebble_quality.js` | 46 項 |
+| `node tmp/mutate_pebble_quality.js` | 32/32 |
+| `node tmp/check_alangyi_match.js` | 114 項 |
+| `node tmp/test_hrir_spatial.js` | 194 項（`[7]` 引用義務整節改寫，見下） |
+| `node tmp/mutate_hrir_spatial.js` | 100/100（引用義務的突變從 3 個補到 9 個） |
+
+⚠️ **`test_hrir_spatial.js [7]` 的斷言方向被這次的查證整個翻轉了**，這件事本身要記下來：
+原本它守的是「README **必須**寫『仍未確認』、**不可**寫出任何資料集名字」（當時正確——
+不要編引用）。查證完之後那組斷言**過期**了，改成守相反方向：**必須**寫出 ARI／nh2／
+CC BY-SA 3.0／Majdak 的完整引用、**不可**留著「仍未確認」、**不可**把授權寫成 CC BY 4.0
+（那是 room.wav 的）、**不可**把 SADIE 寫回來源、而且 share-alike 是新限制這件事不能只寫
+授權名稱就算。**改斷言方向時新舊都要能抓**：新增的突變包含「漏掉 nh2」「漏掉論文」
+「只改一半」「頁面註解漏掉引用」（README 不會跟著頁面一起被讀）。
+
+新斷言都拿**真正壞掉的碼**驗過：把 (a) revert 回舊寫法會倒 **8 項**，其中一條就是
+`開頁 90 秒後才連上的球… ← trustedHeld() = 0.00` ＝ Pan 的症狀本身。
+
+**這次做錯又修正的事（留給下一位，免得重踩）：**
+- **HRIR 的身分：所有文字線索都指錯方向。** 變數名 `sadieDeg`、路徑 slug
+  `48K_24bit_256tap_FIR`、SonicSquid → Binamix → SADIE 這條上游鏈，全部指向
+  SADIE／Apache-2.0，**而資料本身是 ARI／CC BY-SA 3.0**。上游 repo 會借用別人的變數名。
+  **授權這種事只能拿資料作證，不能從檔名/註解推。** 為此下載了約 300MB 的 SADIE + ARI
+  原始資料實測（放在 repo 外的 `/tmp/sadie_check/`，**依 Solarmix `docs/DATASETS.md` 的
+  redistribution rule 絕不進 repo、也不放 Drive**）。
+- **第一次用逐 sample 相關比對，對每個候選都得到 ~0**，差點以為全部排除。原因是我們這批
+  IR 是**處理過**的（峰值在第 35–42 sample，ARI 原檔 ~100 ＝前緣被裁掉）。
+  改用 log-magnitude 頻譜（對前緣裁切不敏感）才分出 0.606 vs 0.349。
+- **revert 修正時測試「拋例外」而不是「斷言失敗」。** 抽取用的 regex 只認得**修好的**形狀，
+  所以一 revert 就 `Error: 抽不到 gripStuckSince` ⇒ **分不出「碼壞了」與「測試自己壞了」**。
+  改成 regex 同時容納新舊兩種形狀、用 `typeof` 探不存在的符號。**對拍測試必須能在壞碼上
+  跑完並產生失敗，不是崩掉。**
+- **兩個變異逃掉（窗口 25000→1000、25000→3600000），是斷言真的有洞。** 因為每一條時間
+  斷言的刻度都是從 `GRIP_TRUST_MS` 自己算出來的 ⇒ **常數被改時斷言跟著一起跑，什麼都抓不到**。
+  補了 `[6b]` 用**絕對時間**：握 5 秒（正常作答長度）必須仍可信、卡 60 秒必須被擋掉、
+  常數本身要落在 8000–40000。**這與上一則 (b) 的 `maxRemaining.hold === 7` 是同一類錯誤：
+  斷言要錨在「不隨被測物移動」的東西上。**
+- **我自己有兩條斷言在正確的碼上失敗，兩次都是測試錯不是碼錯**：① 要求「壞球在場時
+  `trustedHeld() === 0`」，但另一顆好球正停在 `AFTER_OFF`(0.07)＝**「放開」不等於「0」**，
+  該讀 0.07 才對，改成 `<= OFF + 1e-9`；② 迴圈只推進 20 秒，還在 25 秒窗內就斷言會逾時
+  ＝我把時間算短了。兩個原因都寫在測試註解裡。
+
+**文件同步**：`DESIGN.md` §5（HRIR 來源／授權／SA 警告）、§6（`gripStuckSince` 的整段來由
+與 zh-only 說明）；`assets/hrir/README.md`「來源」整節重寫（含四條證據與兩個舊錯誤說法）；
+`web/index.html` + `web/en/index.html` 的 HRIR 區塊補引用義務；`web/spatial_bench.html`
+頁尾的引用義務補 C 路來源。
+
+**未完成 / 待 Pan 決策：**
+- ⚠️ **CC BY-SA 3.0 的 share-alike 怎麼處理**（對外發佈前要決定）。這是新出現的限制，
+  不是我能代為取捨的。
+- zh 有、en 沒有的那一整套（`trustedHeld` / `armAgreement` / `agreementHeld` / `agreeFloor`，
+  以及 `AFTER_ON` **zh 0.24 vs en 0.14**）要不要搬到 en？兩頁的作答手感目前是不一樣的。
+- 一次性音效（impact / cue / glint）要不要也改走 HRIR；`web/vendor/omnitone.min.js`（B 路
+  未選用）要留還是刪。
+- 「球放到桌上」vs「手放開」還是分不出來，要真球的 IMU 靜止資料。
+- 小事：`sim_grip_nocalib.js` 這個檔**不存在**，但還有三處文字提到它
+  （`tmp/sim_grip_rezero.js:14`、`tmp/test_hrir_spatial.js:5`、本檔 `:444` 附近）。
+
 ### 2026-08-05 (b) — Claude (Opus)｜Pan 試聽回饋四件事：pebble 音質、水位滿刻度、478 倒數、每段第一音改頌缽
 
 Pan 的原話：「pebble 的聲音品質非常差 然後從自我覺察呼吸這邊水位顯示就很糟糕了」／
@@ -152,13 +263,14 @@ Pan 的原話：「pebble 的聲音品質非常差 然後從自我覺察呼吸�
 `GRIPBALL_PROTOCOL.md`（滿刻度 900→1400、對照表重算、三條 ⚠️）。
 
 **未完成 / 待 Pan 決策：**
-- `gripTrust` 初始化成 `0`，這**掩蓋**了小小回顧那段的水位問題（所以 Pan 說「只有小小回顧
-  的段落是對的」）。要不要一起改？
-- `playBowlForHands`（`web/index.html` 3854）仍然沒有呼叫者。現在 `singingBowl` 又有真的
-  呼叫者了，這個函式要留還是刪？
+- ✅ ~~`gripTrust` 初始化成 `0`，這**掩蓋**了小小回顧那段的水位問題（所以 Pan 說「只有小小回顧
+  的段落是對的」）。要不要一起改？~~ → **Pan 2026-08-05「要」**，已修，見下面 (c)。
+- ✅ ~~`playBowlForHands`（`web/index.html` 3854）仍然沒有呼叫者。現在 `singingBowl` 又有真的
+  呼叫者了，這個函式要留還是刪？~~ → **Pan 2026-08-05「留」**，保留不動，見下面 (c)。
 - 一次性音效（impact / cue / glint）目前還是內建 `PannerNode`，要不要一起走 HRIR？
-- `assets/hrir/` 的來源資料集**尚未確認授權**（不可宣稱 SADIE II / CC BY 4.0），
-  公開發布前要先確認；`web/vendor/omnitone.min.js`（B 路未選用）要留還是刪？
+- ✅ ~~`assets/hrir/` 的來源資料集**尚未確認授權**（不可宣稱 SADIE II / CC BY 4.0），
+  公開發布前要先確認~~ → **Pan 2026-08-05「請查詢」**，已查證：**ARI nh2 / CC BY-SA 3.0**，
+  見下面 (c)。`web/vendor/omnitone.min.js`（B 路未選用）要留還是刪？
 - 「球放到桌上」vs「手放開」還是分不出來（`sim_grip_rezero.js [7d]` 記錄了這個界限），
   要真球的 IMU 靜止資料才能做。
 
@@ -368,9 +480,10 @@ Pan 跑了 (c) 那版之後的回饋，逐項處理。**（c) 的 commit `c7b3d9
      per-slot 滿刻度**——兩顆球靈敏度差 2 倍，slot 2 的飽和比例 17.5% 偏高。
   3. 仍要等實機才能定的兩件（真 log 也驗不到，因為它們要看**當下**的硬體行為）：
      phantom self-healing 可能吃掉刻意的長握；單一筆壞報告仍可能被算成一拍。
-  4. 待決：一次性音效（impact / cue / glint）要不要也改走 HRIR；對外發佈前要不要先確認
-     HRIR 原始資料集（`assets/hrir/README.md` 已標「未確認」，**不要照抄 SADIE II / CC BY 4.0**）；
+  4. 待決：一次性音效（impact / cue / glint）要不要也改走 HRIR；
      `web/vendor/omnitone.min.js` 要留還是刪。
+     （HRIR 原始資料集已於 **2026-08-05 查證確認＝ARI nh2 / CC BY-SA 3.0**，見 (c)。
+     這一段寫的「未確認」與「不要照抄 SADIE II / CC BY 4.0」當時是對的警告，現在有答案了。）
 
 ### 2026-08-04 (c) — Claude (Opus)｜Pan 選了 C：實測 HRIR 卷積上主頁（中英文版同步）＋ shimmer 調大
 
@@ -430,9 +543,10 @@ Pan 跑了 (c) 那版之後的回饋，逐項處理。**（c) 的 commit `c7b3d9
 
   ±583µs 與 20dB 是**人頭**量級（真人 ITD 上限約 ±700µs），90°/270° 對稱翻號。相距 0.3m 的
   兩顆**全向**麥克風不會有 20dB 的耳間差（沒有頭部遮蔽），ILD 會接近 0。所以這批是真 HRIR。
-  `gripball_webhid.js:1514` 的「SADIE-style」比較接近。**但確切的原始資料集仍未確認**
-  （來源池 `hrir_wavs/` 不在 repo、也不在這台機器上），所以**沒有**替它寫任何引用。
-  **要對外發佈前請先確認原始資料集與授權**——不要照抄 SADIE II / CC BY 4.0 的說法。
+  `gripball_webhid.js:1514` 的「SADIE-style」比較接近。**當時確切的原始資料集仍未確認**
+  （來源池 `hrir_wavs/` 不在 repo、也不在這台機器上），所以那時**沒有**替它寫任何引用。
+  ⚠️ **後續（2026-08-05，見下面最新一則 (c)）：已查證確認是 ARI nh2 / CC BY-SA 3.0，
+  「SADIE-style」這個猜測是錯的**，引用已補進 `assets/hrir/README.md` 與兩頁的註解。
   （`assets/ir/room.wav` 是另一件事：那個確實是 MeshRIR、CC BY 4.0、要標註 Shoichi Koyama et al.，
   標註仍在 `assets/ir/README.md`。兩者同時在用：HRIR 給方向、room.wav 給房間。）
 

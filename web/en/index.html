@@ -1255,6 +1255,15 @@ class GripCalibrator {
    取代瀏覽器內建的 PannerNode(HRTF)。IR 在 assets/hrir/（90 個水平面方位角，
    來源與量測見那裡的 README.md）。
 
+   ⚠️ 引用義務（2026-08-05 查證確認，Pan 指示「請查詢」）：這批 IR 來自
+   **ARI（Acoustics Research Institute, Austrian Academy of Sciences）HRTF database,
+   subject nh2**，授權 **CC BY-SA 3.0**（share-alike）。必附引用：
+   Majdak, P., Goupell, M. J., and Laback, B. (2010). "3-D localization of virtual sound
+   sources: effects of visual environment, pointing method, and training,"
+   Atten Percept Psychophys 72, 454-469.　出處 http://www.kfs.oeaw.ac.at/hrtf
+   **不是 MeshRIR、也不是 SADIE**（舊註解兩種說法都錯，證據見 assets/hrir/README.md）。
+   assets/ir/room.wav 才是 MeshRIR（CC BY 4.0，Shoichi Koyama et al.）——兩者授權不同。
+
    三個一定要記住的點：
    1. **`normalize = false`**：IR 本身就帶著實測的耳間音量差(ILD)，讓瀏覽器
       正規化會把我們要的方向線索抹平。
@@ -3561,8 +3570,10 @@ function manual478State(){
 
 // 依兩手當下握力的向量中心，擊發一聲頌缽（HRTF 方位＋遠近＝空間感）。
 // ⚠️ 2026-08-04 起沒有呼叫點：4-7-8 的段落聲音換成水中圓石（underwaterStone）了。
-// 刻意保留（連同 engine.singingBowl）而不刪除——頌缽是既有聲景的一個聲音，Pan 若想在別的段落
-// 用回它、或想把兩種聲音混用，這裡是現成的接點。（若確定不再需要，兩者可一起移除。）
+// ✅ **Pan 2026-08-05 明確決定「留」**（我問過要留還是刪）。所以這個函式沒有呼叫者是
+// 刻意的，不是漏掉的死碼——下一位接手的人請不要當成清理目標順手刪掉。
+// 頌缽是既有聲景的一個聲音（`engine.singingBowl` 現在被 478 的「板」用著），Pan 若想在
+// 別的段落用回這個「兩手加權方位」的版本、或把兩種聲音混用，這裡是現成的接點。
 function playBowlForHands(){
   if(!engine) return;
   const L = state.grip[state.handMap.left || 1] || 0;

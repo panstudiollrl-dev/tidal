@@ -360,23 +360,59 @@ PAGES.forEach((page, pi) => {
 });
 pageTag = "";
 
-console.log("[7] 引用義務與資料集標示");
+console.log("[7] 引用義務與資料集標示（Pan 2026-08-05「請查詢」之後改寫）");
 {
+  // ⚠️ 2026-08-05 之前這一節斷言的是「README 必須說『仍未確認』、不可寫出任何資料集名字」。
+  // 那是當時正確的守門（不要編引用）。Pan 指示「請查詢」之後來源已經查證確認，
+  // 那組斷言就**過期了**——現在守的是相反方向：**必須寫出正確的引用、不可留著舊的錯說法**。
   const readme = fs.readFileSync(path.join(HRIR, "README.md"), "utf8");
-  // duck-hunt 的 .gitignore 把來源標成 MeshRIR，但實測證明不是（見 [1]）。
-  // 這件事必須寫下來，否則會傳成錯的引用。兩處說法都要在（用 AND 不是 OR：
-  // 只改掉一處的話 OR 會讓錯誤溜過去——突變測試就是這樣抓到的）。
-  ok(/標示是錯的/.test(readme), "README 要明說 duck-hunt 那個「MeshRIR」標示是錯的");
+
+  // ── 舊的兩個錯說法都要被明確標成錯（AND 不是 OR：只改掉一處會溜過去）───────────
+  ok(/標示是錯的|❌[^\n]*MeshRIR/.test(readme), "README 要明說 duck-hunt 那個「MeshRIR」標示是錯的");
   ok(/不是 MeshRIR/.test(readme),
      "README 要說明結論：這批不是 MeshRIR（實測 ILD 20dB ≠ 全向麥克風對）");
-  ok(/仍未確認/.test(readme), "README 要誠實說明原始資料集仍未確認");
-  ok(/來源待確認/.test(readme), "README 要指出頁面上的引用區塊寫的是「來源待確認」");
-  // 反面守門：不能在未確認的情況下把某個資料集寫成事實。
-  const claims = readme.match(/[^\n]*(SADIE|ARI|CIPIC|HUTUBS|Listen)[^\n]*/gi) || [];
-  const unhedged = claims.filter(l => !/不要|未確認|待確認|比較接近|在確認之前|之前不要/.test(l));
-  ok(unhedged.length === 0, "不能在未確認的情況下把某個資料集寫成來源（不要編引用）",
-     unhedged.join(" / "));
-  ok(/授權/.test(readme), "README 要提到發佈前要確認授權");
+  ok(/不是 SADIE/.test(readme),
+     "README 要明說也不是 SADIE（`gripball_webhid.js` 的「SADIE-style」是錯的猜測）");
+
+  // ── 正確的引用四件套：資料集、受測者、授權、論文 ───────────────────────────────
+  ok(/Acoustics Research Institute/.test(readme) && /\bARI\b/.test(readme),
+     "README 要寫出資料集＝ARI（Acoustics Research Institute）");
+  ok(/nh2/.test(readme), "README 要寫出受測者＝nh2（同一個資料庫有很多人，少了這個引用不完整）");
+  ok(/CC BY-SA 3\.0|Attribution-.{0,2}ShareAlike.{0,2} 3\.0/.test(readme),
+     "README 要寫出授權＝CC BY-SA 3.0");
+  ok(/Majdak/.test(readme) && /454/.test(readme),
+     "README 要附上資料集指定的引用（Majdak, Goupell & Laback 2010, 頁碼 454–469）");
+  ok(/kfs\.oeaw\.ac\.at/.test(readme), "README 要留出處網址（`http://www.kfs.oeaw.ac.at/hrtf`）");
+
+  // ── share-alike 是新限制，一定要被指出來（否則會被當成跟 room.wav 一樣寬鬆）─────
+  ok(/share-?alike|ShareAlike/i.test(readme) && /新的限制|沒有考慮到|新限制/.test(readme),
+     "README 要指出 share-alike 是專案原本沒考慮到的**新**限制（不能只寫授權名稱）");
+
+  // ── 反面守門：不能把授權寫錯 ─────────────────────────────────────────────────
+  // 「CC BY 4.0」在這份 README 裡只能出現在「room.wav / MeshRIR 是 CC BY 4.0」或
+  // 「舊說法寫 CC BY 4.0 是錯的」這兩種脈絡。任何把 4.0 掛到這批 HRIR 上的句子都要抓。
+  const by40 = (readme.match(/[^\n]*CC BY 4\.0[^\n]*/g) || [])
+    .filter(l => !/MeshRIR|room\.wav|錯|❌|Koyama|不要照抄/.test(l));
+  ok(by40.length === 0, "不能把這批 HRIR 的授權寫成 CC BY 4.0（那是 room.wav 的 MeshRIR）",
+     by40.join(" / "));
+  // 提到 SADIE 的每一行都必須是否定/排除的脈絡，不能變回「來源是 SADIE」。
+  const sadieLines = (readme.match(/[^\n]*SADIE[^\n]*/g) || [])
+    .filter(l => !/不是|錯|❌|排除|不合|都不是|Apache|指向/.test(l));
+  ok(sadieLines.length === 0, "不能把 SADIE 寫成來源（文字線索指向它，但資料指向 ARI）",
+     sadieLines.join(" / "));
+  // 已經查證完了，不能再留「仍未確認 / 來源待確認」——那會讓下一位以為還沒查。
+  ok(!/仍未確認|來源待確認/.test(readme),
+     "查證完之後不能留著「仍未確認 / 來源待確認」的舊措辭（會誤導下一位重查）");
+
+  // ── 兩頁的程式註解也要帶引用（README 不會跟著頁面一起被讀）─────────────────────
+  for (const page of PAGES) {
+    ok(/\bARI\b/.test(page.src) && /CC BY-SA 3\.0/.test(page.src),
+       `(${page.label}) 頁面的 HRIR 區塊要寫出 ARI + CC BY-SA 3.0 的引用義務`);
+    ok(/Majdak/.test(page.src), `(${page.label}) 頁面要附上 Majdak 那筆引用`);
+    ok(!/來源待確認/.test(page.src), `(${page.label}) 頁面不能再寫「來源待確認」`);
+  }
+
+  ok(/授權/.test(readme), "README 要講到授權這件事");
   // room.wav 是另一件事，它的 CC BY 4.0 標註不能被搞混或弄掉
   const irReadme = fs.readFileSync(path.join(ROOT, "assets", "ir", "README.md"), "utf8");
   ok(/Koyama/.test(irReadme), "room.wav 的 MeshRIR 標註（CC BY 4.0）要還在");

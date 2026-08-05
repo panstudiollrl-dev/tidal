@@ -11,14 +11,39 @@
 - 全部是**仰角 0（水平面）**，涵蓋完整 360°。正面較密（2~3° 一格）、側面較疏（5° 一格）。
   Tidal 的層都在水平面上，所以不需要仰角層。
 
-## 來源與一個要修正的標示
+## 來源（2026-08-05 已確認）與必須附上的標註
 
 從 `panstudiollrl-dev/duck-hunt-gripball-web` 的 `assets/hrir/`（同一位作者的另一個
 專案）取水平面那 90 個。**只複製了 ele=0 這層**，那邊另有 ±15°/+30° 共 344 檔。
 
-⚠️ **duck-hunt 那邊的 `.gitignore` 把來源池標成「1551 個 MeshRIR HRIR wav」，這個標示是錯的。**
-MeshRIR 是**房間**的麥克風陣列資料集（3969 顆全向麥克風），裡面沒有 HRTF。
-`gripball_webhid.js:1514` 的註解寫「SADIE-style」比較接近。實際量測支持後者：
+> **來源資料集：ARI（Acoustics Research Institute, Austrian Academy of Sciences）
+> HRTF database，受測者 `nh2`。授權：Creative Commons Attribution-**ShareAlike** 3.0
+> Unported（CC BY-SA 3.0）。**
+>
+> 必附引用（資料集自己指定的）：
+> Majdak, P., Goupell, M. J., and Laback, B. (2010). "3-D localization of virtual sound
+> sources: effects of visual environment, pointing method, and training,"
+> *Atten Percept Psychophys* **72**, 454–469.
+>
+> 出處：`http://www.kfs.oeaw.ac.at/hrtf`　聯絡：`piotr@majdak.com` / `michael.mihocic@oeaw.ac.at`
+> 量測：in-the-ear、blocked ear canal；1728.8ms 指數掃頻 50–20000Hz；
+> 改裝過的 IAC 半消音室 6.2×5.5×2.9m（Vienna）。
+>
+> ⚠️ **CC BY-SA 的 share-alike 條款是這個專案原本沒有考慮到的新限制**（`assets/ir/room.wav`
+> 的 MeshRIR 是 CC BY 4.0，沒有 SA）。對外發佈前要由 Pan 決定怎麼處理——見
+> `AGENTS.md` 交接紀錄 2026-08-05 (c)。
+
+**以下兩個先前寫在這裡的說法都是錯的，不要再照抄：**
+
+- ❌ duck-hunt 的 `.gitignore` 標「1551 個 **MeshRIR** HRIR wav」——**這批不是 MeshRIR**。
+  MeshRIR 是**房間**的麥克風陣列資料集（3969 顆全向麥克風），裡面沒有 HRTF。
+- ❌ `gripball_webhid.js:1514` 註解的「**SADIE-style**」、以及本檔舊版寫的「SADIE II 是
+  CC BY 4.0，但在確認之前不要照抄」——**不是 SADIE**。（順帶：SADIE II 的授權其實是
+  **Apache 2.0**、© 2018 University of York，所以連那個授權名稱本身也是錯的。）
+
+### 怎麼確認的
+
+先量出「這是真的 HRIR」（這一步只排除 MeshRIR，不指認是誰）：
 
 | 方位角 | 峰值 ITD | ILD |
 |---|---|---|
@@ -28,17 +53,31 @@ MeshRIR 是**房間**的麥克風陣列資料集（3969 顆全向麥克風），
 | 270° | −583µs（xcorr −792µs）| −17.2dB |
 
 ±583µs 的 ITD 與 20dB 的 ILD 是**人頭**的量級（真人上限約 ±700µs），而且 90°/270°
-對稱翻號。MeshRIR 那種相距 0.3m 的兩顆**全向**麥克風不會有 20dB 的耳間音量差
-（全向麥克風之間沒有頭部遮蔽），ILD 會接近 0dB。所以這批是真的 HRIR，不是 MeshRIR。
+對稱翻號。MeshRIR 那種相距 0.3m 的兩顆**全向**麥克風不會有 20dB 的耳間音量差。
 
-**但確切的原始資料集仍未確認**（來源池 `hrir_wavs/` 不在 repo 裡、也不在這台機器上）。
-`web/index.html` 的引用區塊目前寫「來源待確認」。**要對外發佈前，請先確認原始資料集
-與其授權**——SADIE II（University of York）是 CC BY 4.0，但在確認之前不要照抄這個說法。
-這件事記在 `AGENTS.md` 的交接紀錄裡。
+然後指認來源，四條互相獨立的證據：
+
+1. **格線**：`manifest.json` 的 90 個方位角**恰好**是「正面 2.5°／側面 5°」的格線，
+   用 banker's rounding（ROUND_HALF_EVEN）四捨到整數的結果。程式驗過，不是目測。
+2. **維度**：ARI 的 `hrtf b_nh2.sofa` 是 1550 個方向、256 taps、48kHz，水平面**剛好
+   90 個方位角**，與 manifest 的方位角集合 `identical: True`。duck-hunt 自己的文件寫
+   來源池是「1551 檔、23 個仰角層」——ARI 的仰角是 −30…+80 每 5° 一層，22–23 層。
+3. **頻譜指紋**：對全部 90 個方向（180 個耳朵）做 log-magnitude 相關，
+   `nh2 +0.6058`，次高的 `nh14` 只有 `+0.3486`（1.7 倍，中位數 0.6014 一致）。
+4. **排除**：SADIE II 的 D1／D2／H3 與 SonicSquid 自己用的 Binamix IR 都測過，全部不合
+   （H3 沒有 2° 的方位角；SADIE 公佈的方向數 8802／2818／2114 都不是 1550）。
+
+⚠️ **為什麼要用頻譜比對而不是波形比對**：我們手上這批 IR 是**處理過**的（峰值落在
+第 35–42 個 sample，ARI 原檔在 ~100 ＝ 已被裁掉前緣），所以逐 sample 相關對每一個候選
+都是 ~0——第一次量完差點以為全部排除。log-magnitude 頻譜對前緣裁切不敏感，才分得出來。
+
+⚠️ 另一個教訓：所有**文字**線索（變數名 `sadieDeg`、路徑 slug `48K_24bit_256tap_FIR`、
+SonicSquid → Binamix → SADIE 這條上游鏈）都指向 SADIE／Apache-2.0，**而資料本身指向
+ARI／CC BY-SA 3.0**。上游 repo 會借用別人的變數名；只有資料能作證。
 
 （本目錄與 `assets/ir/room.wav` 無關。那個是 **MeshRIR**，是**房間殘響**，CC BY 4.0、
 需標註 Shoichi Koyama et al.，見 `assets/ir/README.md`。兩者同時在用：HRIR 給方向、
-room.wav 給房間。）
+room.wav 給房間——**授權條款不同，不要混著寫**。）
 
 ## 為什麼要在卷積後補一段等化（HRIR_TILT_FIX）
 
