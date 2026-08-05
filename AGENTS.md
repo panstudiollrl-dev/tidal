@@ -118,10 +118,39 @@ Pan 跑了 (c) 那版之後的回饋，逐項處理。**（c) 的 commit `c7b3d9
   那支腳本現在**從頁面讀** `foamLP.frequency`。上線常數來自擬合腳本時，腳本的模型就是
   上線碼的一部分，別在裡面寫死頁面已經改掉的東西。
 
-- **(c) 「我把 log 存到 log 資料夾裡去了 再請你確認」——⚠️ 沒做到，卡住了。**
-  沙盒讀不到 `~/Downloads`、`~/Desktop`（`Operation not permitted`，連 sandbox 關掉也一樣），
-  Google Drive 掛載也不通。**已請 Pan 把 log 移進 repo（例如 `Tidal/log/`）**，還沒拿到。
-  接手的人如果看到 `Tidal/log/` 有東西，那就是這件事——回頭核對 (a) 的零點症狀。
+- **(c) 「我把 log 存到 log 資料夾裡去了 再請你確認」——✅ 找到了、已經用它驗過（2026-08-05）**
+  Drive 掛載恢復後找到了。**沒有 `log/` 資料夾**，log 直接在 EEG 根目錄：
+  `tidal_grip_log_live.ndjson`（17MB、20769 行、2026-07-22、28 分鐘、兩顆 MB01、30Hz）、
+  `tidal_grip_operation_log.json`（7.5MB）、`tidal_grip_log_live 2.ndjson`（0 byte，空的）。
+  **log 不進 repo**（`AGENTS.md` 的隱私規範：session 紀錄只存本機、不上傳）。
+
+  新增 `tmp/replay_grip_log.js`：拿真 log 重播**現在的** `GripCalibrator`。
+  ⚠️ 那份 log 錄於 **07-22，早於 08-04 改版**，裡面的 `baseline`/`level`/`sign` 是舊校正算的，
+  腳本一律不採用，只吃 `raw` 與 `tMs`（硬體事實）。真實時間戳有斷線造成的 1370 秒跳躍，
+  所以按 >5s 的間隔切成 session 再各自重播（硬接下去會拖著一段不存在的歷史）。
+
+  **結果（這是本次最有價值的驗證——人造訊號驗不到刻度）：**
+  | | slot 1 | slot 2 |
+  |---|---|---|
+  | 在握時的偏差 p99 | 643 | 2212 |
+  | 持續 0.5s 以上的最大偏差 | 1227 | 2670 |
+  | 達到滿刻度的比例 | 2.7% | 17.5% |
+  | 水位觸頂 / 誤重取零點 | **0 / 0** | **0 / 0** |
+
+  ① **28 分鐘真實資料裡，零點修正 0 次誤觸發、水位 0 次假觸頂** ——(a) 的修法在真硬體上成立。
+  ② **`GRIP_FULL_SCALE = 900` 可以留著，不要照 p99.9 調大。** 我一開始寫成「用 p99.9 當滿刻度
+  → 建議 1300/2750」，那是**錯的框架**，已在腳本裡改掉並寫下理由：滿刻度的意思是
+  「**紮實地握**就該讀成全滿」，所以最用力的那幾下**本來就該**超出刻度被 clamp。
+  真正要看的是飽和比例——2.7% / 17.5%，全滿碰得到又沒把動態範圍壓平。
+  ③ **兩顆球的靈敏度差約 2 倍**（slot 2 的偏差是 slot 1 的 2–3 倍，17.5% 偏高一點）。
+  單一常數是折衷。要不要改成 **per-slot 滿刻度**是新的設計決策，**留給 Pan**。
+
+- **(e) 修掉 `EEG/tmp/test_foa_encode.js` [10] 範圍過寬的斷言（2026-08-05）**
+  原本是 `!/spatial_bench/.test(main)`。主頁採用 bench 選出的 C 路之後，碼裡有一句
+  **出處註解**提到 `web/spatial_bench.html`——那正是 `AGENTS.md` 要求的決策脈絡，
+  卻讓斷言失敗：**測試在罰它自己要求的好習慣**。改成只擋真正造成相依的形式
+  （`src=`/`href=`/`fetch(`/`import(`/`location=` 指向 bench），註解放行。
+  反向驗過：塞一個 `<script src="spatial_bench.html">` 進去仍會被抓到。53/53 通過。
 
 - **(d) 4-7-8 全新設計：水中石頭 × 中國戲曲梆子節律（Pan 指定參考 2016 年那篇 wearable 研究）**
   設計全文寫在 `DESIGN.md` §7.2（舊的握拍版留在該節末當歷史）。要點：
@@ -152,18 +181,22 @@ Pan 跑了 (c) 那版之後的回饋，逐項處理。**（c) 的 commit `c7b3d9
   兩支變異腳本現在都**每次重新生成** zh-only 的變體，不再留手動維護的副本（那份會過期，
   於是變異測試量的是舊測試——本專案已經踩過）。
 
+- **⚠️ Drive 掛載上不要跑 git**（2026-08-05 學到）：在 Drive 目錄裡 `git fetch` 一個**本地**
+  路徑跑超過 5 分鐘還沒完，背景跑也被環境砍掉兩次。可行的做法是
+  **在 `/tmp` 工作並 commit → `git push` 到 GitHub（幾秒）→ 在 Drive 目錄 `git pull --ff-only`，
+  而且要用 `nohup … &` 完全脫離**（前景與一般背景都會被超時砍掉）。已這樣同步完成，
+  Drive 現在也在 `231d3ef`，`meditation/` 與 3 個 `record/*.json`（gitignore 的本機專屬內容）沒動。
+
 - **給下一位／待 Pan 決策**
-  1. **同步回 Drive 並 push**：`c7b3d93` 與本則的全部改動都還在 `/tmp/tidal-work`。
-  2. **(c) 的 log 還沒拿到**（見上）。
-  3. **`playBowlForHands` / `engine.singingBowl` 現在沒有任何呼叫者**（4-7-8 改用石頭了）。
+  1. **`playBowlForHands` / `engine.singingBowl` 現在沒有任何呼叫者**（4-7-8 改用石頭了）。
      刻意留著並加了註解。要刪還是另作他用，請 Pan 決定。
-  4. **三件要等實機（真球）才能定的事**：`GRIP_FULL_SCALE = 900` 是「唯一要調的數字」
-     （用 **D** 面板看）；phantom self-healing 可能吃掉刻意的長握；單一筆壞報告仍可能被算成一拍。
-  5. 待決：一次性音效（impact / cue / glint）要不要也改走 HRIR；對外發佈前要不要先確認
+  2. **`GRIP_FULL_SCALE` 已用真 log 驗過，900 留著**（見 (c)）。**新的待決事項：要不要改成
+     per-slot 滿刻度**——兩顆球靈敏度差 2 倍，slot 2 的飽和比例 17.5% 偏高。
+  3. 仍要等實機才能定的兩件（真 log 也驗不到，因為它們要看**當下**的硬體行為）：
+     phantom self-healing 可能吃掉刻意的長握；單一筆壞報告仍可能被算成一拍。
+  4. 待決：一次性音效（impact / cue / glint）要不要也改走 HRIR；對外發佈前要不要先確認
      HRIR 原始資料集（`assets/hrir/README.md` 已標「未確認」，**不要照抄 SADIE II / CC BY 4.0**）；
      `web/vendor/omnitone.min.js` 要留還是刪。
-  6. 已知的既有問題（檔案讀不到，沒改）：`EEG/tmp/test_foa_encode.js` [10] 的
-     `!/spatial_bench/` 斷言範圍過寬，會把一句**出處註解**誤判成依賴。
 
 ### 2026-08-04 (c) — Claude (Opus)｜Pan 選了 C：實測 HRIR 卷積上主頁（中英文版同步）＋ shimmer 調大
 
