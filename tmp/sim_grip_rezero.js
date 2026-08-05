@@ -422,6 +422,73 @@ PAGES.forEach((page, pi) => {
     if (pi === 0) console.log(`      放桌上再拿起：5s ${at(5).toFixed(2)}｜30s ${at(30).toFixed(2)}｜60s ${at(60).toFixed(2)}｜89s ${at(89).toFixed(2)}（已知界限，見 [7d] 註解）`);
   }
 
+  if (pi === 0) console.log("[8] 滿刻度＝真球的量級（Pan 2026-08-05：「水位顯示就很糟糕了」）");
+  {
+    // Pan：「從自我覺察呼吸這邊水位顯示就很糟糕了」。成因不在這些修正機制，而在
+    // GRIP_FULL_SCALE 本身：900 是**照協定文件推**的（「firm grip ≈ +1250 raw」），
+    // 而 Pan 那顆真球大約是它的兩倍。實測他 291 秒的紀錄（只用 raw + tMs 重跑 GripCalibrator）：
+    // 「刻意握一下」的 dev 峰值 1009–2831 raw，而舊的 effScale 只有 900×1.22 = 1098
+    // ⇒ 正常握一下就已經超過滿刻度，breath 段每次握都是 0.98/0.66/0.98/0.81＝幾乎次次貼頂，
+    // 水位變成「不是 0 就是滿」，看不出強弱。改成 1400 後同一份紀錄 breath 峰值 0.40–0.84。
+    //
+    // 這一段用真球量到的三個量級（舒適／明確／很用力）當輸入，斷言映射有**可分辨的層次**。
+    // 這才是 Pan 看到的東西；只驗常數在不在完全抓不到（900 也「在」）。
+    const FS = consts.GRIP_FULL_SCALE;
+    const eff = FS * consts.GRIP_HEADROOM;
+    const levelFor = (dev) => {
+      // 靜止 3s（讓零點穩）→ 握 2.5s（比 attack 平滑長很多）→ 取峰值。
+      // 用窗外（>GRIP_REZERO_MS）才不會跟 [5] 的取捨糾纏。
+      const s = [];
+      for (let i = 0; i < seconds(9); i++) s.push(REST + noise(i));
+      for (let i = 0; i < seconds(2.5); i++) s.push(REST + dev + noise(i, 3));
+      const { out } = run(src, s);
+      return Math.max(...out.slice(seconds(9)).map(o => o.level));
+    };
+    // 真球實測的三檔（AGENTS.md 2026-08-05 那一則；中位數 ball1 1225 / ball2 2369）
+    const soft = levelFor(700), firm = levelFor(1200), hard = levelFor(1900);
+    ok(soft > 0.12 && soft < 0.55, "舒適握（+700 raw）要看得出來、但明顯不到滿", soft.toFixed(2));
+    ok(firm > soft + 0.12, "明確握（+1200）要比舒適握高出一截（層次要分得開）",
+       `${soft.toFixed(2)} → ${firm.toFixed(2)}`);
+    ok(firm < 0.95, "明確握還不能貼頂——貼頂就是 Pan 說的「水位顯示很糟糕」", firm.toFixed(2));
+    ok(hard > 0.9, "很用力（+1900）才接近滿刻度", hard.toFixed(2));
+    // 真球實測「刻意握一下」的**上緣**：handCue 段 ball1 量到 1009/1225/1486 raw。
+    // 1486 仍然是「刻意握一下」而不是「用盡全力」，所以它還不該貼頂——否則 Pan 的
+    // breath 段就會像他看到的那樣次次滿格。這一條是 1400 vs 1150 的分界：
+    // 1150（effScale 1403）會讓 1486 直接切到 1.00，1400（effScale 1708）是 0.87。
+    const upper = levelFor(1486);
+    ok(upper < 0.98, "真球實測的刻意握上緣（+1486 raw）還不能貼頂（那還不是用盡全力）",
+       upper.toFixed(2));
+    ok(upper > firm, "但它要比明確握更高（層次要一路分得開）",
+       `${firm.toFixed(2)} → ${upper.toFixed(2)}`);
+    if (pi === 0) console.log(`      +700→${soft.toFixed(2)}　+1200→${firm.toFixed(2)}　+1900→${hard.toFixed(2)}（滿刻度 ${FS}、effScale ${eff.toFixed(0)}）`);
+    // 滿刻度本身的量級：必須涵蓋真球的中位峰值，否則「正常握一下就貼頂」會再發生。
+    // 下界 1100 是 ball1 的中位數 1225 附近（取偏低的那顆），上界 2600 是「連很用力都到不了滿」。
+    ok(FS >= 1100 && FS <= 2600,
+       "GRIP_FULL_SCALE 要落在真球實測的量級（900 是協定文件推的，約真球的一半）", String(FS));
+    // 死區要能蓋掉「只是拿著」的殘壓（真球實測 ~62 raw），又不能吃掉舒適握
+    const dead = FS * consts.GRIP_DEADZONE;
+    ok(dead > 80, "死區要蓋過「只是拿著」的殘壓（真球 ~62 raw）", `${dead.toFixed(0)} raw`);
+    ok(dead < 700 * 0.6, "但死區不能吃掉舒適握（~700 raw）", `${dead.toFixed(0)} raw`);
+    // 小小回顧那一題的門檻是 Pan 說**唯一正確**的部分，改滿刻度不能把它弄壞：
+    // 舒適握必須仍然過 AFTER_ON，而「只是拿著」必須仍然在 AFTER_OFF 以下。
+    const afterM = src.match(/const AFTER_ON = ([\d.]+), AFTER_OFF = ([\d.]+);/);
+    ok(!!afterM, "要找得到 AFTER_ON / AFTER_OFF");
+    const AFTER_ON = Number(afterM[1]), AFTER_OFF = Number(afterM[2]);
+    ok(soft > AFTER_ON, "舒適握要仍然答得出「小小回顧」那題（AFTER_ON）",
+       `${soft.toFixed(2)} vs ${AFTER_ON}`);
+    ok(levelFor(60) <= AFTER_OFF, "只是拿著（+60 raw）要仍然算「放開」（AFTER_OFF）",
+       `${levelFor(60).toFixed(3)} vs ${AFTER_OFF}`);
+    // 反面守門：不能改成「每顆球自己學天花板」。試過（只長不縮、連續超過就抬），它會收斂到
+    // 偶發的最大尖峰（ball1 1494 / ball2 2807），於是每一次正常的握只剩 0.1–0.4，
+    // 「用握力表達緊張」那題會被記成 0 分。學錯比不學更糟——這正是 2026-08-04 移除 cue 校正
+    // 的同一個理由，所以滿刻度必須是**固定常數**。
+    ok(/const GRIP_FULL_SCALE = [\d.]+;/.test(src), "滿刻度要是固定常數（不自我學習）");
+    ok(!/GRIP_FULL_SCALE\s*=/.test(src.replace(/const GRIP_FULL_SCALE = [\d.]+;/, "")),
+       "GRIP_FULL_SCALE 不能在別處被覆寫（不做自適應天花板）");
+    ok(!/this\.(fullScale|learnedScale|ceiling)\s*=/.test(src),
+       "不能出現 per-ball 的自適應天花板（會收斂到偶發尖峰，正常握只剩 0.1–0.4）");
+  }
+
   if (pi === 0) console.log("[6] 常數的合理範圍與碼裡的接線");
   {
     ok(consts.GRIP_HIST_BIN > 10 && consts.GRIP_HIST_BIN < 60,

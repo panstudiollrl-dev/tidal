@@ -810,12 +810,28 @@ const AUTO_ONSET_DELTA = 450;
 // 現在：只量一次「拿著不握」的零點（GRIP_BASELINE_MS 的 raw 中位數），滿刻度用下面這個固定常數，
 // 方向不猜（用 |rawDev|，見 update()）。cue 校正整段移除。
 // 這條路線與 duck-hunt 的 QUICK_ENGAGE_FORCE 同一個想法：能寫死的就不要學，學錯比沒學更糟。
-const GRIP_FULL_SCALE = 900;       // 固定滿刻度（raw，相對零點）。唯一要調的數字。
-                                   // 900 的來歷：協定實測全力握 ≈ +1250 raw，經 HEADROOM 1.22 → effScale 1098，
-                                   // 於是輕握(188raw)→0.09、舒適握(438raw)→0.40、明確握(750raw)→0.70、全力→1.00，
-                                   // 而輕拿的殘壓(62raw)→0.00（落在死區內）。這正是 GRIPBALL_PROTOCOL.md 要求的
-                                   // 「只拿著不刻意握≈0、舒適握有明顯但不滿格、很用力才接近滿」。
-                                   // 若真球偏硬（全力握不到 900）就調低這一個數字，其餘都不用動；診斷面板（D）會顯示它。
+// ⚠️ 2026-08-05 修正：900 是**照著協定文件推**的，不是量真球量出來的，而真球大約是它的兩倍。
+// Pan 回饋「從自我覺察呼吸這邊水位顯示就很糟糕了」，實測他那份 291 秒的紀錄（/tmp/griplog.ndjson，
+// 只用 raw + tMs 重跑 GripCalibrator）：**刻意握一下的 dev 峰值是 1009–2831 raw**
+// （handCue 段 ball1 1009/1225/1486、ball2 211–2831），而舊的 effScale 只有 900×1.22 = 1098
+// ——也就是「正常握一下就已經超過滿刻度」。後果正是 Pan 看到的：
+//   breath 段每次握的峰值 0.98 / 0.66 / 0.98 / 0.81 ＝幾乎每次都貼頂，水位看起來只有「滿」跟「空」，
+//   呼吸的起伏完全被壓平（畫面取 max(ball1, ball2)，而兩顆球的動態範圍差 ~1.9 倍
+//   ball1 1530 raw / ball2 2875 raw，所以是**比較敏感的那顆**在決定畫面，更容易貼頂）。
+// 改成 1400 後同一份紀錄：breath 峰值 0.40–0.84（有起伏了）、貼頂 2.6% → 0%，
+// 而兩顆球仍然都到得了高水位（ball1 0.76 / ball2 0.99），「握一下開始」的拍也還測得到（100 次）。
+//
+// 為什麼不改成「每顆球自己學天花板」：試過（只長不縮、連續 6 筆超過就抬），它會收斂到偶發的
+// 最大尖峰（ball1 1494 / ball2 2807），於是**每一次正常的握都只剩 0.1–0.4**，
+// 「表達緊張」那題會被記成 0 分。學錯比不學更糟，這正是 2026-08-04 移除 cue 校正的同一個理由。
+const GRIP_FULL_SCALE = 1400;      // 固定滿刻度（raw，相對零點）。唯一要調的數字。
+                                   // 1400 的來歷：Pan 真球實測「刻意握一下」dev 峰值中位數 ball1 1225 / ball2 2369，
+                                   // 取偏低的那顆附近（讓兩顆都握得到滿、又不會一握就貼頂），經 HEADROOM 1.22
+                                   // → effScale 1708、死區 222 raw。於是舒適握(~700raw)→0.35、
+                                   // 明確握(~1200raw)→0.66、很用力(~1700raw)→1.00，輕拿的殘壓仍落在死區內。
+                                   // 這正是 GRIPBALL_PROTOCOL.md 要求的「只拿著不刻意握≈0、舒適握有明顯但不滿格、
+                                   // 很用力才接近滿」。若換了一批更硬/更軟的球就調這一個數字，其餘都不用動；
+                                   // 診斷面板（D）會顯示它。驗收在 tmp/sim_grip_rezero.js [8]（用真球紀錄的三個量級對層次）。
 const GRIP_BASELINE_MS = 700;      // 零點取樣時間：這段時間內 raw 的「中位數」＝零點。
                                    // 中位數不是平均——取樣中手抖一下的尖峰不會把零點拉走。
 // ── 零點自我修正（Pan 2026-08-04 回饋後加）─────────────────────────────────────
@@ -1165,7 +1181,7 @@ class GripCalibrator {
       // 犯同一個錯：尺寸寫在 span 上，滿刻度從 ~140 變成 900 之後，餘裕從 14 raw 變成 90 raw。
       // 後果是死鎖：輕握(188 raw) 起手時 shaped 還是 0（死區 143 raw），於是走進這條「放手」分支，
       // baseline 以 0.3 的速率一路追到 restRef+90，dev 停在 97 raw ＝永遠卡在死區裡，水位恆為 0。
-      // 握壓得超過 143+90=233 raw 才逃得出來。（本次改動由 tmp/sim_grip_nocalib.js 抓到。）
+      // 握壓得超過 143+90=233 raw 才逃得出來。（本次改動由 tmp/sim_grip_rezero.js 抓到。）
       //
       // 改成直接追 restRef：漂移由 restRef 自己慢慢跟（下面那行），baseline 只是跟著 restRef。
       // 殘壓不需要餘裕——死區本身就是 143 raw，已經蓋過拿起球的殘壓 62 raw。（Pan 2026-08-04）
@@ -1315,6 +1331,12 @@ const SHIMMER_WET = 0.40;          // 仍留一點房間，不要變成貼耳的
 // 沒握球時它就坐在那個底上＝實質靜音。但 DESIGN.md §4.4 說鵝卵石是**本聲景的定位聲**
 // （阿朗壹大圓石灘、石頭撞擊 ~47/s），它必須在放鬆狀態下就聽得到，握力只是「更多更響」。
 const PEBBLE_FLOOR = 0.14;
+// 石頭密度（顆/秒）。Pan 2026-08-05：「pebble 的聲音品質非常差」——舊版是 ~34 顆/秒，
+// 快到每顆石頭的瞬態互相重疊，聽起來只剩一片低頻噗噗聲（實測 crest 只有 14.9dB）。
+// 11 顆/秒 ⇒ crest ~21dB，聽得出「一顆一顆石頭」。上面那句「石頭撞擊 ~47/s」是**整個海灘**
+// 的錄音密度，不是單一循環紋理該有的密度：這一層還會疊上 surge/foam/shore，
+// 而且退浪閘門會讓它一陣一陣來，撞擊感是那樣疊出來的，不是靠把單層塞滿。
+const PEBBLE_RATE = 11;
 
 class HrirBank {
   constructor(ctx){
@@ -1798,27 +1820,49 @@ class OceanEngine {
   }
 
   static pebbleBuffer(ctx, dur){
-    // 大圓石灘（阿朗壹／南田石）：每顆石＝低頻共振的「咚」＋一點顆粒摩擦，較長較悶、密度較疏。
+    // 大圓石灘（阿朗壹／南田石）：每顆石＝低頻共振的「咚」＋接觸瞬態的「喀」＋一點顆粒摩擦。
     // 立體聲去相關 → 循環播放即成大卵石被海水翻滾的低沉滾動聲。
+    //
+    // ⚠️ 2026-08-05 重寫。Pan：「pebble 的聲音品質非常差」。實測舊版有**三個**問題，
+    // 前兩個都是「寫錯不會報錯、只會聽起來很差」的那種：
+    //  ① **循環接縫有喀聲**：舊版是 `while(i < len)` 一路往前撒，最後一顆石頭的尾巴直接被
+    //     len 切斷 ⇒ buffer 頭尾不連續（實測跨接縫的跳變是內部最大跳變的 36%，最壞 99.8%），
+    //     而 pebble 是 `loop = true`，所以**每 4.5 秒就聽到一次喀**。這是「音質很差」最刺耳的來源。
+    //     改法：每顆石頭的起點獨立亂數決定，寫入時用 `(start + j) % len` **繞回開頭**——
+    //     尾巴接到頭上，循環處自然連續（實測接縫跳變降到 0.2%）。
+    //  ② **密度太高糊成嗡嗡聲**：舊版每 8–38ms 一顆＝實測 ~34 顆/秒，快到聽不出「一顆一顆石頭」，
+    //     只剩一片低頻噗噗聲（crest 只有 14.9dB＝幾乎沒有瞬態對比）。改成 ~11 顆/秒、
+    //     每顆更長（30–100ms）更清楚 ⇒ crest 21dB，聽得出顆粒。
+    //  ③ 每顆石頭只有低頻正弦＋寬頻雜訊，缺了石頭**互相碰撞的那一下**。加一個衰減很快（8ms）的
+    //     中頻分量（650–1800Hz）當接觸瞬態——它大部分會被下游的 pebbleBP（LP 380–800Hz，
+    //     刻意的「被水吃掉高頻」）濾掉，但留下的那一點點是「石頭」而不是「低頻噗」的關鍵線索。
+    // 驗收在 tmp/check_pebble_quality.js（量接縫跳變、密度、crest、頻帶）。
     const rate = ctx.sampleRate;
     const len = Math.max(1, Math.floor(rate * dur));
     const buf = ctx.createBuffer(2, len, rate);
+    const atk = Math.max(1, Math.floor(rate * 0.0005));                 // 0.5ms 起音：接觸不是瞬間的
     for(let ch = 0; ch < 2; ch++){
       const d = buf.getChannelData(ch);
-      let i = 0;
-      while(i < len){
-        const gap = Math.floor(rate * (0.008 + Math.random() * 0.030));   // 每 8–38ms 一顆（~40/s，貼近錄音的石頭密度、可辨）
-        const dl  = Math.floor(rate * (0.012 + Math.random() * 0.038));   // 12–50ms（大石較悶，但別糊成一片）
-        const amp = 0.25 + 0.75 * Math.random();
-        const f   = 70 + Math.random() * 260;                            // 圓石低頻共振 70–330Hz
+      const n = Math.max(1, Math.round(dur * PEBBLE_RATE));             // 總顆數（密度 × 時長）
+      for(let s = 0; s < n; s++){
+        const start = Math.floor(Math.random() * len);                   // 起點獨立亂數（不是往前走）
+        const dl  = Math.floor(rate * (0.026 + Math.random() * 0.058));  // 26–84ms：大石較悶較長
+        const amp = 0.30 + 0.70 * Math.random();
+        const f   = 110 + Math.random() * 250;                           // 圓石低頻共振 110–360Hz
         const w   = 2 * Math.PI * f / rate;
-        for(let j = 0; j < dl && i + j < len; j++){
-          const e = Math.exp(-j / (dl * 0.28));
-          const tone = Math.sin(w * j);                                  // 石頭的低頻「咚」
-          const grit = (Math.random() * 2 - 1) * 0.5;                    // 顆粒摩擦
-          d[i + j] += (0.72 * tone + 0.28 * grit) * amp * e;
+        const fc  = 650 + Math.random() * 1150;                          // 石頭互撞的接觸瞬態
+        const wc  = 2 * Math.PI * fc / rate;
+        const cd  = rate * 0.008;                                        // 「喀」衰減很快（8ms）
+        for(let j = 0; j < dl; j++){
+          const k = (start + j) % len;                                   // ← 繞回開頭：循環處無接縫
+          const a = j < atk ? j / atk : 1;
+          const e = Math.exp(-j / (dl * 0.30));
+          const ec = Math.exp(-j / cd);
+          const tone  = Math.sin(w * j) * e;                             // 石頭的低頻「咚」
+          const clack = Math.sin(wc * j) * ec;                           // 互撞的「喀」
+          const grit  = (Math.random() * 2 - 1) * ec;                    // 顆粒摩擦（跟著喀一起收）
+          d[k] += (0.46 * tone + 0.40 * clack + 0.14 * grit) * amp * a;
         }
-        i += gap;
       }
       let pk = 0; for(let k = 0; k < len; k++){ const v = Math.abs(d[k]); if(v > pk) pk = v; }
       if(pk > 0){ const kk = 0.7 / pk; for(let k = 0; k < len; k++) d[k] *= kk; }
@@ -3387,6 +3431,13 @@ const BANGZI_UNIT_MS = 880;        // 曲線的 1.00（＝最快的那一拍）�
 const BANGZI_ACCENT = { intensity: 165, duration: 78 };   // 板：重、長一點
 const BANGZI_TICK_MIN = 62;        // 眼：由強到弱，最後一點的強度
 const BANGZI_TICK_MAX = 118;
+// 眼的震動時長（ms）。Pan 2026-08-05：「有些數字有震動 有些沒有」——原本寫死 34ms，
+// 而板是 78ms、協定文件的範例是 50ms（GRIPBALL_PROTOCOL.md:73）。34ms 的脈衝短到
+// 偏輕的那幾點（強度 62–80）在手上根本感覺不到，所以聽起來「有的有震有的沒震」。
+// 改成 54ms：仍明顯短於板（78ms＝板還是最重的那一記，梆子的板/眼對比不能消失），
+// 但每一點都在協定範例的量級之上。**同時**要注意 sendHaptic 的 95ms 節流：
+// 最短的間隔是 880ms，遠大於節流窗，所以不會有點被節流吃掉（tmp/sim_bangzi_478.js [8] 有斷言）。
+const BANGZI_TICK_MS = 54;
 const BANGZI_CURVE_MIN = Math.min(...BANGZI_CURVE);   // ＝1.00（最快）
 const BANGZI_CURVE_MAX = Math.max(...BANGZI_CURVE);   // ＝2.04（最長的那個起頭間隔）
 
@@ -3425,7 +3476,7 @@ function bangziPattern(count){
       at: Math.round(t),
       accent: false,
       intensity: Math.round(BANGZI_TICK_MAX - (BANGZI_TICK_MAX - BANGZI_TICK_MIN) * (0.65 * slow + 0.35 * k)),
-      duration: 34,
+      duration: BANGZI_TICK_MS,
       size: 0.5 - 0.25 * (0.65 * slow + 0.35 * k),
       idx: i + 1,
     });
@@ -3453,7 +3504,16 @@ function playBangziPhase(phase){
     const az = p.accent ? 0 : (p.idx % 2 === 0 ? -0.45 : 0.45);
     const timer = setTimeout(() => {
       if(state.phase !== "session" || state.guided.preset !== "hold478") return;
-      if(engine) engine.underwaterStone(az, p.accent ? 2.2 : 2.8, p.accent ? 0.85 : 0.55, p.size);
+      // 每一段的**第一個音**用頌缽，其餘的點維持水中石頭（Pan 2026-08-05：「現在倒數這邊的
+      // 聲音每段第一個音可以用頌缽的聲音嗎 其他聲音維持目前設定沒關係」）。
+      // 頌缽的長衰減（decays 最長 7.0s）本來是「連擊會糊成一團」的理由（見 DESIGN.md §7.2），
+      // 這裡不衝突：一段裡只有**一記**板，段長 6.0–10.6s，而且點是低沉的水中石頭、
+      // 頻率完全分開（缽 f0 ~300Hz 起、石頭 f0 = 190 − 70·size），糊不到一起。
+      // singingBowl 自己有 0.35s 冷卻，而板與板的間隔至少 6 秒，不會被冷卻吃掉。
+      if(engine){
+        if(p.accent) engine.singingBowl(az, 2.2, 0.85);
+        else engine.underwaterStone(az, 2.8, 0.55, p.size);
+      }
       sendHapticAll(p.intensity, p.duration, true);   // force：4-7-8 的引導震動是 Pan 要的
       beatPulse(phase.rgb);
     }, p.at);
@@ -3533,11 +3593,19 @@ function tickManual478(){
   const now = performance.now();
   if(m.phaseEndsAt == null){ startBangziPhase(); return; }
   // 還剩幾點：從時間表反推（畫面的倒數要跟實際聽到的點對上，不能各走各的）
+  //
+  // ⚠️ 這裡的 −1 是 Pan 2026-08-05 回報的 bug：「我看不到所有數字倒數 例如 7 這段 竟然是從6開始」。
+  // 板（重音）的 at 是 0，所以在 elapsed = 0 的那一刻它就已經 `elapsed >= p.at` 成立、被算成
+  // 「已經打完了」，remaining 一開始就是 count − 1 ＝ 7 這段的第一眼看到的是 6，數字 7 從來沒顯示過。
+  // 倒數的語意是「還剩幾下要聽」，而**正在響的這一下還沒過去**，所以 done 要扣掉當下這一記：
+  // 剛好打第 1 記時 done = 1 → remaining 應該仍是 count（顯示 7），聽到第 2 記才變 count − 1。
+  // 最後一記響完之後 remaining = 1，段落結束時才由下一段的 startBangziPhase 重設——
+  // 這樣每一段都會**完整顯示 count 到 1**。
   const pattern = bangziPattern(phase.count);
   const elapsed = now - m.phaseStartedAt;
   let done = 0;
   for(const p of pattern) if(elapsed >= p.at) done++;
-  m.remaining = Math.max(0, phase.count - done);
+  m.remaining = Math.max(0, phase.count - Math.max(0, done - 1));
   if(now < m.phaseEndsAt) return;
   // 這一段走完 → 進下一段
   m.phaseIndex = (m.phaseIndex + 1) % MANUAL_478_PHASES.length;

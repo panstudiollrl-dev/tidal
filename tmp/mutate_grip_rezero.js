@@ -107,6 +107,16 @@ const MUTANTS = [
   ["平台機制加上一次性額度（放開幾次就該救幾次）",
    "if(below >= GRIP_SETTLE_MIN_SHIFT){",
    "if(below >= GRIP_SETTLE_MIN_SHIFT && this.settleCount === 0){"],
+  // ── 滿刻度（Pan 2026-08-05：「從自我覺察呼吸這邊水位顯示就很糟糕了」）─────────
+  ["滿刻度回到 900（協定文件推的，約真球的一半 ⇒ 正常握一下就貼頂）",
+   "const GRIP_FULL_SCALE = 1400;", "const GRIP_FULL_SCALE = 900;"],
+  ["滿刻度只調一點（1150：仍然是明確握就貼頂）",
+   "const GRIP_FULL_SCALE = 1400;", "const GRIP_FULL_SCALE = 1150;"],
+  ["滿刻度過頭（2800：較不敏感的那顆球永遠握不滿）",
+   "const GRIP_FULL_SCALE = 1400;", "const GRIP_FULL_SCALE = 2800;"],
+  ["改成每顆球自己學天花板（會收斂到偶發尖峰，正常握只剩 0.1–0.4）",
+   "    const effScale = this.span * GRIP_HEADROOM;",
+   "    this.learnedScale = Math.max(this.learnedScale || this.span, posDelta);\n    const effScale = this.learnedScale * GRIP_HEADROOM;"],
 ];
 
 let caught = 0;

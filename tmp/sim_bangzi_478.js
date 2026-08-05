@@ -49,7 +49,7 @@ const ok = (cond, label, detail) => {
 
 // ── 從 index.html 抽真的 bangziPattern / bangziDuration 與常數 ────────────────
 function build(src) {
-  const names = ["BANGZI_UNIT_MS", "BANGZI_TICK_MIN", "BANGZI_TICK_MAX"];
+  const names = ["BANGZI_UNIT_MS", "BANGZI_TICK_MIN", "BANGZI_TICK_MAX", "BANGZI_TICK_MS"];
   const consts = names.map(n => {
     const m = src.match(new RegExp(`const ${n} = ([\\d.]+)`));
     if (!m) throw new Error(`抽不到常數 ${n}`);
@@ -93,7 +93,7 @@ function buildTicker(src) {
     if (!m) throw new Error(`抽不到 ${name}`);
     return m[0];
   };
-  const consts = ["BANGZI_UNIT_MS", "BANGZI_TICK_MIN", "BANGZI_TICK_MAX"]
+  const consts = ["BANGZI_UNIT_MS", "BANGZI_TICK_MIN", "BANGZI_TICK_MAX", "BANGZI_TICK_MS"]
     .map(n => `const ${n} = ${src.match(new RegExp(`const ${n} = ([\\d.]+)`))[1]};`).join("\n");
   const code = `
     ${consts}
@@ -115,7 +115,7 @@ function buildTicker(src) {
     return { tickManual478, beginManual478, resetManual478, manual478State, state, stats };
   `;
   const clock = { t: 1000 };
-  const stats = { presses: 0, stones: 0, haptics: 0 };
+  const stats = { presses: 0, stones: 0, bowls: 0, haptics: 0 };
   const state = {
     phase: "session",
     grip: { 1: 0, 2: 0 },
@@ -133,7 +133,12 @@ function buildTicker(src) {
       for (const t of state.guided.hapticTimers) env.clearTimeout(t);
       state.guided.hapticTimers = [];
     },
-    engine: { underwaterStone: () => { stats.stones++; } },
+    // 石頭與頌缽分開記：Pan 2026-08-05 要「每段第一個音用頌缽，其他維持」，
+    // 所以「每段剛好一記缽、其餘都是石頭」是可以被斷言的（見 [4c]）。
+    engine: {
+      underwaterStone: () => { stats.stones++; },
+      singingBowl: () => { stats.bowls++; },
+    },
     sendHapticAll: () => { stats.haptics++; },
     beatPulse: () => {},
     play478Voice: () => {},
@@ -147,6 +152,23 @@ function buildTicker(src) {
   api.resetManual478();
   const phaseLog = {};       // name → 累計停留時間
   const minRemaining = {}, maxRemaining = {};
+  // ⚠️ 2026-08-05：倒數的斷言必須看「**顯示了多久**」，不能只看有沒有出現過。
+  // Pan 的回報是「我看不到所有數字倒數 例如 7 這段 竟然是從6開始」——而在有 bug 的版本裡
+  // `startBangziPhase` 確實有把 m.remaining 設成 7，只是下一幀 tickManual478 立刻把它蓋成 6，
+  // 所以 7 只「存在」了一幀（≤50ms）＝畫面上根本讀不到。舊的 maxRemaining.hold === 7 正是
+  // 抽到那一幀的值，所以它對這個 bug 完全免疫（實驗證實：把修正 revert 掉，234 項仍全過）。
+  // 這裡改記「連續同值的區段各持續幾 ms」，再用一個可讀門檻（見 [4c]）過濾。
+  // 每一段各自記：`at` 是「這個數字第一次出現在畫面上時，距離段落開始幾 ms」——
+  // 用來驗「數字換的時刻＝真的有一記石頭落下」（見 [4c]②）。
+  const remainRuns = {};     // name → [{ v, ms, at }]（依出現順序）
+  const trackRemain = (ms) => {
+    const { m, phase } = api.manual478State();
+    if (m.intro || m.done) return;
+    const runs = remainRuns[phase.name] || (remainRuns[phase.name] = []);
+    const last = runs[runs.length - 1];
+    if (!last || last.v !== m.remaining) runs.push({ v: m.remaining, ms, at: clock.t - m.phaseStartedAt });
+    else last.ms += ms;
+  };
   const track = () => {
     const { m, phase } = api.manual478State();
     if (m.intro || m.done) return;
@@ -158,7 +180,9 @@ function buildTicker(src) {
     get now() { return clock.t - 1000; },
     get pressCount() { return stats.presses; },
     get stoneCount() { return stats.stones; },
-    minRemaining, maxRemaining,
+    get bowlCount() { return stats.bowls; },
+    get hapticCount() { return stats.haptics; },
+    minRemaining, maxRemaining, remainRuns,
     begin() { api.beginManual478(); track(); },
     phaseName() {
       const { m, phase } = api.manual478State();
@@ -182,6 +206,7 @@ function buildTicker(src) {
         (phaseLog.__done || (phaseLog.__done = new Set())).add(before);
       }
       track();
+      trackRemain(ms);
       return after !== before;
     },
   };
@@ -374,6 +399,75 @@ PAGES.forEach((page, pi) => {
     ok(st.maxRemaining.hold === 7, "屏息段的倒數要從 7 開始", String(st.maxRemaining.hold));
   }
 
+  if (pi === 0) console.log("[4c] Pan 2026-08-05 的三件回報：每個數字都看得到、每點都震、每段一記缽");
+  {
+    // ⚠️ 上面那條 maxRemaining.hold === 7 **對 Pan 的 bug 免疫**，這一段是它的替代品。
+    // 驗證方式：把修好的那一行 revert 回 `phase.count - done`，這一段必須失敗（已實驗確認）。
+    const st = buildTicker(src);
+    st.begin();
+    let guard = 0;
+    // **剛好一輪**：走到 exhale 結束、要進下一輪的 inhale 的那一刻就停。
+    // （多跑一點點就會把第二輪 inhale 的板算進來，數量與倒數都會多一筆——本測試第一版踩到。）
+    let seenExhale = false;
+    while (guard++ < 100000) {
+      const changed = st.advance(50);
+      const n = st.phaseName();
+      if (n === "exhale") seenExhale = true;
+      if (seenExhale && changed && n !== "exhale") break;
+    }
+
+    // ── ① 「我看不到所有數字倒數 例如 7 這段 竟然是從6開始」──────────────────────
+    // 每一段都要**完整顯示 count → 1**，而且每個數字都要停留得夠久到讀得出來。
+    // 400ms 這個門檻是刻意訂在「一幀（50ms）遠遠不夠」與「最短的真實拍距（880ms）之內」之間：
+    // 有 bug 的版本裡起始數字只活一幀，一定被這條抓到。
+    const READABLE_MS = 400;
+    for (const [name, count] of [["inhale", 4], ["hold", 7], ["exhale", 8]]) {
+      const runs = st.remainRuns[name] || [];
+      const readable = runs.filter(r => r.ms >= READABLE_MS).map(r => r.v);
+      for (let v = count; v >= 1; v--) {
+        ok(readable.includes(v),
+           `${name}（${count}）段的倒數要看得到 ${v}（停留 ≥${READABLE_MS}ms）`,
+           `讀得到的是 ${readable.join(",") || "（無）"}`);
+      }
+      // 而且第一個讀得到的數字就是 count 本身（不是 count−1）——這正是 Pan 看到「7 從 6 開始」。
+      ok(readable[0] === count,
+         `${name} 段第一個讀得到的數字要是 ${count}，不是 ${count - 1}`,
+         `實際是 ${readable[0]}`);
+      // 倒數只能往下走，不能跳回去（時間表反推很容易寫成非單調）
+      let mono = true;
+      for (let i = 1; i < readable.length; i++) if (readable[i] > readable[i - 1]) mono = false;
+      ok(mono, `${name} 段的倒數要單調遞減`, readable.join(","));
+
+      // ── 數字換的**時刻**要跟聽到的點對上 ────────────────────────────────────
+      // 倒數的語意是「還剩幾下要聽」，所以每次數字往下跳，都必須剛好是一記石頭落下的時候。
+      // 若改成「按剩餘時間比例算」，數字會等速往下走，而梆子是先快後慢＝畫面與耳朵各走各的
+      // （聽起來就是「數字跟聲音沒對上」）。用一格 50ms 的容差對時間表比。
+      const beats = bangziPattern(count).map(p => p.at);
+      const drops = runs.slice(1).filter(r => r.ms >= 100).map(r => r.at);   // 跳過抖動用的短段
+      const offs = drops.map(t => Math.min(...beats.map(b => Math.abs(t - b))));
+      const worst = offs.length ? Math.max(...offs) : 0;
+      ok(worst <= 60,
+         `${name} 段：倒數換數字的時刻要落在某一記的時間點上（畫面要跟耳朵對齊）`,
+         `最遠差 ${Math.round(worst)}ms（拍點 ${beats.map(Math.round).join(",")}）`);
+    }
+
+    // ── ② 「有些數字有震動 有些沒有」────────────────────────────────────────────
+    // 這一輪響了幾記，就要送出同樣多次震動：一次都不能被 sendHaptic 的 95ms 節流吃掉。
+    const beats = bangziPattern(4).length + bangziPattern(7).length + bangziPattern(8).length;
+    ok(st.hapticCount === beats,
+       "一輪裡每一記（板＋眼）都要有一次震動，不能有點沒震動",
+       `${st.hapticCount} 次震動 vs ${beats} 記`);
+    ok(st.stoneCount + st.bowlCount === beats,
+       "聲音的次數也要對得上（震動與聲音同步）",
+       `${st.stoneCount + st.bowlCount} vs ${beats}`);
+
+    // ── ③ 「每段第一個音可以用頌缽 其他聲音維持目前設定」────────────────────────
+    ok(st.bowlCount === 3, "一輪三段＝剛好三記頌缽（每段第一個音）", `${st.bowlCount} 記`);
+    ok(st.stoneCount === beats - 3, "其餘的點全部維持水中石頭",
+       `${st.stoneCount} vs ${beats - 3}`);
+    if (pi === 0) console.log(`      一輪 ${beats} 記：頌缽 ${st.bowlCount} + 石頭 ${st.stoneCount}，震動 ${st.hapticCount} 次`);
+  }
+
   if (pi === 0) console.log("[5] 「只在問問題還有前面自由呼吸保持原狀」");
   {
     // 抵達流程（問問題）用的是 handleArrivalGrip / ARRIVAL_PRESS_ON，不能被動到
@@ -471,6 +565,67 @@ PAGES.forEach((page, pi) => {
     ok(cp && /clearGuidedHaptics\(\)/.test(cp[0]), "完成時要取消還沒發完的梆子點");
     ok(/clearGuidedHaptics\(\);\s*\n\s*const pattern = bangziPattern/.test(src),
        "起新段落前要先清掉上一段的殘留");
+
+    // ── 震動時長（Pan 2026-08-05：「有些數字有震動 有些沒有」）───────────────────
+    // 原本點是寫死 34ms，比協定文件的範例（GRIPBALL_PROTOCOL.md:73 的 50ms）還短，
+    // 短到一部分點在真球上感覺不到。BANGZI_TICK_MS 就是為此加的，這裡把「不能又被調回去」釘住。
+    const tickMs = consts.BANGZI_TICK_MS;
+    ok(!Number.isNaN(tickMs), "要有 BANGZI_TICK_MS（點的震動時長）");
+    ok(tickMs >= 50, "點的震動時長要 ≥ 協定範例的 50ms（太短在真球上感覺不到）", `${tickMs}ms`);
+    ok(tickMs < BANGZI_ACCENT.duration,
+       "但仍要短於板（重音）的時長——板要聽/摸得出比眼重",
+       `眼 ${tickMs}ms vs 板 ${BANGZI_ACCENT.duration}ms`);
+    ok(/duration: BANGZI_TICK_MS,/.test(src),
+       "bangziPattern 的點要真的吃 BANGZI_TICK_MS（不能又寫死一個數字）");
+    ok(!/duration: 34\b/.test(src), "不能留著寫死的 34ms");
+    // 不會被節流吃掉：sendHaptic 有 95ms 節流窗，而最短的拍距要遠大於它。
+    const throttle = Number((src.match(/if\(now - lastHaptic\[slot\] < (\d+)\)/) || [])[1]);
+    ok(!Number.isNaN(throttle), "要找得到 sendHaptic 的節流窗");
+    let minGap = Infinity;
+    for (const c of [4, 7, 8]) {
+      const p = bangziPattern(c);
+      for (let i = 1; i < p.length; i++) minGap = Math.min(minGap, p[i].at - p[i - 1].at);
+    }
+    ok(minGap > throttle * 2,
+       "最短的拍距要遠大於節流窗（否則會有點被吃掉＝Pan 說的「有些沒有」）",
+       `最短拍距 ${minGap}ms vs 節流 ${throttle}ms`);
+    // 震動時長本身也不能長到蓋過下一拍（會連成一片，失去「一點一點」的感覺）
+    ok(Math.max(tickMs, BANGZI_ACCENT.duration) < minGap / 4,
+       "震動時長要遠短於拍距（一點一點，不是連續嗡嗡）",
+       `最長 ${Math.max(tickMs, BANGZI_ACCENT.duration)}ms vs 拍距 ${minGap}ms`);
+    if (pi === 0) console.log(`      震動：板 ${BANGZI_ACCENT.duration}ms／眼 ${tickMs}ms，最短拍距 ${minGap}ms（節流 ${throttle}ms）`);
+  }
+
+  if (pi === 0) console.log("[9] 每段第一個音用頌缽（Pan 2026-08-05）");
+  {
+    const pb = src.match(/function playBangziPhase\([\s\S]*?\n\}/);
+    ok(!!pb, "要找得到 playBangziPhase");
+    if (pb) {
+      // 分岔必須看 p.accent（＝時間表上的板），不是看第幾次呼叫或使用者輸入
+      ok(/if\(p\.accent\) engine\.singingBowl\(/.test(pb[0]),
+         "板（每段第一個音）要用 singingBowl");
+      ok(/else engine\.underwaterStone\(/.test(pb[0]),
+         "其餘的點要維持 underwaterStone（Pan：「其他聲音維持目前設定」）");
+      // 反面：不能兩種都打（會變成缽＋石頭疊在同一記上）
+      const bowlCalls = (pb[0].match(/engine\.singingBowl\(/g) || []).length;
+      const stoneCalls = (pb[0].match(/engine\.underwaterStone\(/g) || []).length;
+      ok(bowlCalls === 1 && stoneCalls === 1,
+         "板與眼各一個呼叫點（不能無條件兩種都打）", `缽 ${bowlCalls} / 石 ${stoneCalls}`);
+    }
+    // singingBowl 要真的存在、而且它的冷卻不會吃掉板（板與板至少隔一整段）
+    const bowl = src.match(/singingBowl\(azimuth = 0[\s\S]*?\n  \}/);
+    ok(!!bowl, "要找得到 singingBowl");
+    if (bowl) {
+      const cd = bowl[0].match(/now - \(?this\.lastBowl[^<]*< ([\d.]+)/);
+      ok(!!cd, "要找得到頌缽的冷卻時間");
+      const shortest = Math.min(bangziDuration(4), bangziDuration(7), bangziDuration(8));
+      if (cd) ok(Number(cd[1]) * 1000 < shortest,
+                 "頌缽的冷卻要短於最短的段落長度（否則有的段落會沒有板）",
+                 `冷卻 ${cd[1]}s vs 最短段落 ${(shortest / 1000).toFixed(1)}s`);
+    }
+    // 頌缽的長衰減之所以在這裡沒問題，是因為一段只有一記板。這件事要能被測到：
+    ok(bangziPattern(4).filter(p => p.accent).length === 1, "一段只有一記板（4）");
+    ok(bangziPattern(8).filter(p => p.accent).length === 1, "一段只有一記板（8）");
   }
 });
 tag = "";
