@@ -101,8 +101,22 @@ const MUTANTS = [
   ["shimmer 只把基底墊高、沒乘在整條上 ＝ 失去呼吸感、變持續電平音",
    s => s.replace("clamp(SHIMMER_LEVEL * (0.012 + 0.044 * energy + 0.012 * swell))",
                   "clamp((SHIMMER_LEVEL - 1) * 0.03 + 0.012 + 0.044 * energy + 0.012 * swell)")],
+  // 2026-08-05 之後 shimmer 走自己的 dry gain（shimDry），所以這個變異要改打新的接線。
   ["shimmer 被拿去做點聲源定位（它是一片水光，不是點）",
-   s => s.replace("this.shimmerGain.connect(this.dry)", "this.shimmerGain.connect(this.busIn)")],
+   s => s.replace("shimDry.connect(this.dry)", "shimDry.connect(this.busIn)")],
+  // ── shimmer 的距離感（Pan 2026-08-05：「太遠了，幾乎感覺不到」）──────────────
+  ["shimmer 又吃回全域的乾濕比（＝回到 Pan 聽到的「太遠」）",
+   s => s.replace(/const SHIMMER_DRY = [\d.]+/, "const SHIMMER_DRY = 1.0")
+         .replace(/const SHIMMER_WET = [\d.]+/, "const SHIMMER_WET = 1.0")],
+  ["用「調小 wet」換距離感（D/R 對了但總能量掉了＝還是感覺不到）",
+   s => s.replace(/const SHIMMER_DRY = [\d.]+/, "const SHIMMER_DRY = 1.0")
+         .replace(/const SHIMMER_WET = [\d.]+/, "const SHIMMER_WET = 0.15")],
+  ["shimmer 變全乾（貼耳的乾硬電子音，失去水面的空間）",
+   s => s.replace(/const SHIMMER_WET = [\d.]+/, "const SHIMMER_WET = 0")],
+  ["藉乾濕比把 shimmer 偷偷放大成主角（有界參數的上界）",
+   s => s.replace(/const SHIMMER_DRY = [\d.]+/, "const SHIMMER_DRY = 8")],
+  ["shimmer 的 wet 接線被拿掉（沒有房間＝距離線索全失）",
+   s => s.replace("this.shimmerGain.connect(shimWet); shimWet.connect(this.convolver);", "")],
   ["sub 低頻床被送去空間化（低頻本就無方向性）",
    s => s.replace("this.subGain.connect(this.clip)", "this.subGain.connect(this.busIn)")],
   ["載完 HRIR 沒重設固定方位 ＝ 左右岸浪永遠停在退回路徑的角度",

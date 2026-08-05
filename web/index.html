@@ -1509,6 +1509,20 @@ const SPATIAL_MAKEUP = { surge: 1.02, foam: 0.98, pebble: 1.01, bubble: 1.03, sh
 // 波光的相對音量（Pan 2026-08-04：「shimmer 和 pebble 的聲音幾乎都是沒有的」）。
 // 1.0 ＝ 2026-07-16 調的原始值；2.4 ＝ +7.6dB。只調這個數字就好，見 loop() 裡的用處。
 const SHIMMER_LEVEL = 2.4;
+// 波光的**距離感**（Pan 2026-08-05：「shimmer 的聲音太遠了，幾乎感覺不到」）。
+// 為什麼不是再把 SHIMMER_LEVEL 加大：2026-08-04 已經從 1.6 加到 2.4（+7.6dB）而 Pan 還是說遠，
+// 因為「遠」的主要知覺線索是 direct-to-reverberant ratio，不是絕對音量。room.wav 載入後
+// 全域是 dry 0.4 / wet 0.8（見 loadIR），殘響比直達聲大 → 每一層都被推遠；再開大只會得到
+// 「更大聲的遠處」。所以給 shimmer 自己的乾濕比（作法同 playGlint 那層），讓它坐在近場。
+// 只動 shimmer：海浪本體的空間感 Pan 說「還不錯」。
+// 這兩個數字是**一起**挑的，不是各自調的：要在「總能量不減」的前提下把 D/R 轉正。
+// 全域是 dry 0.4 / wet 0.8，所以這一層實際到 clip 的量是 dry×0.4 + wet×0.8。
+//   修改前（吃全域 1/1）：dry 0.40 wet 0.80 → D/R −6.0dB、總量 1.20
+//   現在  （2.2 / 0.40）：dry 0.88 wet 0.32 → D/R **+8.8dB**、總量 1.20（0.0dB）
+// 也就是把同樣的能量從殘響搬到直達聲。單純調小 wet 會連總量一起掉（1.35/0.30 是 −3.7dB），
+// 而 Pan 說的是「幾乎感覺不到」——不能拿音量去換距離感。
+const SHIMMER_DRY = 2.2;           // 直達聲：遠蓋過全域的 0.4 → 水面就在附近
+const SHIMMER_WET = 0.40;          // 仍留一點房間，不要變成貼耳的乾硬電子音
 // 鵝卵石的「靜止底量」（Pan 2026-08-04：pebble 幾乎聽不到）。
 // 原本 pebbleGain 的常數項只有 0.030，而整層是由 Ball2 握力（this.spread）驅動的——
 // 沒握球時它就坐在那個底上＝實質靜音。但 DESIGN.md §4.4 說鵝卵石是**本聲景的定位聲**
@@ -1848,8 +1862,21 @@ class OceanEngine {
     // shimmer 刻意**不**過 HRIR / panner：它是「一片」水光而不是一個點聲源，
     // 過點聲源定位反而會把它收成一個方向（跟 sub / wide 同樣的理由）。
     // 因此它也不需要 makeup 補償——沒經過 HRIR，就沒有要補的低頻損失。
-    this.shimmerGain.connect(this.dry);
-    this.shimmerGain.connect(this.convolver);        // 帶空間（房間殘響）
+    //
+    // ── 距離感：shimmer 要有自己的乾濕比（Pan 2026-08-05）─────────────────────
+    // Pan：「海的空間感還不錯，只是 shimmer 的聲音太遠了，幾乎感覺不到」。
+    // 「遠」不是音量不夠——2026-08-04 已經把 SHIMMER_LEVEL 加到 2.4（+7.6dB）而 Pan 仍說遠。
+    // 真正的原因是**乾濕比**：room.wav 載入後全域變成 dry 0.4 / wet 0.8（loadIR），
+    // 也就是殘響比直達聲還大。距離知覺主要就是由 direct-to-reverberant ratio 決定的
+    // （殘響多＝遠），所以在這個比例下，把音量開大只會變成「更大聲的遠處」，
+    // 距離感不動——這正是 Pan 兩次聽到的。
+    // 修法照 playGlint（line ~2514）已經在用的作法：這一層自己接 dry/wet 各一個 gain，
+    // 不吃全域的 0.4/0.8。shimmer 是「水面就在附近」的聲音，所以 dry 要蓋過 wet。
+    // 只改 shimmer 這一層：海浪本體（surge/foam）的空間感 Pan 說「還不錯」，不要動。
+    const shimDry = ctx.createGain(); shimDry.gain.value = SHIMMER_DRY;
+    const shimWet = ctx.createGain(); shimWet.gain.value = SHIMMER_WET;
+    this.shimmerGain.connect(shimDry); shimDry.connect(this.dry);
+    this.shimmerGain.connect(shimWet); shimWet.connect(this.convolver);   // 仍留一點房間，不要乾硬
     this.lastGlint = 0;
 
     // （Pan 2026-07-14：移除純正弦低頻「湧」本體——那是「電平聲」的來源，每次握壓就冒出來。
@@ -3625,33 +3652,71 @@ const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成
 // （吸 ~3.4s、停 ~9.9s、吐 ~12.8s，一輪 ~26s ≈ 2.3 次呼吸/分——比平靜時的 12–16 次/分慢得多，
 // 正是該論文「給一個比使用者當下更慢的外部節律」的做法）。由快到慢的幾何級數會讓後段被拉長，
 // 所以段落長度不會剛好是 4:7:8 的比例——聽起來的「數字」是石頭的**數量**，不是秒數。
-const BANGZI_UNIT_MS = 900;        // 起頭重音之後，第一個點的間隔（最快的那一拍）
-const BANGZI_SLOWDOWN = 1.24;      // 每一點的間隔乘這個倍率＝由快到慢（幾何級數，聽起來最自然）
-const BANGZI_LEAD_MS = 300;        // 起頭重音到第一個點之間的空隙（讓重音站得住）
+// ── 速度曲線取自 Pan 的 MIDI（2026-08-05）────────────────────────────────────
+// Pan：「478的部分，應該是第一拍拍下去有個較長間隔，然後漸快再漸慢…你看一下 tidal 資料夾
+//       裡面有個midi_Accel_Rit_Rhythm 的 midi clip, 你可以從中學習他的速度變化的方式」。
+// 檔案：Tidal/midi_Accel_Rit_Rhythm.mid（format 0、96 ticks/四分音符、11 個音、無 tempo meta）。
+// 實測 onset 的 IOI（tick）與力度：
+//   #1 accent vel127 → 116 → 76 → 73 → 57 → 57 → 62 → 76 → 78 → 96 → 108
+//   力度 127 70 63 52 57 63 65 61 57 50 39
+// 也就是「**第一個間隔最長**（116＝最快那拍的 2.04 倍）→ 漸快到 57（accel）→ 再漸慢到 108
+// （rit）」，而且力度在最快處附近回升一點、尾端才明顯收掉。
+//
+// 這**修正了原本的模型**：原本只有一個單向的幾何級數 BANGZI_SLOWDOWN=1.24（只會愈來愈慢），
+// 而且起頭空隙 BANGZI_LEAD_MS=300 是**最短**的——正好與 Pan 要的「第一拍拍下去有個較長間隔」
+// 相反。所以幾何級數與 LEAD 一起移除，改成直接照這條實測曲線。
+//
+// 附帶的好處（不是刻意設計，但值得記下來）：段長比例從 1 : 2.85 : 3.76 變成 1 : 1.56 : 1.75，
+// 明顯更接近 4-7-8 本身的 1 : 1.75 : 2.00。單向幾何級數會把點數多的段落過度拉長，
+// 而這條曲線先快後慢，中段的密集把長段拉回來。
+const BANGZI_CURVE = [2.04, 1.33, 1.28, 1.00, 1.00, 1.09, 1.33, 1.37, 1.68, 1.89];
+const BANGZI_UNIT_MS = 880;        // 曲線的 1.00（＝最快的那一拍）等於多少 ms；整段快慢就靠這一個數字
+                                   // （880 → 一輪 ~26.1s ≈ 2.3 次呼吸/分，維持改版前的步調）
 const BANGZI_ACCENT = { intensity: 165, duration: 78 };   // 板：重、長一點
 const BANGZI_TICK_MIN = 62;        // 眼：由強到弱，最後一點的強度
 const BANGZI_TICK_MAX = 118;
+const BANGZI_CURVE_MIN = Math.min(...BANGZI_CURVE);   // ＝1.00（最快）
+const BANGZI_CURVE_MAX = Math.max(...BANGZI_CURVE);   // ＝2.04（最長的那個起頭間隔）
 
 // 一段（4 或 7 或 8）的完整節拍時間表。回傳 [{ at, accent, intensity, duration, size, idx }]，
 // 純函式＝可以被對拍測試直接驗證（tmp/sim_bangzi_478.js），不需要真的球或 AudioContext。
+// 把 BANGZI_CURVE 重新取樣成 n 個間隔（線性內插）。n 隨段落而變（4→3、7→6、8→7），
+// 但曲線的**形狀**要一樣——所以是重新取樣，不是截斷。截斷的話短的段落只會拿到「長間隔＋漸快」
+// 那一半，聽不到漸慢，Pan 要的「漸快再漸慢」就只剩一半。
+function bangziGaps(n){
+  if(n <= 0) return [];
+  if(n === 1) return [BANGZI_CURVE[0]];
+  const last = BANGZI_CURVE.length - 1;
+  const out = [];
+  for(let i = 0; i < n; i++){
+    const p = i / (n - 1) * last;                   // 頭尾一定落在曲線的頭尾＝長間隔起、漸慢收
+    const lo = Math.floor(p), hi = Math.min(last, lo + 1), f = p - lo;
+    out.push(BANGZI_CURVE[lo] * (1 - f) + BANGZI_CURVE[hi] * f);
+  }
+  return out;
+}
+
 function bangziPattern(count){
   const n = Math.max(1, count) - 1;                 // 減去起頭那一記重音 ⇒ 總點數＝count
   const out = [{ at: 0, accent: true, intensity: BANGZI_ACCENT.intensity, duration: BANGZI_ACCENT.duration, size: 0.85, idx: 0 }];
-  let t = BANGZI_LEAD_MS;
-  let gap = BANGZI_UNIT_MS;
+  const gaps = bangziGaps(n);
+  let t = 0;
   for(let i = 0; i < n; i++){
-    // 強度與石頭大小都隨著變慢而遞減／變小＝聲音跟著節奏一起沉下去（不是機械的等強度）
-    const k = n <= 1 ? 0 : i / (n - 1);
+    t += gaps[i] * BANGZI_UNIT_MS;                  // 第一個間隔就是曲線的 2.04 倍＝「第一拍拍下去有個較長間隔」
+    // 強度跟著**當下的速度**走，不是單調遞減：MIDI 的力度在最快處附近回升（52→57→63→65），
+    // 尾端才明顯收掉（50→39）。密＝稍強、疏＝弱，這是梆子「緊起慢收」的語氣，
+    // 也是為什麼不能只用 i/(n-1) 當插值變數（那會忽略漸快那一段）。
+    const span = BANGZI_CURVE_MAX - BANGZI_CURVE_MIN;
+    const slow = span > 0 ? (gaps[i] - BANGZI_CURVE_MIN) / span : 0;   // 0＝最快、1＝最慢
+    const k = i / Math.max(1, n - 1);                                  // 段落內的位置（尾端再收一點）
     out.push({
       at: Math.round(t),
       accent: false,
-      intensity: Math.round(BANGZI_TICK_MAX - (BANGZI_TICK_MAX - BANGZI_TICK_MIN) * k),
+      intensity: Math.round(BANGZI_TICK_MAX - (BANGZI_TICK_MAX - BANGZI_TICK_MIN) * (0.65 * slow + 0.35 * k)),
       duration: 34,
-      size: 0.5 - 0.25 * k,
+      size: 0.5 - 0.25 * (0.65 * slow + 0.35 * k),
       idx: i + 1,
     });
-    t += gap;
-    gap *= BANGZI_SLOWDOWN;
   }
   return out;
 }

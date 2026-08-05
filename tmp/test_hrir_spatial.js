@@ -295,8 +295,13 @@ PAGES.forEach((page, pi) => {
     // 非定位層要維持繞過空間化（低頻本就無方向性）
     ok(/this\.subGain\.connect\(this\.clip\)/.test(src), "sub 低頻床要繞過空間化");
     ok(/this\.wideGain\.connect\(this\.clip\)/.test(src), "wide 海床要繞過空間化");
-    ok(/this\.shimmerGain\.connect\(this\.dry\)/.test(src),
-       "shimmer 是「一片」水光、刻意不過點聲源定位");
+    // shimmer 自 2026-08-05 起走自己的乾濕比（shimDry / shimWet，為了把它從「太遠」拉近），
+    // 但「不過點聲源定位」這個規則沒變——它是一片水光，不是一個點。所以驗的是
+    // 「經 shimDry 進全域 dry」而**不是**進 busIn（busIn 才是空間化那條）。
+    ok(/this\.shimmerGain\.connect\(shimDry\); shimDry\.connect\(this\.dry\)/.test(src),
+       "shimmer 是「一片」水光、刻意不過點聲源定位（經自己的 dry gain 直接進全域 dry）");
+    ok(!/this\.shimmerGain\.connect\(this\.busIn\)/.test(src) && !/shimDry\.connect\(this\.busIn\)/.test(src),
+       "shimmer 不能被接進 busIn（那會把一片水光當成點聲源定位）");
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

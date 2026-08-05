@@ -144,6 +144,16 @@ PAGES.forEach((page, pi) => {
     .replace("const SPATIAL_MAKEUP = ", ""))();
   const SHIMMER = num(/const SHIMMER_LEVEL = ([\d.]+)/, "SHIMMER_LEVEL");
   const PEBFLOOR = num(/const PEBBLE_FLOOR = ([\d.]+)/, "PEBBLE_FLOOR");
+  // shimmer 自己的乾濕比（2026-08-05）。其餘層吃全域的 dry 0.4 / wet 0.8（見 loadIR），
+  // shimmer 這一層自己接兩個 gain，所以它到 clip 的總量必須另外算，否則這支測試會用錯的
+  // 權重去評 shimmer 在 500-2000Hz 的貢獻——那正是 Pan 說「太遠、幾乎感覺不到」的頻帶。
+  const SHIM_DRY = num(/const SHIMMER_DRY = ([\d.]+)/, "SHIMMER_DRY");
+  const SHIM_WET = num(/const SHIMMER_WET = ([\d.]+)/, "SHIMMER_WET");
+  const GLOBAL_DRY = num(/this\.dry\.gain\.setTargetAtTime\(([\d.]+)/, "全域 dry");
+  const GLOBAL_WET = num(/this\.wet\.gain\.setTargetAtTime\(([\d.]+)/, "全域 wet");
+  // 到 clip 的總量：其他層 = 1×dry + 1×wet；shimmer = SHIM_DRY×dry + SHIM_WET×wet
+  const BUS_OTHER = GLOBAL_DRY + GLOBAL_WET;
+  const BUS_SHIM = SHIM_DRY * GLOBAL_DRY + SHIM_WET * GLOBAL_WET;
   const flp = num(/this\.foamLP\.frequency\.value = (\d+)/, "foamLP 頻率");
 
   if (pi === 0) console.log("[1] 傾斜修正鏈本身要把方向平均響應拉平");
@@ -274,6 +284,29 @@ PAGES.forEach((page, pi) => {
        "pebbleGain 要用 PEBBLE_FLOOR 當常數項（而不是寫死的 0.030）");
     // 握力仍要有作用（不是把它變成固定電平）
     ok(/0\.52 \* stoneAmt/.test(src), "握力仍要主控石頭的量（底量只是墊高，不是取代）");
+
+    // ── shimmer 的距離感（Pan 2026-08-05：「shimmer 的聲音太遠了，幾乎感覺不到」）──
+    // 這裡守的是**推理**，不只是數字：距離感由 direct-to-reverberant ratio 決定，
+    // 所以要 (a) D/R 轉正、且 (b) 總能量不減。少了 (b) 就會有人用「調小 wet」交換距離感，
+    // 而 Pan 的抱怨正是「幾乎感覺不到」——拿音量換距離感等於沒解決。
+    const drDb = 20 * Math.log10((SHIM_DRY * GLOBAL_DRY) / (SHIM_WET * GLOBAL_WET));
+    const drBefore = 20 * Math.log10(GLOBAL_DRY / GLOBAL_WET);
+    ok(drBefore < 0, "（前提）全域乾濕比本身是殘響大於直達聲＝每一層都被推遠",
+       `全域 D/R ${drBefore.toFixed(1)}dB`);
+    ok(drDb > 6, "shimmer 的 D/R 要明顯轉正（近場），不能吃全域那個 −6dB",
+       `D/R ${drDb.toFixed(1)}dB`);
+    ok(BUS_SHIM >= BUS_OTHER * 0.95,
+       "但總能量不能因此變小（Pan 說的是「幾乎感覺不到」，不可以拿音量換距離感）",
+       `shimmer 匯流量 ${BUS_SHIM.toFixed(2)} vs 其他層 ${BUS_OTHER.toFixed(2)}`);
+    ok(BUS_SHIM <= BUS_OTHER * 1.6, "也不能藉這個把 shimmer 偷偷放大成主角",
+       `${BUS_SHIM.toFixed(2)} vs ${BUS_OTHER.toFixed(2)}`);
+    ok(SHIM_WET > 0.1, "仍要留一點房間（全乾會變成貼耳的乾硬電子音）", String(SHIM_WET));
+    // 接線本身：必須是自己的兩個 gain，不能又接回全域那對
+    ok(/this\.shimmerGain\.connect\(shimDry\); shimDry\.connect\(this\.dry\)/.test(src),
+       "shimmer 要經自己的 dry gain 才進全域 dry");
+    ok(/this\.shimmerGain\.connect\(shimWet\); shimWet\.connect\(this\.convolver\)/.test(src),
+       "shimmer 要經自己的 wet gain 才進 convolver");
+    if (pi === 0) console.log(`      shimmer D/R：全域 ${drBefore.toFixed(1)}dB → 這一層 ${drDb.toFixed(1)}dB；匯流量 ${BUS_SHIM.toFixed(2)}（其他層 ${BUS_OTHER.toFixed(2)}）`);
   }
 
   if (pi === 0) console.log("[5] 整條鏈的輸出頻帶 vs 阿朗壹");
@@ -288,7 +321,8 @@ PAGES.forEach((page, pi) => {
       { g: 0.06, sp: true, mk: MK.shore, pink: false, filt: [["lowpass", 640, 0.7]] },
       { g: 0.14, sp: false, mk: 1, pink: false, filt: [["lowpass", 110, 0.4]] },
       { g: 0.10, sp: false, mk: 1, pink: false, filt: [["lowpass", 520, 0.7]] },
-      { g: SHIMMER * 0.019, sp: false, mk: 1, pink: false, filt: [["lowpass", 1200, 0.55]] },
+      // shimmer 的權重要用它**自己**的乾濕比（BUS_SHIM / BUS_OTHER＝相對其他層的匯流量）。
+      { g: SHIMMER * 0.019 * (BUS_SHIM / BUS_OTHER), sp: false, mk: 1, pink: false, filt: [["lowpass", 1200, 0.55]] },
     ];
     const respAt = (f) => L.reduce((s, l) => {
       let db = l.filt.reduce((a, [t, ff, q]) => a + bqDb(coef(t, ff, q, 0, SR), f, SR), 0);

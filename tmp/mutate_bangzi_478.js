@@ -8,40 +8,64 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const ROOT = path.join(__dirname, "..");
-const PAGE = path.join(ROOT, "web", "index.html");
-// en 頁還沒同步之前用只跑 zh 的變體。每次都從 sim_bangzi_478.js **重新生成**——
-// 手動維護兩份的話它會悄悄過期，然後變異測試量的是舊測試（本專案已經踩過一次）。
-const SIM_SRC = path.join(__dirname, "sim_bangzi_478.js");
-const EN_PAGE = path.join(ROOT, "web", "en", "index.html");
-let SIM = SIM_SRC;
-if (!/underwaterStone/.test(fs.readFileSync(EN_PAGE, "utf8"))) {
-  const s = fs.readFileSync(SIM_SRC, "utf8");
-  const zh = s.replace(/\n\s*\{ label: "en", file: path\.join\(ROOT, "web", "en", "index\.html"\) \},/, "");
-  if (zh === s) throw new Error("生成 zh 變體失敗：找不到 en 的 PAGES 條目");
-  SIM = path.join(__dirname, "_bangzi_zh.js");
-  fs.writeFileSync(SIM, zh);
+const SIM = path.join(__dirname, "sim_bangzi_478.js");
+// 2026-08-05：en 頁已經同步了梆子這一段，所以**兩頁各注入一次**——只改 zh 版是這個專案
+// 最容易發生的漏同步，而如果只對 zh 注入，「en 版寫錯」這一類就永遠測不到。
+// （在此之前這裡會生成一個只跑 zh 的測試變體；en 同步後那個分支就是在放水，已移除。）
+const PAGE_FILES = [path.join(ROOT, "web", "index.html"), path.join(ROOT, "web", "en", "index.html")];
+const ORIG = PAGE_FILES.map(f => fs.readFileSync(f, "utf8"));
+for (const [i, f] of PAGE_FILES.entries()) {
+  if (!/const BANGZI_CURVE = /.test(ORIG[i]))
+    throw new Error(`${f} 還沒有 BANGZI_CURVE——兩頁要先同步`);
 }
-const original = fs.readFileSync(PAGE, "utf8");
 
 const MUTANTS = [
   ["點數少一個（4 只給 3 點，不符 Pan 的「一下＋三次」）",
    "const n = Math.max(1, count) - 1;", "const n = Math.max(1, count) - 2;"],
-  ["由快到慢變成等速",
-   "const BANGZI_SLOWDOWN = 1.24;", "const BANGZI_SLOWDOWN = 1.0;"],
-  ["由快到慢變成由慢到快",
-   "const BANGZI_SLOWDOWN = 1.24;", "const BANGZI_SLOWDOWN = 0.8;"],
+  // ── 速度曲線（2026-08-05 取自 Pan 的 MIDI，取代了原本的 BANGZI_SLOWDOWN 幾何級數）──
+  // 這一批全都是「改了不會報錯、只會聽起來不對」的寫法，正是需要測試守門的那種。
+  ["曲線變等速（漸快漸慢都消失）",
+   "const BANGZI_CURVE = [2.04, 1.33, 1.28, 1.00, 1.00, 1.09, 1.33, 1.37, 1.68, 1.89];",
+   "const BANGZI_CURVE = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1];"],
+  ["曲線整個反過來（變成短起頭 + 漸慢再漸快）",
+   "const BANGZI_CURVE = [2.04, 1.33, 1.28, 1.00, 1.00, 1.09, 1.33, 1.37, 1.68, 1.89];",
+   "const BANGZI_CURVE = [1.89, 1.68, 1.37, 1.33, 1.09, 1.00, 1.00, 1.28, 1.33, 2.04];"],
+  ["回到單向的漸慢（＝改版前的模型，沒有 accel）",
+   "const BANGZI_CURVE = [2.04, 1.33, 1.28, 1.00, 1.00, 1.09, 1.33, 1.37, 1.68, 1.89];",
+   "const BANGZI_CURVE = [1.00, 1.10, 1.21, 1.33, 1.46, 1.61, 1.77, 1.95, 2.14, 2.36];"],
+  ["第一個間隔不是最長的（Pan 明確要求「第一拍拍下去有個較長間隔」）",
+   "const BANGZI_CURVE = [2.04, 1.33, 1.28, 1.00, 1.00, 1.09, 1.33, 1.37, 1.68, 1.89];",
+   "const BANGZI_CURVE = [1.20, 1.33, 1.28, 1.00, 1.00, 1.09, 1.33, 1.37, 1.68, 1.89];"],
+  ["曲線是自己編的、不是那份 MIDI 量出來的比例",
+   "const BANGZI_CURVE = [2.04, 1.33, 1.28, 1.00, 1.00, 1.09, 1.33, 1.37, 1.68, 1.89];",
+   "const BANGZI_CURVE = [2.50, 1.60, 1.30, 1.00, 1.00, 1.20, 1.50, 1.60, 1.90, 2.20];"],
+  ["曲線用**截斷**而不是重新取樣（短段落只拿到前半＝聽不到漸慢）",
+   "    const p = i / (n - 1) * last;",
+   "    const p = Math.min(last, i);"],
+  ["重新取樣的頭尾沒對上曲線頭尾（差一格的經典錯）",
+   "    const p = i / (n - 1) * last;",
+   "    const p = i / n * last;"],
+  ["MIN/MAX 寫死成別的值（強度的正規化會歪掉）",
+   "const BANGZI_CURVE_MIN = Math.min(...BANGZI_CURVE);",
+   "const BANGZI_CURVE_MIN = 0;"],
   ["起頭那一記不是重音（梆子沒有板）",
    "const out = [{ at: 0, accent: true,", "const out = [{ at: 0, accent: false,"],
   ["重音比點還弱（板被眼蓋過去）",
    "const BANGZI_ACCENT = { intensity: 165, duration: 78 };",
    "const BANGZI_ACCENT = { intensity: 40, duration: 78 };"],
   ["點的強度不遞減（機械等強度）",
-   "intensity: Math.round(BANGZI_TICK_MAX - (BANGZI_TICK_MAX - BANGZI_TICK_MIN) * k),",
+   "intensity: Math.round(BANGZI_TICK_MAX - (BANGZI_TICK_MAX - BANGZI_TICK_MIN) * (0.65 * slow + 0.35 * k)),",
    "intensity: BANGZI_TICK_MAX,"],
+  ["強度只看位置、不看當下的速度（MIDI 的力度在最快處會回升）",
+   "const slow = span > 0 ? (gaps[i] - BANGZI_CURVE_MIN) / span : 0;   // 0＝最快、1＝最慢",
+   "const slow = k;"],
+  ["石頭大小與強度反向（一個變大一個變小＝收尾不是淡出）",
+   "      size: 0.5 - 0.25 * (0.65 * slow + 0.35 * k),",
+   "      size: 0.25 + 0.25 * (0.65 * slow + 0.35 * k),"],
   ["拍子快到跟不上（節律不再比使用者慢）",
-   "const BANGZI_UNIT_MS = 900;", "const BANGZI_UNIT_MS = 120;"],
+   "const BANGZI_UNIT_MS = 880;", "const BANGZI_UNIT_MS = 120;"],
   ["拍子慢到失去 4-7-8 的形狀",
-   "const BANGZI_UNIT_MS = 900;", "const BANGZI_UNIT_MS = 4000;"],
+   "const BANGZI_UNIT_MS = 880;", "const BANGZI_UNIT_MS = 4000;"],
   ["石頭不低沉（回到頌缽的音高）",
    "const f0 = 190 - 70 * clamp(size)", "const f0 = 620 - 70 * clamp(size)"],
   ["水的低通拿掉（聽起來不在水裡）",
@@ -94,29 +118,34 @@ try {
   process.exit(1);
 }
 
+let total = 0;
 for (const [desc, from, to] of MUTANTS) {
-  if (!original.includes(from)) {
-    escaped.push(`${desc}  ← 找不到要改的字串（變異腳本自己過期了）`);
-    console.log(`  ?  ${desc}  ← 找不到目標字串`);
-    continue;
+  for (const [i, page] of PAGE_FILES.entries()) {
+    total++;
+    const tag = `(${i === 0 ? "zh" : "en"}) `;
+    if (!ORIG[i].includes(from)) {
+      escaped.push(`${tag}${desc}  ← 找不到要改的字串（變異腳本過期，或兩頁不同步）`);
+      console.log(`  ?  ${tag}${desc}  ← 找不到目標字串`);
+      continue;
+    }
+    fs.writeFileSync(page, ORIG[i].replace(from, to));
+    let died = false, detail = "";
+    try {
+      execFileSync("node", [SIM], { stdio: "pipe" });
+    } catch (e) {
+      died = true;
+      const m = e.stdout.toString().match(/  ✗ .*/);
+      detail = m ? m[0].trim().slice(0, 76) : "";
+    } finally {
+      fs.writeFileSync(page, ORIG[i]);
+    }
+    if (died) { caught++; console.log(`  ✓  ${tag}${desc}\n         → ${detail}`); }
+    else { escaped.push(tag + desc); console.log(`  ✗  ${tag}${desc}  ← 沒被抓到！`); }
   }
-  fs.writeFileSync(PAGE, original.replace(from, to));
-  let died = false, detail = "";
-  try {
-    execFileSync("node", [SIM], { stdio: "pipe" });
-  } catch (e) {
-    died = true;
-    const m = e.stdout.toString().match(/  ✗ .*/);
-    detail = m ? m[0].trim().slice(0, 76) : "";
-  } finally {
-    fs.writeFileSync(PAGE, original);
-  }
-  if (died) { caught++; console.log(`  ✓  ${desc}\n         → ${detail}`); }
-  else { escaped.push(desc); console.log(`  ✗  ${desc}  ← 沒被抓到！`); }
 }
 
 console.log("\n" + "=".repeat(60));
-console.log(`${caught}/${MUTANTS.length} 個變異被抓到。`);
+console.log(`${caught}/${total} 個變異被抓到。`);
 if (escaped.length) {
   console.log("\n逃掉的變異（測試在這些地方沒有效力）：");
   escaped.forEach(e => console.log("  ✗ " + e));

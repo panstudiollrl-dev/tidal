@@ -9,9 +9,16 @@
  *     系列震動三次 然後7震動一下 然後一個由快到慢的系列震動六次 然後8 也如法炮製
  *     就不抓取使用者的捏握了 只在問問題還有前面自由呼吸保持原狀」
  *
+ * ⚠️ 2026-08-05 Pan 修正了速度曲線：
+ *   「478的部分，應該是第一拍拍下去有個較長間隔，然後漸快再漸慢，我等下輸出一個midi檔案
+ *     給妳，請你去學習那裡面的midi note之間的速度變化的相對關係」
+ *   「你看一下 tidal 資料夾裡面有個midi_Accel_Rit_Rhythm 的 midi clip」
+ * 所以 [2] 從「間隔嚴格遞增」改成「長起頭 → 漸快 → 漸慢」。原本的單向幾何級數
+ * （BANGZI_SLOWDOWN）與最短的起頭空隙（BANGZI_LEAD_MS）都與 Pan 的新指示相反，已移除。
+ *
  * 這支測試把那段話逐條變成斷言：
  *   [1] 節拍形狀＝1 記重音 + (count−1) 個點，總數正好是 4 / 7 / 8
- *   [2] 「由快到慢」＝間隔嚴格遞增
+ *   [2] 速度曲線＝第一個間隔最長 → 漸快 → 漸慢（取自 Pan 的 MIDI）
  *   [3] 4-7-8 三段都照同一個規則（「也如法炮製」）
  *   [4] 不再抓捏握：碼裡的握壓數拍路徑要真的移除
  *   [5] 「只在問問題還有前面自由呼吸保持原狀」＝其他段落不能被動到
@@ -42,7 +49,7 @@ const ok = (cond, label, detail) => {
 
 // ── 從 index.html 抽真的 bangziPattern / bangziDuration 與常數 ────────────────
 function build(src) {
-  const names = ["BANGZI_UNIT_MS", "BANGZI_SLOWDOWN", "BANGZI_LEAD_MS", "BANGZI_TICK_MIN", "BANGZI_TICK_MAX"];
+  const names = ["BANGZI_UNIT_MS", "BANGZI_TICK_MIN", "BANGZI_TICK_MAX"];
   const consts = names.map(n => {
     const m = src.match(new RegExp(`const ${n} = ([\\d.]+)`));
     if (!m) throw new Error(`抽不到常數 ${n}`);
@@ -50,6 +57,14 @@ function build(src) {
   }).join("\n");
   const accent = src.match(/const BANGZI_ACCENT = \{[^}]*\};/);
   if (!accent) throw new Error("抽不到 BANGZI_ACCENT");
+  // 速度曲線（來自 Pan 的 MIDI）與它的極值：這三個是 2026-08-05 取代 BANGZI_SLOWDOWN 的東西。
+  const curve = src.match(/const BANGZI_CURVE = \[[^\]]*\];/);
+  if (!curve) throw new Error("抽不到 BANGZI_CURVE");
+  const cmin = src.match(/const BANGZI_CURVE_MIN = [^;]*;/);
+  const cmax = src.match(/const BANGZI_CURVE_MAX = [^;]*;/);
+  if (!cmin || !cmax) throw new Error("抽不到 BANGZI_CURVE_MIN / BANGZI_CURVE_MAX");
+  const fnGaps = src.match(/function bangziGaps\(n\)\{[\s\S]*?\n\}/);
+  if (!fnGaps) throw new Error("抽不到 bangziGaps");
   const fnPat = src.match(/function bangziPattern\(count\)\{[\s\S]*?\n\}/);
   const fnDur = src.match(/function bangziDuration\(count\)\{[\s\S]*?\n\}/);
   if (!fnPat) throw new Error("抽不到 bangziPattern");
@@ -57,9 +72,14 @@ function build(src) {
   const factory = new Function(`
     ${consts}
     ${accent[0]}
+    ${curve[0]}
+    ${cmin[0]}
+    ${cmax[0]}
+    ${fnGaps[0]}
     ${fnPat[0]}
     ${fnDur[0]}
-    return { bangziPattern, bangziDuration, consts: { ${names.join(", ")} }, BANGZI_ACCENT };
+    return { bangziPattern, bangziDuration, bangziGaps, consts: { ${names.join(", ")} },
+             BANGZI_ACCENT, BANGZI_CURVE, BANGZI_CURVE_MIN, BANGZI_CURVE_MAX };
   `);
   return factory();
 }
@@ -73,13 +93,17 @@ function buildTicker(src) {
     if (!m) throw new Error(`抽不到 ${name}`);
     return m[0];
   };
-  const consts = ["BANGZI_UNIT_MS", "BANGZI_SLOWDOWN", "BANGZI_LEAD_MS", "BANGZI_TICK_MIN", "BANGZI_TICK_MAX"]
+  const consts = ["BANGZI_UNIT_MS", "BANGZI_TICK_MIN", "BANGZI_TICK_MAX"]
     .map(n => `const ${n} = ${src.match(new RegExp(`const ${n} = ([\\d.]+)`))[1]};`).join("\n");
   const code = `
     ${consts}
     ${need(/const BANGZI_ACCENT = \{[^}]*\};/, "BANGZI_ACCENT")}
+    ${need(/const BANGZI_CURVE = \[[^\]]*\];/, "BANGZI_CURVE")}
+    ${need(/const BANGZI_CURVE_MIN = [^;]*;/, "BANGZI_CURVE_MIN")}
+    ${need(/const BANGZI_CURVE_MAX = [^;]*;/, "BANGZI_CURVE_MAX")}
     ${need(/const MANUAL_478_PHASES = \[[\s\S]*?\n\];/, "MANUAL_478_PHASES")}
     ${need(/const MANUAL_478_TARGET_CYCLES = \d+;/, "MANUAL_478_TARGET_CYCLES")}
+    ${need(/function bangziGaps\(n\)\{[\s\S]*?\n\}/, "bangziGaps")}
     ${need(/function bangziPattern\(count\)\{[\s\S]*?\n\}/, "bangziPattern")}
     ${need(/function bangziDuration\(count\)\{[\s\S]*?\n\}/, "bangziDuration")}
     ${need(/function playBangziPhase\(phase\)\{[\s\S]*?\n\}/, "playBangziPhase")}
@@ -168,14 +192,18 @@ console.log("=== 4-7-8 梆子節拍 對拍測試 ===\n");
 PAGES.forEach((page, pi) => {
   tag = `(${page.label}) `;
   const src = page.src;
-  const { bangziPattern, bangziDuration, consts, BANGZI_ACCENT } = build(src);
+  const { bangziPattern, bangziDuration, bangziGaps, consts, BANGZI_ACCENT,
+          BANGZI_CURVE, BANGZI_CURVE_MIN, BANGZI_CURVE_MAX } = build(src);
 
-  // Pan 指定的三段：4 → 起頭一下 + 由快到慢三次；7 → 一下 + 六次；8 → 如法炮製
+  // Pan 指定的三段：4 → 起頭一下 + 三次；7 → 一下 + 六次；8 → 如法炮製
   const SPEC = [
-    { count: 4, ticks: 3, label: "4（震動一下 + 由快到慢三次）" },
-    { count: 7, ticks: 6, label: "7（震動一下 + 由快到慢六次）" },
+    { count: 4, ticks: 3, label: "4（震動一下 + 三次）" },
+    { count: 7, ticks: 6, label: "7（震動一下 + 六次）" },
     { count: 8, ticks: 7, label: "8（如法炮製）" },
   ];
+  // 一段裡**全部**的間隔（含「重音 → 第一個點」那一段）。Pan 說的「第一拍拍下去有個較長間隔」
+  // 講的正是這一段，所以不能像舊版那樣只看點與點之間——那會把要驗的東西排除在外。
+  const allGaps = (p) => p.slice(1).map((x, i) => x.at - p[i].at);
 
   if (pi === 0) console.log("[1] 節拍形狀＝1 記重音 + (count−1) 個點");
   for (const s of SPEC) {
@@ -185,46 +213,98 @@ PAGES.forEach((page, pi) => {
     ok(p.slice(1).every(x => x.accent === false), `${s.label}：後面的點都不是重音（「眼」）`);
     ok(p.filter(x => !x.accent).length === s.ticks,
        `${s.label}：由快到慢的點要正好 ${s.ticks} 次`, `實際 ${p.filter(x => !x.accent).length}`);
-    if (pi === 0) {
-      const gaps = p.slice(1).map((x, i) => i === 0 ? x.at : x.at - p[i].at);
-      console.log(`      ${s.count} → ${p.length} 點；間隔 ${gaps.map(g => Math.round(g)).join(" → ")}ms`);
-    }
+    if (pi === 0) console.log(`      ${s.count} → ${p.length} 點；間隔 ${allGaps(p).map(g => Math.round(g)).join(" → ")}ms`);
   }
 
-  if (pi === 0) console.log("[2] 「由快到慢」＝間隔要嚴格遞增");
+  if (pi === 0) console.log("[2] 速度曲線＝長起頭 → 漸快 → 漸慢（取自 Pan 的 MIDI）");
+  // 先驗曲線本身真的是那份 MIDI 量出來的比例（IOI / 最短的 57 tick）。
+  // 沒有這一項的話，任何人都可以把 BANGZI_CURVE 換成自己編的數列而測試照樣通過——
+  // 而 Pan 的要求正是「去學習那裡面的midi note之間的速度變化的相對關係」。
+  {
+    const MIDI_IOI = [116, 76, 73, 57, 57, 62, 76, 78, 96, 108];   // Tidal/midi_Accel_Rit_Rhythm.mid
+    const want = MIDI_IOI.map(v => v / Math.min(...MIDI_IOI));
+    ok(BANGZI_CURVE.length === want.length,
+       `曲線要有 ${want.length} 個間隔（＝MIDI 的 11 個音）`, String(BANGZI_CURVE.length));
+    ok(BANGZI_CURVE.every((v, i) => Math.abs(v - want[i]) < 0.02),
+       "曲線的每一項要等於 MIDI 的 IOI 比例（誤差 <0.02）",
+       BANGZI_CURVE.map((v, i) => `${v}/${want[i].toFixed(2)}`).join(" "));
+    ok(Math.abs(BANGZI_CURVE_MIN - Math.min(...BANGZI_CURVE)) < 1e-9 &&
+       Math.abs(BANGZI_CURVE_MAX - Math.max(...BANGZI_CURVE)) < 1e-9,
+       "MIN/MAX 要真的是曲線的極值（強度插值靠它們正規化）");
+  }
   for (const s of SPEC) {
     const p = bangziPattern(s.count);
-    // 只看「點與點之間」的間隔（第一段是重音到第一點的 lead，不算在漸慢的數列裡）
     const ticks = p.filter(x => !x.accent);
-    const gaps = [];
-    for (let i = 1; i < ticks.length; i++) gaps.push(ticks[i].at - ticks[i - 1].at);
-    if (gaps.length >= 2) {
-      let mono = true;
-      for (let i = 1; i < gaps.length; i++) if (gaps[i] <= gaps[i - 1]) mono = false;
-      ok(mono, `${s.label}：間隔要一路變長（由快到慢）`, `間隔 ${gaps.map(Math.round).join(",")}`);
-      // 「慢」要真的有感。判準寫成「每一步的倍率」而不是「頭尾比」：4 那一段只有 3 點＝2 個
-      // 間隔，頭尾比在數學上就只能是 1 個倍率，用固定的 1.4× 去要求它等於要求 SLOWDOWN≥1.4，
-      // 那會讓 8 那一段的最後一拍被拖到很久。改成檢查每一步都至少慢 15%（人耳分辨得出的量級）。
-      for (let i = 1; i < gaps.length; i++) {
-        ok(gaps[i] / gaps[i - 1] > 1.15,
-           `${s.label}：第 ${i} → ${i + 1} 個間隔要明顯變長（每一步至少慢 15%）`,
-           `${(gaps[i] / gaps[i - 1]).toFixed(2)}×`);
-      }
-      // 而且整段從頭到尾要累積出明顯的漸慢（點數越多、累積越明顯）
-      ok(gaps[gaps.length - 1] / gaps[0] >= Math.pow(1.15, gaps.length - 1),
-         `${s.label}：整段頭尾的間隔差要隨點數累積`,
-         `${(gaps[gaps.length - 1] / gaps[0]).toFixed(2)}×`);
+    // 這裡看的是**全部**間隔，包含「重音 → 第一個點」——那正是 Pan 說的「第一拍拍下去有個較長間隔」。
+    const gaps = allGaps(p);
+    ok(gaps.length === s.ticks, `${s.label}：間隔數要等於點數`, `${gaps.length}`);
+    // ① 第一個間隔最長（嚴格最大，不是並列）
+    ok(gaps.every((g, i) => i === 0 || g < gaps[0]),
+       `${s.label}：第一個間隔要是最長的（「第一拍拍下去有個較長間隔」）`,
+       gaps.map(Math.round).join(","));
+    if (gaps.length >= 3) {
+      // ② 形狀要是「單一個谷」：先一路變短（accel）、過了最快點再一路變長（rit）。
+      //    寫成「找最小值的位置，再檢查兩側各自單調」——比逐步比大小更能說明是哪種形狀壞了。
+      const minIdx = gaps.indexOf(Math.min(...gaps));
+      ok(minIdx > 0 && minIdx < gaps.length - 1,
+         `${s.label}：最快的那一拍要在中間（前有漸快、後有漸慢）`,
+         `最快在第 ${minIdx + 1}/${gaps.length} 個間隔`);
+      let accel = true, rit = true;
+      for (let i = 1; i <= minIdx; i++) if (gaps[i] > gaps[i - 1] + 1) accel = false;
+      for (let i = minIdx + 1; i < gaps.length; i++) if (gaps[i] < gaps[i - 1] - 1) rit = false;
+      ok(accel, `${s.label}：最快點之前要一路變短（accelerando）`, gaps.map(Math.round).join(","));
+      ok(rit, `${s.label}：最快點之後要一路變長（ritardando）`, gaps.map(Math.round).join(","));
+      // ③ 兩邊都要**聽得出來**（不是名義上的 accel/rit）。MIDI 的量級是 2.04→1.00→1.89，
+      //    也就是各約 2 倍；門檻取 1.25 倍，留給重新取樣的內插誤差。
+      ok(gaps[0] / gaps[minIdx] > 1.25, `${s.label}：漸快要有感（起頭 ÷ 最快 > 1.25）`,
+         `${(gaps[0] / gaps[minIdx]).toFixed(2)}×`);
+      ok(gaps[gaps.length - 1] / gaps[minIdx] > 1.25, `${s.label}：漸慢要有感（結尾 ÷ 最快 > 1.25）`,
+         `${(gaps[gaps.length - 1] / gaps[minIdx]).toFixed(2)}×`);
     }
-    // 強度也要跟著沉下去（不是機械的等強度）
+    // ④ 重新取樣、不是截斷：不管幾個點，頭尾都要落在曲線的頭尾（否則短段落只拿到前半＝沒有漸慢）
+    ok(Math.abs(gaps[0] / consts.BANGZI_UNIT_MS - BANGZI_CURVE[0]) < 0.05,
+       `${s.label}：第一個間隔要等於曲線的頭（重新取樣的證據）`,
+       `${(gaps[0] / consts.BANGZI_UNIT_MS).toFixed(2)} vs ${BANGZI_CURVE[0]}`);
+    ok(Math.abs(gaps[gaps.length - 1] / consts.BANGZI_UNIT_MS - BANGZI_CURVE[BANGZI_CURVE.length - 1]) < 0.05,
+       `${s.label}：最後一個間隔要等於曲線的尾（截斷的話這裡會對不上）`,
+       `${(gaps[gaps.length - 1] / consts.BANGZI_UNIT_MS).toFixed(2)} vs ${BANGZI_CURVE[BANGZI_CURVE.length - 1]}`);
+    // ⑤ 強度跟著**當下的速度**走：最快處那一點要比結尾（最慢）強，結尾要比起頭弱。
+    //    MIDI 的力度就是這樣（52→57→63→65 在最快處附近回升，尾端 50→39 才收掉）。
+    const minIdx = gaps.indexOf(Math.min(...gaps));
+    ok(ticks[minIdx].intensity > ticks[ticks.length - 1].intensity,
+       `${s.label}：最密的那一點要比結尾強（密＝稍強，梆子的「緊起」）`,
+       `${ticks[minIdx].intensity} vs ${ticks[ticks.length - 1].intensity}`);
     ok(ticks[ticks.length - 1].intensity < ticks[0].intensity,
-       `${s.label}：點的強度要隨著變慢而減弱`);
+       `${s.label}：結尾要比起頭弱（「慢收」）`,
+       `${ticks[ticks.length - 1].intensity} vs ${ticks[0].intensity}`);
     ok(ticks.every(t => t.intensity >= consts.BANGZI_TICK_MIN - 1 && t.intensity <= consts.BANGZI_TICK_MAX + 1),
        `${s.label}：點的強度要留在有界範圍內（guardrail：有界參數）`);
+    // 石頭大小要跟強度**同向**：這是原設計就有的語氣（「聲音跟著節奏一起沉下去」）——
+    // 密的地方石頭大、聲音也強；收尾時石頭變小、聲音變弱，整段是淡出而不是戛然而止。
+    // （underwaterStone 的 f0 = 190 − 70×size，所以 size 大＝低沉。慢的那幾點刻意用小石頭、
+    //   小音量，是為了「淡出」，不是為了更低沉——這一項就是在釘住這個容易被寫反的方向。）
+    ok(ticks[minIdx].size > ticks[ticks.length - 1].size,
+       `${s.label}：最密的那一點石頭要比結尾大（size 與強度同向＝一起淡出）`,
+       `${ticks[minIdx].size.toFixed(2)} vs ${ticks[ticks.length - 1].size.toFixed(2)}`);
+    const sizeOrder = ticks.map(t => t.size);
+    const intOrder = ticks.map(t => t.intensity);
+    ok(sizeOrder.every((_, i) => i === 0 ||
+         Math.sign(sizeOrder[i] - sizeOrder[i - 1]) === Math.sign(intOrder[i] - intOrder[i - 1])),
+       `${s.label}：size 與 intensity 每一步都要同向（不能一個變大一個變小）`);
   }
-  ok(consts.BANGZI_SLOWDOWN > 1, "BANGZI_SLOWDOWN 要大於 1（否則是由慢到快）", String(consts.BANGZI_SLOWDOWN));
-  ok(consts.BANGZI_SLOWDOWN < 1.8, "但不能慢得太誇張（最後一拍會拖到十幾秒）", String(consts.BANGZI_SLOWDOWN));
+  // 曲線的絕對快慢由 UNIT_MS 一個數字控制，它要落在「跟得上、又不會拖」的範圍
+  ok(consts.BANGZI_UNIT_MS >= 500 && consts.BANGZI_UNIT_MS <= 1400,
+     "BANGZI_UNIT_MS（最快那一拍）要在 0.5–1.4s", String(consts.BANGZI_UNIT_MS));
   ok(BANGZI_ACCENT.intensity > consts.BANGZI_TICK_MAX,
      "重音（板）要比任何一個點都強", `${BANGZI_ACCENT.intensity} vs ${consts.BANGZI_TICK_MAX}`);
+  // 舊的單向幾何級數要真的移除（不是留在碼裡沒用——那會讓下一位以為它還有效）。
+  // 註解裡還留著這兩個名字是**刻意**的：那段註解在解釋「為什麼移除」。所以這裡驗的是
+  // 「沒有宣告、也沒有被用到」，不是「字串完全不出現」——否則會逼人把說明刪掉。
+  for (const old of ["BANGZI_SLOWDOWN", "BANGZI_LEAD_MS"]) {
+    ok(!new RegExp(`const ${old} = `).test(src), `舊的 ${old} 要不再宣告（與 Pan 的新指示相反）`);
+    const pat = src.match(/function bangziPattern\(count\)\{[\s\S]*?\n\}/);
+    ok(pat && !new RegExp(old).test(pat[0]), `bangziPattern 裡不能再用 ${old}`);
+  }
 
   if (pi === 0) console.log("[3] 三段都照同一個規則（「也如法炮製」）");
   {
