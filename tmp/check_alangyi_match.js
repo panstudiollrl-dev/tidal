@@ -280,7 +280,9 @@ PAGES.forEach((page, pi) => {
     ok(PEBFLOOR >= 0.10, "pebble 的靜止底量要 ≥0.10（DESIGN.md §4.4：它是本聲景的定位聲）",
        String(PEBFLOOR));
     ok(PEBFLOOR <= 0.25, "但底量要有界（放鬆時不能變成石頭噪音牆）", String(PEBFLOOR));
-    ok(new RegExp(`\\(PEBBLE_FLOOR \\+ 0\\.52 \\* stoneAmt\\)`).test(src),
+    // 2026-08-06 起底量多乘一個開場淡入係數（Pan：「一開始的滾石聲完整去除」），故容許
+    // `PEBBLE_FLOOR * this.pebbleFloorAmt`——重點仍是「用常數 PEBBLE_FLOOR，不是寫死的 0.030」。
+    ok(/\(PEBBLE_FLOOR(?: \* this\.pebbleFloorAmt)? \+ 0\.52 \* stoneAmt\)/.test(src),
        "pebbleGain 要用 PEBBLE_FLOOR 當常數項（而不是寫死的 0.030）");
     // 握力仍要有作用（不是把它變成固定電平）
     ok(/0\.52 \* stoneAmt/.test(src), "握力仍要主控石頭的量（底量只是墊高，不是取代）");

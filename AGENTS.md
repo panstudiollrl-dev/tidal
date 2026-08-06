@@ -71,6 +71,90 @@
 
 ## 交接紀錄
 
+### 2026-08-06 — Claude (Opus)｜Pan 回報三件事：478 結束後握力球沒反應、有一顆球幾乎沒有效用、開場的滾石聲要完整去除（中英文版同步）
+
+Pan 的原話：「478結束之後握力球就沒有反應了 而且有一顆球幾乎沒有效用請把一開始的滾石聲完整去除 並解決現階段的問題」
+
+**前兩件是同一個 bug，而且是我上一則（2026-08-05）自己修 `GRIP_FULL_SCALE` 900→1400 造成的後座力。**
+
+- 做了什麼：
+  1. **門檻全部從「裸水位」改成「力道（raw）」**——新增 `gripLevelForRaw(raw)`（與
+     `GripCalibrator` 同一條曲線），`AFTER_ON/OFF`、`ARRIVAL_PRESS_ON/OFF`、`MANUAL_478_ON`、
+     `HARD_GRIP`、以及四個分級門檻（`AFTER_BAND_*`／`AGREE_BAND_*`）都改寫成
+     `gripLevelForRaw(<raw>)`。`GRIP_FULL_SCALE = 1400` **沒有動**。
+     詳細的表格與量測都寫進 `DESIGN.md` §6 了（新增一整段），這裡只講重點：
+     水位是正規化的 ⇒ 每個寫成水位的門檻，**實際力道由 `GRIP_FULL_SCALE` 決定**。
+     滿刻度 ×1.55 ⇒ 所有門檻在同一秒被悄悄調高 1.55 倍，**diff 上一行都看不到**。
+     - `AFTER_ON` 0.24：296raw → **460raw**。重播 Pan 的實機紀錄，`after` 段最長只能連續
+       達標 **875ms**，而記一個答案要 `AFTER_HOLD_MS = 1100ms` ⇒ **問卷物理上答不出來**
+       ＝Pan 看到的「478 結束之後握力球就沒有反應了」。
+     - 兩顆 MB01（**同 vendorId 2274 / productId 257**）靈敏度天生差約 **2 倍**：刻意握的
+       dev 中位數 ball1 **382** / ball2 **780** raw。460raw 正好切在兩顆之間，而「很明顯」的
+       1094raw 是弱球用力握也到不了的 ⇒ 那顆球永遠只能答最低一級＝「有一顆球幾乎沒有效用」。
+     - 修好之後同一份紀錄：`after` 段 875ms → **2118ms**（1.9 倍餘裕）、**兩顆球各自單獨都
+       答得出**（2118／1608ms）、兩顆都表達得到三個級別、貼頂率仍 <1%。
+  2. **開場的滾石聲**：`PEBBLE_FLOOR` 是常駐的，所以一開聲就有滾石紋理。**沒有**把它刪成 0
+     （那會撞到 guardrail 1「聲音永遠成立」＋ Pan 自己 08-04 說過「pebble 幾乎都是沒有的」），
+     改成新增 `pebbleFloorAmt`（初值 0）乘在底量上，**第一次真的握下去**才打開、再用
+     `PEBBLE_FLOOR_RAMP_S = 6.0s` 慢慢長到滿。握出來的 `0.52 × stoneAmt` 不受影響，
+     所以第一次握當下就有石頭聲。見 `DESIGN.md` §4 pebble 段新增的那則。
+
+- 現在能跑到哪 / 怎麼驗證：**13 支測試全綠**（前 11 支是既有的回歸檢查）：
+
+  | 測試 | 結果 |
+  |---|---|
+  | `tmp/sim_grip_rezero.js` | 198 項 |
+  | `tmp/mutate_grip_rezero.js` | 33/33 |
+  | `tmp/check_grip_trust.js` | 27 項 |
+  | `tmp/mutate_grip_trust.js` | 13/13 |
+  | `tmp/sim_bangzi_478.js` | 332 項 |
+  | `tmp/mutate_bangzi_478.js` | 82/82 |
+  | `tmp/check_pebble_quality.js` | 46 項 |
+  | `tmp/mutate_pebble_quality.js` | 32/32 |
+  | `tmp/test_hrir_spatial.js` | 194 項 |
+  | `tmp/check_alangyi_match.js` | 114 項 |
+  | `tmp/mutate_hrir_spatial.js` | 100/100 |
+  | **`tmp/test_grip_thresholds.js`**（新） | **107 項** |
+  | **`tmp/mutate_grip_thresholds.js`**（新） | **46/46** |
+
+  新的那支要留意 `[2b]`：它把 `GripCalibrator` 的造型算式抽出來當真值，逐點比對
+  `gripLevelForRaw`。**兩邊曲線一旦分岔，門檻的力道意義就會第三次悄悄偏掉，而兩段程式各自
+  看起來都完全合理**——這是這次最需要守著的一條。`[6][7]` 用 Pan 的實機紀錄重播（只取
+  `raw` + `tMs`，見下面的重播規則）；log 刻意不進 repo，找不到就跳過並說明，不假裝跑過。
+
+  **四支既有測試被我的改動弄壞了、已修好**（都是抽取用的 regex 假設了舊的宣告形狀，不是
+  程式邏輯壞掉）：`sim_grip_rezero.js` 與 `check_grip_trust.js` 原本用
+  `const AFTER_ON = ([\d.]+), AFTER_OFF = ([\d.]+);` 抽門檻（我把它拆成兩行且改成
+  `gripLevelForRaw(...)`）⇒ 改成三種形狀都收；`check_pebble_quality.js` 與
+  `check_alangyi_match.js` 斷言 `(PEBBLE_FLOOR + 0.52 * stoneAmt)` 的字面 ⇒ 放寬成容許
+  中間多一個 `* this.pebbleFloorAmt`，但仍守「0.52×stoneAmt 不可以被乘到」。
+  `mutate_bangzi_478.js` 有一個變異的目標字串過期（`ARRIVAL_PRESS_ON = 0.28`）也一併更新。
+
+- 未完成 / 卡住：
+  - **Pan 還沒試聽。** 上線後請他確認：478 結束後的問卷答不答得出來、**兩顆球換手各自試**、
+    以及開場前 6 秒是否真的沒有滾石聲。
+  - `en` 頁仍然**沒有** `trustedHeld` / `armAgreement` / `gripStuckSince` 那一套（08-05 (c)
+    就記過）。這次的門檻修法兩頁都套了，順帶把 en 先前分岔的 `AFTER_ON = 0.14` 也對回來；
+    `[5b]` 現在會守住兩頁的引擎常數一致。要不要把整套信任判定也搬到 en，仍是 Pan 的決定。
+
+- 給下一位的建議或待 Pan 決策的問題：
+  1. ⚠️ **`assets/hrir/` 的 CC BY-SA 3.0 share-alike 仍待 Pan 決定**（08-05 (c) 的第三題）。
+     這是**對外發佈前**必須處理的，不要就這樣公開。
+  2. **教訓一（給所有接手的人）：「調整一個正規化的分母」等於同時改掉所有寫成比例的門檻。**
+     這種改動在 diff 上是**一行**，在行為上是**全部**。以後再碰 `GRIP_FULL_SCALE`／
+     `GRIP_HEADROOM`／`GRIP_GAMMA`／`GRIP_DEADZONE`，先跑 `tmp/test_grip_thresholds.js`。
+  3. **教訓二：斷言要量「使用者真正做的動作」。** 我第一版 `[7]` 拿「刻意握一下」的**瞬態**
+     峰值去驗分級，結果誤判成「弱球到不了很明顯」——但問卷實際採的是**持續握 ≥1100ms**
+     那一段的峰值，而 `GRIP_LEVEL_ATTACK = 0.14` 的慢起讓短促輕拍本來就達不到靜態換算值。
+     改用 `holdPeaks()`（只取撐過 `AFTER_HOLD_MS` 的段）之後 ball1 中位數 0.24、最高 0.86
+     ＝三級都到得了。**量錯動作會得到一個完全可信但錯的結論。**
+  4. **不要為兩顆球各寫一組門檻。** slot 1／2 只是**連線順序**（誰先連上就是 1），不對應
+     特定那顆球，per-slot 常數在下一次插拔就錯了。同理也不要「每顆球自己學天花板」
+     （`DESIGN.md` §6 已禁止，理由是會收斂到偶發尖峰）。
+  5. **重播規則（沿用）**：Pan 的 `/tmp/griplog.ndjson` 是 2026-07-22 錄的，**早於 08-04 的
+     校正改版**，裡面的 `baseline`／`level`／`sign` 是舊校正算的，**一律不可採用**；只取
+     `raw` 與 `tMs`（硬體事實），其餘全部用現在的碼重算。
+
 ### 2026-08-05 (c) — Claude (Opus)｜Pan 回答三個待決問題「1.要 2.留 3.請查詢」：修 gripTrust、保留 playBowlForHands、查證 HRIR 授權
 
 上一則 (b) 的「未完成 / 待 Pan 決策」列了三個問題，Pan 回「**1.要 2.留 3.請查詢**」。三件都做完。

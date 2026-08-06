@@ -257,7 +257,11 @@ PAGES.forEach((page, pi) => {
     // 這次修的是音質，不能順手把 2026-08-04 為了「聽得到」而加的底量弄掉。
     const floor = Number(src.match(/const PEBBLE_FLOOR = ([\d.]+)/)[1]);
     ok(floor >= 0.10, "PEBBLE_FLOOR 要維持 ≥0.10（放鬆時石頭仍在＝聲音永不消失）", String(floor));
-    ok(/\(PEBBLE_FLOOR \+ 0\.52 \* stoneAmt\)/.test(src), "底量要加在握力對應的整條上");
+    // 底量要跟握力對應的量加在**同一條**上（同一個 gain 節點），不是另外開一路。
+    // 2026-08-06 之後底量多乘一個開場淡入係數 pebbleFloorAmt（Pan：「一開始的滾石聲完整去除」），
+    // 所以這裡允許 `PEBBLE_FLOOR * this.pebbleFloorAmt`；但 0.52×stoneAmt 那一項不可以被乘到。
+    ok(/\(PEBBLE_FLOOR(?: \* this\.pebbleFloorAmt)? \+ 0\.52 \* stoneAmt\)/.test(src),
+       "底量要加在握力對應的整條上");
   }
 });
 tag = "";

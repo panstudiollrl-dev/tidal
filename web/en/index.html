@@ -951,7 +951,43 @@ const EDGE_FLOOR_RISE = 0.02;      // rest floor 每筆 report 向上爬的比�
 const GRIP_GAMMA = 0.78;
 const GRIP_DEADZONE = 0.13;        // 低端死區：把「拿起來／輕碰／放開後的殘壓」留給 0 附近。0.10→0.13
                                    // （Pan 2026-07-22：降力道讓 span 變小、死區的 raw 範圍跟著縮，放開後殘壓開始看得見＝不歸零）
-const HARD_GRIP = 0.7;
+// ── 門檻用「力道（raw）」定義，不要用水位（Pan 2026-08-06 回報的根因）──────────────
+// ⚠️ 這是這個檔案踩過兩次的同一個坑，請不要再把門檻寫成裸水位數字。
+//
+// 水位是**正規化**的：level = pow((|dev|/effScale − 死區)/(1−死區), GAMMA)，
+// 而 effScale = GRIP_FULL_SCALE × GRIP_HEADROOM。也就是說**每一個門檻的實際力道
+// 都被 GRIP_FULL_SCALE 這個分母決定**。2026-08-05 把 GRIP_FULL_SCALE 從 900 調成 1400
+// （為了修「水位只有滿跟空、呼吸起伏被壓平」，那個修法是對的、Pan 也驗收過），
+// 於是**所有寫成水位的門檻在同一秒被悄悄調高了 1.55 倍**，沒有任何一行程式碼被改到：
+//
+//   AFTER_ON        0.24 → 需要的力道從 296raw 變成 460raw
+//   ARRIVAL_PRESS_ON 0.28 → 330raw 變成 513raw
+//   MANUAL_478_ON   0.20 → 264raw 變成 411raw
+//   HARD_GRIP       0.70 → 747raw 變成 1163raw
+//   答案分級 0.33/0.66 → 373/703raw 變成 581/1094raw
+//
+// 這正是 Pan 2026-08-06 的兩個回報，而且**是同一個根因**：
+//   ①「478 結束之後握力球就沒有反應了」＝結束後問卷的 AFTER_ON 變成 460raw，
+//     用 Pan 的真實紀錄重播（/tmp/griplog.ndjson，只取 raw+tMs）：after 段最長只能連續
+//     達標 875ms，而 AFTER_HOLD_MS 要 1100ms ⇒ **永遠記不成一個答案**。降回 300raw
+//     就變成 2118ms（餘裕 1.9×）。不是死機、不是斷線、不是 trust——是門檻夠不到。
+//   ②「有一顆球幾乎沒有效用」＝兩顆 MB01 的硬體靈敏度本來就差 ~2 倍
+//     （刻意握一下的 dev 中位數 ball1 382raw / ball2 780raw，實測），
+//     460raw 這條線剛好切在中間：ball2 過得去、ball1 過不去。ball1 就算用力握（654raw）
+//     也到不了「很明顯」(1094raw) ⇒ 那顆球在問卷裡等於沒有作用。
+//
+// 改法：門檻一律用 raw 力道寫，經 gripLevelForRaw() 換算成水位。這樣**以後再調
+// GRIP_FULL_SCALE，門檻代表的力道不會跟著跑掉**（換一批更硬/更軟的球時只調那一個數字，
+// 這是 GRIP_FULL_SCALE 註解本來就承諾的性質，但門檻寫成水位就破壞了那個承諾）。
+// 不用 per-slot 常數：slot 1/2 只是連線順序、不是特定實體球，寫死會綁錯球
+// （DESIGN.md §6 也禁止「每顆球自學天花板」——會收斂到偶發尖峰）。
+// 驗收：tmp/test_grip_thresholds.js（真球紀錄重播）＋ tmp/mutate_grip_thresholds.js。
+function gripLevelForRaw(raw){
+  const r = raw / (GRIP_FULL_SCALE * GRIP_HEADROOM);
+  if(r <= GRIP_DEADZONE) return 0;
+  return Math.pow((r - GRIP_DEADZONE) / (1 - GRIP_DEADZONE), GRIP_GAMMA);
+}
+const HARD_GRIP = gripLevelForRaw(747);   // 0.44 @1400（原本寫 0.70，那是 span 900 時的 747raw）
 const SWING_MIN = 0.5;
 const STRONG_SWING = 1.4;
 const ARRIVAL_BREATH_SECONDS = 30;
@@ -962,11 +998,11 @@ const ARRIVAL_HOLD_RESPONSE_MS = 5200;
 const ARRIVAL_PRELUDE_SECONDS = 5;
 // 壓縮曲線（GRIP_GAMMA 0.55）會把微小殘壓也放大成 ~0.1，故放開門檻要高一點才偵測得到「放開」，
 // 否則抵達的握持題會卡住（Pan 2026-07-14：卡在用握力表達緊張程度）。ON/OFF 之間留 hysteresis. 
-const ARRIVAL_PRESS_ON = 0.28;
-const ARRIVAL_PRESS_OFF = 0.16;
+const ARRIVAL_PRESS_ON = gripLevelForRaw(330);    // 0.13 @1400（原 0.28 ＝ span 900 時的 330raw）
+const ARRIVAL_PRESS_OFF = gripLevelForRaw(234);   // 0.02 @1400（原 0.16 ＝ span 900 時的 234raw）
 // 4-7-8 只剩「握一下開始」用得到這個門檻（自走化之後不再數拍，Pan 2026-08-04）。
 // MANUAL_478_OFF 一起移除：它是「放開才重新武裝」用的，而現在沒有要武裝的東西。
-const MANUAL_478_ON = 0.20;
+const MANUAL_478_ON = gripLevelForRaw(264);   // 0.06 @1400（原 0.20 ＝ span 900 時的 264raw）
 const BREATH_MARK_MIN_GAP_MS = 900;
 const AGREEMENT_FIX_MS = 900;
 const AGREEMENT_RESPONSE_MS = 5200;
@@ -1340,6 +1376,15 @@ const SHIMMER_WET = 0.40;          // 仍留一點房間，不要變成貼耳的
 // 沒握球時它就坐在那個底上＝實質靜音。但 DESIGN.md §4.4 說鵝卵石是**本聲景的定位聲**
 // （阿朗壹大圓石灘、石頭撞擊 ~47/s），它必須在放鬆狀態下就聽得到，握力只是「更多更響」。
 const PEBBLE_FLOOR = 0.14;
+// ⚠️ Pan 2026-08-06：「請把一開始的滾石聲完整去除」。
+// PEBBLE_FLOOR 讓這一層在**還沒有人握球**時就有 0.14 的底量，於是一開頁（聲音淡入的那一刻）
+// 就先聽到一陣石頭滾動——那不是海，是「設備已就緒」的雜訊，開場應該只有海。
+// 但 PEBBLE_FLOOR 本身要留：它是 2026-08-04 為了 Pan 的「pebble 幾乎聽不到」才加的，
+// 而 guardrail「聲音永遠成立、永不消失」也要求鵝卵石在放鬆狀態下聽得到。
+// 兩件事都要成立 ⇒ 不是刪掉底量，而是讓底量**在開場淡入**：
+//   一開始 0（完全沒有滾石聲）→ 使用者第一次握球後，用 PEBBLE_FLOOR_RAMP_S 慢慢長到 PEBBLE_FLOOR。
+// 之後整場都在（放開也不會消失），所以只有「一開始」被去掉，沒有動到 Pan 先前的驗收結果。
+const PEBBLE_FLOOR_RAMP_S = 6.0;   // 底量長出來的時間常數（慢＝聽不出「被打開」，符合「平滑不跳變」）
 // 石頭密度（顆/秒）。Pan 2026-08-05：「pebble 的聲音品質非常差」——舊版是 ~34 顆/秒，
 // 快到每顆石頭的瞬態互相重疊，聽起來只剩一片低頻噗噗聲（實測 crest 只有 14.9dB）。
 // 11 顆/秒 ⇒ crest ~21dB，聽得出「一顆一顆石頭」。上面那句「石頭撞擊 ~47/s」是**整個海灘**
@@ -1776,6 +1821,10 @@ class OceanEngine {
     this.droneNoise.start();
     this.tide = 0;
     this.spread = 0;
+    // 鵝卵石靜止底量的開場淡入（Pan 2026-08-06「一開始的滾石聲完整去除」，見 PEBBLE_FLOOR_RAMP_S）：
+    // 0＝開場完全沒有滾石聲；使用者第一次握球後才慢慢長到 1（＝PEBBLE_FLOOR 全量），之後不再退回。
+    this.pebbleFloorAmt = 0;
+    this.pebbleFloorOpen = false;
     this.azimuth = 0;
     this.azTarget = 0;
     this.gripPan = 0;
@@ -2053,7 +2102,11 @@ class OceanEngine {
     // ＝實質靜音。但 DESIGN.md §4.4 說鵝卵石是**本聲景的定位聲**（阿朗壹大圓石灘，石頭撞擊
     // ~47/s，是高辨識度的自然聲源）——它必須在放鬆狀態下就聽得到，握力只是讓它「更多更響」。
     // 0.030 → PEBBLE_FLOOR(0.14) ＝ +13dB 的靜止底量，握滿仍是 0.14+0.52＝0.66（有界）。
-    this.pebbleGain.gain.setTargetAtTime((PEBBLE_FLOOR + 0.52 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.24);
+    // 底量的開場淡入（Pan 2026-08-06「一開始的滾石聲完整去除」）：pebbleFloorAmt 從 0 長到 1。
+    // 只有**靜止底量**被延後，握出來的 0.52×stoneAmt 不受影響——第一次握球照樣立刻有石頭聲。
+    if(this.pebbleFloorOpen && this.pebbleFloorAmt < 1)
+      this.pebbleFloorAmt = Math.min(1, this.pebbleFloorAmt + (1 / 60) / PEBBLE_FLOOR_RAMP_S);
+    this.pebbleGain.gain.setTargetAtTime((PEBBLE_FLOOR * this.pebbleFloorAmt + 0.52 * stoneAmt) * roll * (0.85 + 0.15 * this.rw), now, 0.24);
     this.pebbleBP.frequency.setTargetAtTime(380 + 420 * stoneAmt, now, 1.0);  // 石頭壓在低-中頻（錄音主體 120-2000Hz）
     // 低頻包覆床＝海底湧動（噪音床，非純音）。Pan 2026-07-14：低頻不能音量一致——
     // 浪靠近岸（tide 高）要飽滿、包覆；退去（tide 低）要明顯變小、變遠。加大 tide 動態範圍、縮短時間常數跟得上。
@@ -2127,7 +2180,13 @@ class OceanEngine {
     state.azimuth = this.azTarget;
   }
 
-  setSpread(level){ this.spread += (level - this.spread) * 0.05; }
+  setSpread(level){
+    this.spread += (level - this.spread) * 0.05;
+    // 第一次真的握下去才把鵝卵石的靜止底量打開（Pan 2026-08-06：開場不要有滾石聲）。
+    // 用 MANUAL_478_ON 當「這是一次真的握」的判準（同一個力道定義，不另立門檻）；
+    // 打開之後就不再關——底量本來的用意是「放鬆時也聽得到石灘」。
+    if(!this.pebbleFloorOpen && level >= MANUAL_478_ON) this.pebbleFloorOpen = true;
+  }
   setTide(level){
     // 握起＝新的浪快速湧向岸；放鬆＝浪到峰頂後慢慢退去（Pan 2026-07-14：自我覺察呼吸的核心）。
     const k = level > this.tide ? 0.11 : 0.028;   // 非對稱：漲快、退慢
@@ -2681,12 +2740,16 @@ function handleArrivalConfirmation(slot, level, now){
   }
 }
 
+// 跟 AFTER_BAND_* 同一個理由改用力道：0.33/0.66 是 span 900 時代的數字，
+// 在 1400 下需要 581raw/1094raw，靈敏度低的那顆球表達不出上面兩級。
+const AGREE_BAND_SOME = gripLevelForRaw(380);
+const AGREE_BAND_CLOSE = gripLevelForRaw(700);
 function agreementLabel(a){
-  return a >= 0.66 ? "Very close" : a >= 0.33 ? "Somewhat" : "Not really";
+  return a >= AGREE_BAND_CLOSE ? "Very close" : a >= AGREE_BAND_SOME ? "Somewhat" : "Not really";
 }
 
 function agreementBand(a){
-  return a >= 0.66 ? 2 : a >= 0.33 ? 1 : 0;
+  return a >= AGREE_BAND_CLOSE ? 2 : a >= AGREE_BAND_SOME ? 1 : 0;
 }
 
 function fixAgreementChoice(now = performance.now()){
@@ -2708,8 +2771,8 @@ function finalizeAgreement(now = performance.now()){
   arrival.suggestReadyAt = now + 700;
   if(arrival.report) arrival.report.agreement = arrival.agreement;
   const a = arrival.agreement;
-  const ack = a >= 0.66 ? "Thank you. Let’s begin from this understanding, then."
-            : a >= 0.33 ? "Thank you. Maybe it’s only half right — take it as a clue, then."
+  const ack = a >= AGREE_BAND_CLOSE ? "Thank you. Let’s begin from this understanding, then."
+            : a >= AGREE_BAND_SOME ? "Thank you. Maybe it’s only half right — take it as a clue, then."
             : "Thank you for telling me. Let’s set the guess aside and listen to the body directly.";
   // 定案：球水位停在你的相符程度、球上顯示對應標籤
   document.documentElement.style.setProperty("--cue-fill", clamp(a).toFixed(3));
@@ -3964,7 +4027,16 @@ const AFTER_QUESTIONS = [
   { key: "stay",   sub: "Can you sense the present moment?" },
   { key: "agency", sub: "Did the tide move in sync with you?" },
 ];
-const AFTER_ON = 0.14, AFTER_OFF = 0.07;
+// ⚠️ 用力道（raw）寫，不要寫裸水位——理由見 gripLevelForRaw() 上面那段。
+// ON：Pan 2026-07-22 把它從 0.14 抬到 0.24 是為了「輕握答題太敏感」，當時 span 900 ⇒ 意圖是
+// **296raw**。2026-08-05 span 換成 1400 之後，同樣的 0.24 變成 460raw ＝ Pan 2026-08-06 回報
+// 的「478 結束之後握力球就沒有反應了」＋「有一顆球幾乎沒有效用」。還原成 300raw。
+// 順帶：抬到 0.24 的原始理由（殘壓 62raw 被讀成 0.36 而誤判成答案）在 1400 下已經不存在
+// ——死區本身就是 222raw，62raw 的殘壓算出來是 0.000。
+const AFTER_ON = gripLevelForRaw(300);
+// OFF＝「放開了」。要比死區(222raw)高一點才偵測得到放開，又要和 ON 留足夠遲滯。
+// 250raw：距 ON 50raw，用真球紀錄重播 after 段是 5 次作答 / 5 次乾淨放開、沒有抖動打斷。
+const AFTER_OFF = gripLevelForRaw(250);
 const AFTER_HOLD_MS = 900;   // 握著這麼久＝自動紀錄
 const AFTER_READ_MS = 900;
 const AFTER_RESPONSE_MS = 5200;
@@ -4043,11 +4115,16 @@ function afterSurveyStep(a, dt){
     afterFixAnswer(a, 0);
   }
 }
+// 分級門檻同樣改用力道（原本寫 0.33/0.66，那是 span 900 時的 373raw/703raw；
+// 在 1400 下會變成 581raw/1094raw ⇒ 靈敏度較低的那顆球（實測刻意握 382raw）
+// 連「很明顯」都表達不出來 ＝ Pan 2026-08-06 的「有一顆球幾乎沒有效用」）。
+const AFTER_BAND_SOME = gripLevelForRaw(380);   // 「有一點」
+const AFTER_BAND_CLEAR = gripLevelForRaw(700);  // 「很明顯」
 function afterAnswerBand(v){
-  return v >= 0.66 ? 3 : v >= 0.33 ? 2 : v >= AFTER_ON ? 1 : 0;
+  return v >= AFTER_BAND_CLEAR ? 3 : v >= AFTER_BAND_SOME ? 2 : v >= AFTER_ON ? 1 : 0;
 }
 function afterAnswerLabel(v){
-  return v >= 0.66 ? "Very clearly" : v >= 0.33 ? "A little" : "None";
+  return v >= AFTER_BAND_CLEAR ? "Very clearly" : v >= AFTER_BAND_SOME ? "A little" : "None";
 }
 function afterFixAnswer(a, value){
   a.fixed = true;

@@ -471,9 +471,23 @@ PAGES.forEach((page, pi) => {
     ok(dead < 700 * 0.6, "但死區不能吃掉舒適握（~700 raw）", `${dead.toFixed(0)} raw`);
     // 小小回顧那一題的門檻是 Pan 說**唯一正確**的部分，改滿刻度不能把它弄壞：
     // 舒適握必須仍然過 AFTER_ON，而「只是拿著」必須仍然在 AFTER_OFF 以下。
-    const afterM = src.match(/const AFTER_ON = ([\d.]+), AFTER_OFF = ([\d.]+);/);
-    ok(!!afterM, "要找得到 AFTER_ON / AFTER_OFF");
-    const AFTER_ON = Number(afterM[1]), AFTER_OFF = Number(afterM[2]);
+    // 兩種寫法都要收：舊的裸水位（一行兩個或分兩行），與 2026-08-06 之後的力道寫法
+    // `gripLevelForRaw(<raw>)`（門檻改用 raw 定義，見 tmp/test_grip_thresholds.js 的原因說明）。
+    const thresh = (name) => {
+      const pair = src.match(/const AFTER_ON = ([\d.]+), AFTER_OFF = ([\d.]+);/);
+      if (pair) return Number(name === "AFTER_ON" ? pair[1] : pair[2]);
+      const bare = src.match(new RegExp(`const ${name} = ([\\d.]+);`));
+      if (bare) return Number(bare[1]);
+      const byRaw = src.match(new RegExp(`const ${name} = gripLevelForRaw\\((\\d+)\\)`));
+      const fnSrc = src.match(/function gripLevelForRaw\(raw\)\{[\s\S]*?\n\}/);
+      if (byRaw && fnSrc) return new Function(
+        `const GRIP_FULL_SCALE=${FS},GRIP_HEADROOM=${consts.GRIP_HEADROOM},` +
+        `GRIP_DEADZONE=${consts.GRIP_DEADZONE},GRIP_GAMMA=${consts.GRIP_GAMMA};` +
+        `${fnSrc[0]}\nreturn gripLevelForRaw(${byRaw[1]});`)();
+      return NaN;
+    };
+    const AFTER_ON = thresh("AFTER_ON"), AFTER_OFF = thresh("AFTER_OFF");
+    ok(!Number.isNaN(AFTER_ON) && !Number.isNaN(AFTER_OFF), "要找得到 AFTER_ON / AFTER_OFF");
     ok(soft > AFTER_ON, "舒適握要仍然答得出「小小回顧」那題（AFTER_ON）",
        `${soft.toFixed(2)} vs ${AFTER_ON}`);
     ok(levelFor(60) <= AFTER_OFF, "只是拿著（+60 raw）要仍然算「放開」（AFTER_OFF）",

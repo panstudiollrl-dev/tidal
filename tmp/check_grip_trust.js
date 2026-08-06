@@ -60,7 +60,27 @@ function build(src) {
     }
     return m[0];
   };
-  const afterOff = Number((src.match(/const AFTER_ON = [\d.]+, AFTER_OFF = ([\d.]+);/) || [])[1]);
+  // AFTER_OFF 有三種寫法都要收得到：
+  //   ① 舊的一行兩個常數  const AFTER_ON = 0.24, AFTER_OFF = 0.07;
+  //   ② 拆成兩行的裸水位
+  //   ③ 現在的力道寫法    const AFTER_OFF = gripLevelForRaw(250);
+  //      （2026-08-06：門檻改用 raw 定義，見 tmp/test_grip_thresholds.js 的說明）
+  const afterOff = (() => {
+    const pair = src.match(/const AFTER_ON = [\d.]+, AFTER_OFF = ([\d.]+);/);
+    if (pair) return Number(pair[1]);
+    const bare = src.match(/const AFTER_OFF = ([\d.]+);/);
+    if (bare) return Number(bare[1]);
+    const byRaw = src.match(/const AFTER_OFF = gripLevelForRaw\((\d+)\)/);
+    if (byRaw) {
+      const fnSrc = src.match(/function gripLevelForRaw\(raw\)\{[\s\S]*?\n\}/);
+      const k = (n) => Number(src.match(new RegExp(`const ${n} = ([\\d.]+)`))[1]);
+      if (fnSrc) return new Function(
+        `const GRIP_FULL_SCALE=${k("GRIP_FULL_SCALE")},GRIP_HEADROOM=${k("GRIP_HEADROOM")},` +
+        `GRIP_DEADZONE=${k("GRIP_DEADZONE")},GRIP_GAMMA=${k("GRIP_GAMMA")};` +
+        `${fnSrc[0]}\nreturn gripLevelForRaw(${byRaw[1]});`)();
+    }
+    return NaN;
+  })();
   if (Number.isNaN(afterOff)) throw new Error("抽不到 AFTER_OFF");
 
   const body = [

@@ -125,8 +125,9 @@ const MUTANTS = [
    "const BANGZI_TICK_MS = 54;", "const BANGZI_TICK_MS = 120;"],
   ["點的時長沒吃常數（又寫死一個數字）",
    "      duration: BANGZI_TICK_MS,", "      duration: 34,"],
+  // 2026-08-06：門檻改用力道定義（gripLevelForRaw），所以這裡的宣告形狀跟著變了
   ["抵達流程（問問題）的握壓被拿掉（Pan：那邊要保持原狀）",
-   "const ARRIVAL_PRESS_ON = 0.28;", "const ARRIVAL_PRESS_XX = 0.28;"],
+   "const ARRIVAL_PRESS_ON = gripLevelForRaw(", "const ARRIVAL_PRESS_XX = gripLevelForRaw("],
   ["共振呼吸的引導被拿掉（Pan：前面自由呼吸保持原狀）",
    'if(presetId === "resonance"){', 'if(presetId === "__gone__"){'],
 ];
