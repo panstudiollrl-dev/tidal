@@ -1006,6 +1006,10 @@ const MANUAL_478_ON = gripLevelForRaw(264);   // 0.06 @1400（原 0.20 ＝ span 
 const BREATH_MARK_MIN_GAP_MS = 900;
 const AGREEMENT_FIX_MS = 900;
 const AGREEMENT_RESPONSE_MS = 5200;
+// 結束後問卷的開窗保險（Pan 2026-08-06「整個問卷都不能繼續做而卡住」）。
+// 原本 `!a.armed` 那個分支沒有任何逾時 ⇒ 水位回不到 AFTER_OFF 就永遠停在那裡。
+// 取 4000ms 與 zh 頁一致：夠長，不會把「正常放開」誤判成卡住（放開只要幾百 ms）。
+const AFTER_ARM_GRACE_MS = 4000;
 const AGREEMENT_AUTO_ADVANCE_MS = 900;
 // HAND_CUE_* 常數已隨 cue 校正一起移除（Pan 2026-08-04）
 const HID_STALE_MS = 2500;
@@ -2597,6 +2601,17 @@ function startArrival(){
   beginPrelude();
 }
 
+function slotLive(slot){
+  // 「這顆 slot 現在真的在供水位嗎」——空白鍵/Shift 後援用這個判斷，而不是只看 connected。
+  // Pan 2026-08-06：球在 4-7-8 中途靜掉之後，`state.connected` 可能還是 true（看門狗要 6.5s
+  // 才清），而舊條件 `!state.connected[slot]` 讓空白鍵在那段時間**完全無效**——使用者連
+  // 「用鍵盤把問卷做完」這條退路都沒有，只能看著畫面卡住。
+  if(!state.connected[slot]) return false;
+  if(!state.ready[slot]) return false;                     // 看門狗判定 stale 之後就不算活著
+  const at = state.lastGripReportAt[slot];
+  return !!at && performance.now() - at <= HID_STALE_MS;   // 還在 30Hz 串流中才算活著
+}
+
 function connectedCount(){
   return Object.values(state.connected).filter(Boolean).length;
 }
@@ -3327,9 +3342,22 @@ function watchHidLiveness(){
       if(age > HID_FORGET_STALE_MS){
         const ghost = devices[slot];
         forgetBallSlot(slot, "No response");
-        // 一直不回應（多半是被換掉的舊球授權殘留）→ 撤銷授權，避免每 6.5s 又被自動接回、卡住 slot; 
-        // 再重新掃描，讓實際在線的球遞補（Pan 2026-07-17 換球）。
-        try{ ghost && ghost.forget && ghost.forget(); }catch(_){ /* ignore */ }
+        // ⚠️ 這裡**刻意不再呼叫 `ghost.forget()`**（Pan 2026-08-06：「478過程中因為沒有持續
+        // 按壓握力球 連線就消失了 導致呼吸結束之後 整個問卷都不能繼續做而卡住」）。
+        //
+        // `forget()` 撤銷的是**使用者授權**，而 WebHID 的授權只能在**使用者手勢**裡重新取得。
+        // 一旦在體驗中途撤銷，`syncBalls()`（走 `getDevices()`，只看得到還有授權的球）就再也
+        // 找不回這顆球 ⇒ 剩下的整段體驗都不可能自動復原，只能請使用者去按「連接握力球」。
+        // 而 4-7-8 自走化之後（Pan 2026-08-04「就不抓取使用者的捏握了」）使用者有整整
+        // **104 秒**（26.1s × 4 輪）完全不需要出力——正好是最容易讓球進省電/靜默的一段。
+        // 原本這行的用意是「被換掉的舊球授權殘留會一直佔住 slot」（Pan 2026-07-17 換球），
+        // 那個情境**只在還沒開始體驗時才需要自動處理**；體驗中途撤銷的代價（整段報廢）
+        // 遠大於它要解決的問題。換球那條路仍然有手動的「重新配對」（R 鍵／repairBalls()）。
+        if(state.phase === "before" && state.arrival.step === "connect"){
+          try{ ghost && ghost.forget && ghost.forget(); }catch(_){ /* 舊瀏覽器沒有 forget */ }
+        } else {
+          log(`Ball ${slot} is not responding — keeping permission, will keep trying to reconnect.`);
+        }
         syncBalls().catch(() => {});
       }
     }
@@ -4046,6 +4074,7 @@ function beginAfter(){
     stage: "survey", i: 0, armed: false, peak: 0, heldMs: 0, orbFill: 0, answers: {},
     fading: false, dismissed: false, lastT: performance.now(), stageAt: performance.now(),
     questionAt: performance.now(), fixed: false, fixedAt: 0, fixedValue: 0, band: null,
+    armWaitFrom: null, afterFloor: 0, afterRest: null, armedAt: 0,   // 開窗逾時保險（Pan 2026-08-06：問卷卡住）
     rounds: (state.guided.manual478 && state.guided.manual478.completedCycles) || 0,
     grips: state.grip478Count || 0,
   };
@@ -4070,10 +4099,38 @@ function afterSurveyStep(a, dt){
   const q = AFTER_QUESTIONS[a.i];
   $("afterOrb").classList.add("show-cue-text");
   if(!a.fading && !a.fixed) $("afterOrbPrompt").textContent = q.sub;   // 字幕在球上
-  const held = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
+  const raw = clamp(Math.max(state.grip[1] || 0, state.grip[2] || 0));
   const now = performance.now();
   const rs = document.documentElement.style;
-  if(!a.armed){ if(held <= AFTER_OFF) a.armed = true; a.orbFill *= 0.85; rs.setProperty("--cue-fill", a.orbFill.toFixed(3)); return; }
+  // 逾時開窗時記下的殘壓地板要扣掉。地板**只會往下修**：殘壓自己退掉之後門檻要跟著回到正常，
+  // 否則這一題剩下的時間都偏高。
+  if(a.afterFloor > 0 && raw < a.afterFloor) a.afterFloor = raw;
+  const floor = a.afterFloor || 0;
+  const held = floor > 0 ? clamp((raw - floor) / Math.max(0.2, 1 - floor)) : raw;
+  // 開窗（arm）＝「先放開才開始接收」，避免上一握殘留進來就定案。
+  // ⚠️ 但這個閘門原本**沒有任何逾時保險**：只要水位回不到 AFTER_OFF（球凍在高位、殘壓、
+  // 弱球 restRef 偏掉），整份問卷就停在這裡不動——畫面上完全看不出在等什麼。
+  // 這正是 Pan 2026-08-06 回報的「整個問卷都不能繼續做而卡住」。等太久就直接開窗，
+  // 但把等待期間的殘壓記成地板，之後的有效水位要扣掉它 ⇒ 仍然要求「比殘壓再高一截的**新**握」。
+  if(!a.armed){
+    if(a.armWaitFrom == null) a.armWaitFrom = now;
+    // 等待期間看到過的**最低**水位＝殘壓的估計值。⚠️ 不可以用開窗**那一刻**的瞬時值：
+    // 畫面沒反應時使用者本來就會用力試握，如果剛好在開窗那一刻正在握，
+    // 就會把「使用者的答案」本身記成地板 ⇒ 這一題永遠是 0。
+    a.afterRest = Math.min(a.afterRest == null ? raw : a.afterRest, raw);
+    if(raw <= AFTER_OFF){
+      a.armed = true; a.afterFloor = 0;
+    } else if(now - a.armWaitFrom >= AFTER_ARM_GRACE_MS){
+      a.armed = true;
+      a.afterFloor = clamp(a.afterRest);   // 記住殘壓地板：要比它再高一截才算新的握
+      log("The grip ball has not returned to a released state — starting anyway, using the current level as the baseline.");
+    }
+    if(a.armed) a.armedAt = now;   // 回應窗從「真的可以回答了」算起，不是從上一題結束算起
+    // 沒有任何一顆球在供水位時，把退路寫在畫面上（不要讓使用者對著不動的畫面猜）。
+    if(!slotLive(1) && !slotLive(2))
+      $("afterOrbPrompt").textContent = "No response from the grip balls — press Space to answer, or press \u201cConnect grip balls\u201d to reconnect";
+    a.orbFill *= 0.85; rs.setProperty("--cue-fill", a.orbFill.toFixed(3)); return;
+  }
   if(a.fading) return;
 
   if(a.fixed){
@@ -4086,7 +4143,11 @@ function afterSurveyStep(a, dt){
     return;
   }
 
-  if(now - a.questionAt < AFTER_READ_MS){
+  // 讀題期與回應窗都從「開窗」算起。用 a.questionAt 的話，開窗保險吃掉的 4000ms 是從
+  // 5200ms 的回應窗裡扣的 ⇒ 只剩 1200ms 可以完成 hold；實測反應時間 ≥1500ms 的人
+  // 真的握了也會被記成 0 分。
+  const windowFrom = Math.max(a.questionAt, a.armedAt || 0);
+  if(now - windowFrom < AFTER_READ_MS){
     a.orbFill += (held - a.orbFill) * 0.18;
     rs.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
     return;
@@ -4111,7 +4172,7 @@ function afterSurveyStep(a, dt){
   rs.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
   if(a.heldMs >= AFTER_HOLD_MS){
     afterFixAnswer(a, clamp(a.peak));
-  } else if(held < AFTER_ON && now - a.questionAt >= AFTER_RESPONSE_MS){
+  } else if(held < AFTER_ON && now - windowFrom >= AFTER_RESPONSE_MS){
     afterFixAnswer(a, 0);
   }
 }
@@ -4151,6 +4212,7 @@ function afterNextQuestion(a){
   }
   a.armed = false; a.peak = 0; a.heldMs = 0; a.orbFill = 0; a.fading = false;
   a.questionAt = performance.now(); a.fixed = false; a.fixedAt = 0; a.fixedValue = 0; a.band = null;
+  a.armWaitFrom = null; a.afterFloor = 0; a.afterRest = null; a.armedAt = 0;   // 每一題重新等「先放開」，逾時保險也重新起算
   $("afterOrbPrompt").classList.remove("fade");            // 下一題字幕淡入
 }
 function afterAnalysis(v){
@@ -4394,7 +4456,7 @@ addEventListener("keydown", (e) => {
     sim.space = 1;                 // 無球測試：空白鍵＝握力（回顧段用來表示符合度、建議段用來繼續）
     e.preventDefault();
     startAudio({ resume: true }).then(() => {
-      if(!state.connected[1]) setGrip(1, 0.68);
+      if(!slotLive(1)) setGrip(1, 0.68);
       if(engine && !state.audioFadedIn){
         state.audioFadedIn = true;
         engine.fadeIn();
@@ -4426,21 +4488,21 @@ addEventListener("keydown", (e) => {
 addEventListener("keyup", (e) => {
   if(e.code === "Space"){
     sim.space = 0;
-    if(!state.connected[1]) setGrip(1, 0);
+    if(!slotLive(1)) setGrip(1, 0);
     if(state.guided.preset === "hold478") state.guided.manual478Pressed = false;
     if(engine) engine.setBreathGuide({ drone: 0 });
   }
   if(e.key === "Shift"){
     sim.shift = 0;
-    if(!state.connected[2]) setGrip(2, 0);
+    if(!slotLive(2)) setGrip(2, 0);
   }
   if(e.code === "ArrowLeft" || e.code === "ArrowRight") sim.dir = 0;
 });
 
 setInterval(() => {
   if(!engine) return;
-  if(!state.connected[1]) setGrip(1, sim.space ? 0.68 : 0);
-  if(!state.connected[2]) setGrip(2, sim.shift ? 0.68 : 0);
+  if(!slotLive(1)) setGrip(1, sim.space ? 0.68 : 0);
+  if(!slotLive(2)) setGrip(2, sim.shift ? 0.68 : 0);
   if(sim.dir !== 0){
     engine.setSwing(sim.dir, 0.75);
     state.motion = 0.85;

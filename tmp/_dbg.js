@@ -17,7 +17,10 @@ const src = fs.readFileSync(path.join(__dirname, "..", "web", "index.html"), "ut
 const names = ["GRIP_FULL_SCALE", "GRIP_BASELINE_MS", "GRIP_HEADROOM", "GRIP_LEVEL_ATTACK",
   "GRIP_LEVEL_RELEASE", "GRIP_REST_MARGIN", "EDGE_ON_FRAC", "EDGE_ON_MIN_RAW", "EDGE_REARM_FRAC",
   "EDGE_FLOOR_RISE", "GRIP_GAMMA", "GRIP_DEADZONE", "GRIP_HIST_BIN", "GRIP_HIST_MIN_MS",
-  "GRIP_REZERO_MS", "GRIP_REZERO_MIN_SHIFT", "GRIP_BEAT_REFRACTORY_MS"];
+  "GRIP_REZERO_MS", "GRIP_REZERO_MIN_SHIFT", "GRIP_BEAT_REFRACTORY_MS",
+  // 2026-08-06：這兩個是後來加進 GripCalibrator 的，清單漏了 ⇒ 整支工具 ReferenceError。
+  // 這正是上面那句註解要防的情況（只是它防的是「抽不到」，不是「忘了列」）。
+  "GRIP_SETTLE_MS", "GRIP_SETTLE_MIN_SHIFT"];
 const val = (n) => {
   const m = src.match(new RegExp(`const ${n} = ([\\d.]+)`));
   if (!m) throw new Error(`抽不到常數 ${n}——index.html 改過了，這支工具要跟著更新`);
