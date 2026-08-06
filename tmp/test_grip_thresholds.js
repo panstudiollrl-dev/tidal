@@ -221,7 +221,9 @@ if (!fs.existsSync(LOG)) {
       `const clamp=(v,lo=0,hi=1)=>Math.min(hi,Math.max(lo,v));const performance={now:()=>clock.t};${consts}\n${cls}\nreturn {GripCalibrator};`)(clock);
     return { clock, c: new GripCalibrator() };
   };
-  const HOLD = Number(src.match(/const AFTER_HOLD_MS = (\d+)/)[1]);
+  // 2026-08-06：AFTER_HOLD_MS 已被 AFTER_SETTLE_MS + AFTER_SAMPLE_MS 取代（Pan：「太敏感
+  // 輕輕碰就全滿 也很容易滑動去其他區域」）。「握多久才算」現在是 AFTER_SAMPLE_MS。
+  const HOLD = Number(src.match(/const AFTER_SAMPLE_MS = (\d+)/)[1]);
   const e = E.zh;
   const ON = e.fn ? e.fn(e.raws.AFTER_ON ?? 460) : 0.24;
   const OFF = e.fn ? e.fn(e.raws.AFTER_OFF ?? 271) : 0.07;
@@ -266,18 +268,24 @@ if (!fs.existsSync(LOG)) {
   const only1 = longestHold(f => f.g1);
   const only2 = longestHold(f => f.g2);
 
-  // 問卷採用的是「連續握 >=AFTER_HOLD_MS 的那一段裡的峰值」（afterSurveyStep 的 a.peak）。
-  // ⚠️ 不可以拿「刻意握一下」的瞬態峰來驗分級：GRIP_LEVEL_ATTACK=0.14 的慢起讓短促輕拍
-  //    達不到靜態換算值，那個量測會低估使用者實際答得到的級別（第一版的斷言就是這樣寫錯的）。
+  // 一段握壓怎麼變成一個答案，2026-08-06 起完全由頁面上的 `AnswerSampler` 決定
+  // （滯後計時 + 跳過 settle + 取中位數；理由與實測數字寫在 index.html 那個 class 上面）。
+  // ⚠️ 這裡**抽真的 class 來跑**，不在測試裡重寫一份：重寫的話「頁面的取樣壞了」這支測試
+  //    就看不到（本檔第一版正是自己手寫了一份峰值規則，Pan 回報太敏感時它照樣全過）。
+  // ⚠️ 也不可以拿「刻意握一下」的瞬態峰來驗分級：GRIP_LEVEL_ATTACK=0.14 的慢起讓短促輕拍
+  //    達不到靜態換算值，那個量測會低估使用者實際答得到的級別。
+  const samplerCls = src.match(/class AnswerSampler\{[\s\S]*?\n\}/)[0];
+  const { AnswerSampler } = new Function("AFTER_ON", "AFTER_OFF", "AFTER_SETTLE_MS", "AFTER_SAMPLE_MS",
+    `${samplerCls}\nreturn {AnswerSampler};`)(ON, OFF, Number(src.match(/const AFTER_SETTLE_MS = (\d+)/)[1]), HOLD);
+  // 回傳每一段握壓「真的會被記下來的那個值」（答不出來的段落不列入）
   const holdPeaks = (pick) => {
-    const out = []; let run = 0, peak = 0, lastT = null;
+    const out = []; const s = new AnswerSampler(); let lastT = null, fixed = false;
     for (const f of fr) {
       const dt = lastT == null ? 33 : Math.min(100, f.t - lastT); lastT = f.t;
-      const v = pick(f);
-      if (v >= ON) { run += dt; peak = Math.max(peak, v); }
-      else { if (run >= HOLD) out.push(peak); run = 0; peak = 0; }
+      const ready = s.feed(pick(f), dt);
+      if (ready && !fixed) { out.push(s.value()); fixed = true; }   // 定案一次
+      if (!s.holding) fixed = false;                                // 放開之後才能有下一次
     }
-    if (run >= HOLD) out.push(peak);
     return out;
   };
 
@@ -293,13 +301,28 @@ if (!fs.existsSync(LOG)) {
   const h1 = holdPeaks(f => f.g1), h2 = holdPeaks(f => f.g2);
   const m1 = med(h1), m2 = med(h2);
   const band = (v) => v >= CLEAR ? 3 : v >= SOME ? 2 : 1;
-  console.log(`   持續握（≥${HOLD}ms）的峰值中位數：ball1 ${m1.toFixed(2)}（${h1.length} 段）/ ball2 ${m2.toFixed(2)}（${h2.length} 段）`);
-  ok(m1 >= SOME, `ball1 的正常持續握要至少到「有一點」（${m1.toFixed(2)} ≥ ${SOME.toFixed(2)}）——否則就是 Pan 說的「幾乎沒有效用」`);
-  ok(m2 >= SOME, `ball2 的正常持續握也要至少到「有一點」（${m2.toFixed(2)}）`);
-  // AE-2 的真正驗收：**兩顆球都要表達得出三級**（現況 ball1 到不了「很明顯」）
+  const share = (a, t) => a.length ? a.filter(v => v >= t).length / a.length : 0;
+  console.log(`   定案值（≥${HOLD}ms 的取樣中位數）：ball1 ${m1.toFixed(2)}（${h1.length} 段）/ ball2 ${m2.toFixed(2)}（${h2.length} 段）`);
+  console.log(`   達「有一點」的比例：ball1 ${(100 * share(h1, SOME)).toFixed(0)}% / ball2 ${(100 * share(h2, SOME)).toFixed(0)}%`
+            + `；達「很明顯」：ball1 ${(100 * share(h1, CLEAR)).toFixed(0)}% / ball2 ${(100 * share(h2, CLEAR)).toFixed(0)}%`);
+  // ⚠️ 2026-08-06：這裡原本斷言「**所有**握壓段的中位數 ≥ 有一點」，那條在取樣改版後不成立，
+  // 而且它一開始就問錯了問題。這 21/16 段包含了整場所有 ≥1100ms 的握——大多是路過的輕握，
+  // 它們**本來就該**是「沒有」。舊的峰值規則把每一段都墊高約 0.025（因為峰值），才讓那個中位數
+  // 剛好過關；那個墊高正是 Pan 回報的「輕輕碰就全滿」。所以中位數落到 SOME 之下不是退步，
+  // 是「輕握不再被誤讀成有一點」。
+  // AE-2 要驗的是**表達力**（Pan：「有一顆球幾乎沒有效用」），也就是「這顆球構得到多高」與
+  // 「三級都用得到」，不是「平均值有多高」。改成比例與可達性：
+  ok(share(h1, SOME) >= 0.35,
+     `ball1（靈敏度較低那顆）要有 ≥35% 的握達得到「有一點」（實測 ${(100 * share(h1, SOME)).toFixed(0)}%）`
+     + `——否則就是 Pan 說的「幾乎沒有效用」`);
+  ok(share(h2, SOME) >= 0.35, `ball2 也要有 ≥35%（實測 ${(100 * share(h2, SOME)).toFixed(0)}%）`);
+  // 兩顆球都要表達得出三級（AE-2 的核心：弱球也要能給最高分）
   ok(h1.some(v => band(v) === 3), `ball1 必須表達得到「很明顯」（弱球也要能給最高分）`);
   ok(h2.some(v => band(v) === 3), `ball2 必須表達得到「很明顯」`);
-  ok(h1.some(v => band(v) === 1) || m1 < CLEAR, `ball1 也要表達得出低分（不是一握就滿）`);
+  ok(share(h1, CLEAR) >= 0.1, `ball1 達「很明顯」的比例要 ≥10%（不能只有孤例）`,
+     `${(100 * share(h1, CLEAR)).toFixed(0)}%`);
+  ok(h1.some(v => band(v) === 1), `ball1 也要表達得出低分（不是一握就滿）`);
+  ok(h2.some(v => band(v) === 1), `ball2 也要表達得出低分`);
   // 貼頂率：1400 這個滿刻度當初就是為了修「水位只有滿跟空」，不能倒退
   let sat = 0, n = 0;
   for (const f of fr) { n += 2; if (f.g1 >= 0.98) sat++; if (f.g2 >= 0.98) sat++; }

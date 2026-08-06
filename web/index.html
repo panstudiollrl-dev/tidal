@@ -1004,7 +1004,8 @@ const ARRIVAL_PRESS_OFF = gripLevelForRaw(234);   // 0.02 @1400（原 0.16 ＝ s
 // MANUAL_478_OFF 一起移除：它是「放開才重新武裝」用的，而現在沒有要武裝的東西。
 const MANUAL_478_ON = gripLevelForRaw(264);   // 0.06 @1400（原 0.20 ＝ span 900 時的 264raw）
 const BREATH_MARK_MIN_GAP_MS = 900;
-const AGREEMENT_FIX_MS = 900;
+// AGREEMENT_FIX_MS 已移除（Pan 2026-08-06 的取樣改版）：定案的時間長度改由
+// AFTER_SAMPLE_MS 一處決定，兩處問題共用同一個取樣器，不要再有第二個「握多久才算」。
 // 回應窗：從「使用者真的能回答了」才開始算（換幕動畫跑完 ＋ 已放開＝提示已經變成「握出有多貼近」），
 // 不是從上一幕結束就開始算。5200→12000（Pan 2026-07-29：還沒時間用握力好好反應「多貼近」，
 // 就被指定一個數值往下一步了）。這是保險，不是正常路徑——反思型的問題不該被計時催促（guardrail 8）。
@@ -2763,7 +2764,8 @@ function resetArrival(){
     reportSub: "agree",       // 回顧內兩段：agree(用握力表示符合度) → suggest(握或甩繼續)
     agreePeak: 0,             // 這段描述有多貼近你（握力峰值 0–1）
     agreement: null,          // 最終符合度
-    agreePressedAt: 0,        // 這輪握壓開始時間
+    agreeSampler: null,       // 一段握壓 → 一個答案（Pan 2026-08-06：太敏感）
+    agreeSampleAt: 0,         // 上一幀的時刻（事件驅動，不能假設固定幀率）
     agreeBand: null,          // 目前停留在哪個相符程度區間
     agreeFixed: false,        // 相符程度已經固定；等使用者放鬆後才換下一幕
     agreeFixedAt: 0,
@@ -2942,24 +2944,23 @@ function handleArrivalConfirmation(slot, level, now){
       return;
     }
     const held = agreementHeld(arrival);
-    // 先在一個力道區間裡停留一下才定案；定案後停在選擇畫面，請使用者放鬆，再換下一幕。
-    if(held >= AFTER_ON){
-      const band = agreementBand(held);
-      if(arrival.agreeBand !== band){
-        arrival.agreeBand = band;
-        arrival.agreePressedAt = now;
-        arrival.agreePeak = held;
-      } else {
-        arrival.agreePeak = Math.max(arrival.agreePeak, held);
-      }
-      arrival.agreeReached = true;
-      if(now - arrival.agreePressedAt >= AGREEMENT_FIX_MS) fixAgreementChoice(now);
-    } else if(held <= AFTER_OFF){
-      arrival.agreePressedAt = 0;
-      arrival.agreeBand = null;
-      arrival.agreeReached = false;
-      arrival.agreePeak = 0;
-    }
+    // 先握一段時間才定案；定案後停在選擇畫面，請使用者放鬆，再換下一幕。
+    //
+    // Pan 2026-08-06（「用握力回答各種問題…太敏感 輕輕碰就全滿 也很容易滑動去其他區域」）：
+    // 這裡原本與問卷是同一份寫法、也就有同一個毛病——分級變了就把 agreePressedAt 重設
+    //（＝計時歸零），定案取 agreePeak（＝一幀尖峰就能決定整題）。改用共用的 AnswerSampler，
+    // 理由與實測數字寫在 AnswerSampler 上面那段。門檻（AFTER_ON/OFF、AGREE_BAND_*）不動。
+    if(!arrival.agreeSampler) arrival.agreeSampler = new AnswerSampler();
+    // 這一幀距上一幀多久：handleArrivalConfirmation 是**事件驅動**（每份 HID report 一次），
+    // 所以不能假設固定幀率，也不能沿用問卷那邊的 dt。上限 100ms＝球靜掉再回來時不要一次補滿。
+    const dtMs = Math.min(100, Math.max(1, now - (arrival.agreeSampleAt || now)));
+    arrival.agreeSampleAt = now;
+    const ready = arrival.agreeSampler.feed(held, dtMs);
+    arrival.agreePeak = arrival.agreeSampler.value();   // 欄位保留（record 在用），語意＝目前取樣值
+    arrival.agreeBand = held >= AFTER_ON ? agreementBand(arrival.agreeSampler.display(held)) : null;
+    if(held >= AFTER_ON) arrival.agreeReached = true;
+    else if(held <= AFTER_OFF) arrival.agreeReached = false;
+    if(ready) fixAgreementChoice(now);
     return;
   }
   if(arrival.reportSub === "suggest"){
@@ -3113,7 +3114,9 @@ function updateArrival(){
       $("cueOrbPrompt").textContent = arrival.agreeArmed ? "握出有多貼近" : "鬆開握力球";
     } else {
       const held = agreementHeld(arrival);
-      const shown = Math.max(held, arrival.agreePeak * 0.6);   // 放開後仍留一點，讓峰值可見
+      // 水位跟著「會被記下來的那個值」走（取樣中位數），不再用 peak*0.6 保持：
+      // 保持會讓一幀尖峰把水推到全滿再慢慢退＝Pan 2026-08-06 的「輕輕碰就全滿」。
+      const shown = arrival.agreeSampler ? arrival.agreeSampler.display(held) : held;
       arrival.orbFill = (arrival.orbFill || 0) + (shown - (arrival.orbFill || 0)) * 0.25;
       rs.setProperty("--cue-fill", arrival.orbFill.toFixed(3));
       $("cueOrbPrompt").textContent = held >= AFTER_ON ? agreementLabel(arrival.orbFill) : "握出有多貼近";
@@ -3235,7 +3238,8 @@ function finishArrival(){
   state.arrival.reportSub = "agree";
   state.arrival.agreePeak = 0;
   state.arrival.agreement = null;
-  state.arrival.agreePressedAt = 0;
+  if(state.arrival.agreeSampler) state.arrival.agreeSampler.reset();
+  state.arrival.agreeSampleAt = 0;
   state.arrival.agreeBand = null;
   state.arrival.agreeArmed = false;   // 必須先放開才開始收評估的握壓
   state.arrival.agreeReached = false;
@@ -3791,49 +3795,47 @@ const MANUAL_478_PHASES = [
 
 const MANUAL_478_TARGET_CYCLES = 4;   // 約一分鐘上下（自數）。完成這麼多輪才算「完全結束」→ 淡出（Pan 2026-07-14）。
 
-// ══ 4-7-8 的梆子節拍（Pan 2026-08-04）════════════════════════════════════════
-// Pan 的原話：「4震動一下 然後一個由快到慢的系列震動三次 然後7震動一下 然後一個由快到慢的
-// 系列震動六次 然後8 也如法炮製 就不抓取使用者的捏握了」。
+// ══ 4-7-8 的節拍（Pan 2026-08-04，等速化 2026-08-06）════════════════════════
+// Pan 2026-08-04 的原話：「4震動一下 然後一個由快到慢的系列震動三次 然後7震動一下 然後一個
+// 由快到慢的系列震動六次 然後8 也如法炮製 就不抓取使用者的捏握了」。
+// ⚠️ 其中「由快到慢」已由 Pan 2026-08-06 撤回（見下方等速化那段）；「不抓捏握」仍然有效。
 //
-// 為什麼是「由快到慢」而不是等速：這一段的設計依據是 Pan 指的那篇
-//   Miu et al. / doi 相關研究：《The calming effect of a new wearable device during the
-//   anticipation of public speech》(2016)——穿戴裝置在等待公開演講（一個標準的預期焦慮情境）
-//   時給出**比使用者當下呼吸更慢**的觸覺節律，受試者的焦慮下降。關鍵機制不是「跟著拍子呼吸」，
-//   而是裝置提供一個**明確比現在慢的外部節律**讓身體去跟（entrainment），而且是被動接收、
-//   不需要使用者出力。
-// 這正好解釋了兩個設計決定：
-//   ・**由快到慢**：一開始的快拍貼近使用者當下（偏快、緊繃）的節律，先「接上」；接著逐漸拉長
-//     間隔，把節律往慢的方向帶。等速拍會太快（跟不上就變壓力）或太慢（一開始接不上）。
+// 設計依據是 Pan 指的那篇
+//   《The calming effect of a new wearable device during the anticipation of public speech》
+//   (2016)——穿戴裝置在等待公開演講（一個標準的預期焦慮情境）時給出**比使用者當下呼吸更慢**
+//   的觸覺節律，受試者的焦慮下降。關鍵機制不是「跟著拍子呼吸」，而是裝置提供一個**明確比
+//   現在慢的外部節律**讓身體去跟（entrainment），而且是被動接收、不需要使用者出力。
+// 這解釋了兩個設計決定：
+//   ・**比使用者當下更慢**：一輪 26.1s ≈ 2.3 次呼吸/分，遠慢於平靜時的 12–16 次/分。
+//     這是該論文的機制所在，而它**只要求慢，不要求速度會變**——所以等速完全成立
+//     （2026-08-06 之前這裡寫的是「由快到慢才能先接上」，那是我們對梆子的一種讀法，
+//     不是論文的要求。Pan 實際試用後選了等速：4-7-8 本來就是一個數數的練習。）
 //   ・**不抓捏握**：該研究裡使用者是被動接收節律的。原本的握壓數拍要求使用者出力＋計數，
 //     那是任務負荷，跟「等待演講時放鬆」的情境相反。Pan 拿掉它是對的。
 //
-// 梆子（中國戲曲的打擊節拍）給的是**形狀**：一記重音（板）起頭，接著一串漸疏的點（眼），
-// 整體是「緊起慢收」。所以每一段＝1 記重音 + N 個由快到慢的點，N 取自 4/7/8 的數字本身
+// 梆子（中國戲曲的打擊節拍）給的是**形狀**：一記重音（板）起頭，接著一串點（眼）。
+// 所以每一段＝1 記重音 + N 個點，N 取自 4/7/8 的數字本身
 // （4→3、7→6、8→7＝「數字減去起頭那一記」，讓總點數正好等於該段的數字）。
-// 這三個數字一起決定「4/7/8 三段各有多長」。挑選的依據是讓段落長度落在真的能照著呼吸的範圍
-// （吸 ~3.4s、停 ~9.9s、吐 ~12.8s，一輪 ~26s ≈ 2.3 次呼吸/分——比平靜時的 12–16 次/分慢得多，
-// 正是該論文「給一個比使用者當下更慢的外部節律」的做法）。由快到慢的幾何級數會讓後段被拉長，
-// 所以段落長度不會剛好是 4:7:8 的比例——聽起來的「數字」是石頭的**數量**，不是秒數。
-// ── 速度曲線取自 Pan 的 MIDI（2026-08-05）────────────────────────────────────
-// Pan：「478的部分，應該是第一拍拍下去有個較長間隔，然後漸快再漸慢…你看一下 tidal 資料夾
-//       裡面有個midi_Accel_Rit_Rhythm 的 midi clip, 你可以從中學習他的速度變化的方式」。
-// 檔案：Tidal/midi_Accel_Rit_Rhythm.mid（format 0、96 ticks/四分音符、11 個音、無 tempo meta）。
-// 實測 onset 的 IOI（tick）與力度：
-//   #1 accent vel127 → 116 → 76 → 73 → 57 → 57 → 62 → 76 → 78 → 96 → 108
-//   力度 127 70 63 52 57 63 65 61 57 50 39
-// 也就是「**第一個間隔最長**（116＝最快那拍的 2.04 倍）→ 漸快到 57（accel）→ 再漸慢到 108
-// （rit）」，而且力度在最快處附近回升一點、尾端才明顯收掉。
 //
-// 這**修正了原本的模型**：原本只有一個單向的幾何級數 BANGZI_SLOWDOWN=1.24（只會愈來愈慢），
-// 而且起頭空隙 BANGZI_LEAD_MS=300 是**最短**的——正好與 Pan 要的「第一拍拍下去有個較長間隔」
-// 相反。所以幾何級數與 LEAD 一起移除，改成直接照這條實測曲線。
+// ── 2026-08-06：改回等速數數（Pan 明確要求）─────────────────────────────────
+// Pan 的原話：「現在我覺得 478 還是用規律數數跟震動就好 除了開頭那一下頌缽不要震動之外
+//              每一下都要震動」。
 //
-// 附帶的好處（不是刻意設計，但值得記下來）：段長比例從 1 : 2.85 : 3.76 變成 1 : 1.56 : 1.75，
-// 明顯更接近 4-7-8 本身的 1 : 1.75 : 2.00。單向幾何級數會把點數多的段落過度拉長，
-// 而這條曲線先快後慢，中段的密集把長段拉回來。
-const BANGZI_CURVE = [2.04, 1.33, 1.28, 1.00, 1.00, 1.09, 1.33, 1.37, 1.68, 1.89];
-const BANGZI_UNIT_MS = 880;        // 曲線的 1.00（＝最快的那一拍）等於多少 ms；整段快慢就靠這一個數字
-                                   // （880 → 一輪 ~26.1s ≈ 2.3 次呼吸/分，維持改版前的步調）
+// ⚠️ 這**取代了 Pan 自己 2026-08-05 定下的漸快漸慢曲線**（取自 Tidal/midi_Accel_Rit_Rhythm.mid，
+// 實測 IOI 116 76 73 57 57 62 76 78 96 108 tick ⇒ BANGZI_CURVE = [2.04,1.33,…,1.89]）。
+// 是 Pan 在**真的試用過**那個版本之後改的主意，不是我擅自簡化——那份 MIDI 的分析與當時的
+// 理由完整保留在 AGENTS.md 2026-08-05 與 DESIGN.md §7.2 的沿革裡，Pan 想改回去時查得到。
+// 為什麼等速在這裡站得住腳（跟上面那篇論文並不衝突）：該研究的關鍵機制是「裝置給出一個
+// **比使用者當下更慢**的外部節律讓身體去跟」，慢**才是**機制，漸快漸慢只是我們對「梆子」
+// 的一種讀法。等速的 1374ms 一拍 ＝ 一輪 26.1s ≈ 2.3 次呼吸/分，仍然遠慢於平靜時的
+// 12–16 次/分，機制完整成立；而且等速可以「數」——4-7-8 本來就是一個**數數**的練習，
+// 拍距會變的節拍反而讓人數不準（這正是 Pan 試用後回報的）。
+//
+// 段落長度＝count × UNIT（吸 5.5s、停 9.6s、吐 11.0s），比例正好是 4 : 7 : 8——
+// 這是等速的附帶好處：漸快漸慢的版本因為重新取樣，段長比例會偏成 1 : 1.56 : 1.75。
+const BANGZI_UNIT_MS = 1374;       // 一拍多少 ms（等速）；整段快慢就靠這一個數字。
+                                   // 1374 → 一輪 19 拍 ＝ 26.1s ≈ 2.3 次呼吸/分，
+                                   // 跟漸快漸慢那版**同一個步調**（4 輪仍是 ~104s）。
 const BANGZI_ACCENT = { intensity: 165, duration: 78 };   // 板：重、長一點
 const BANGZI_TICK_MIN = 62;        // 眼：由強到弱，最後一點的強度
 const BANGZI_TICK_MAX = 118;
@@ -3842,48 +3844,33 @@ const BANGZI_TICK_MAX = 118;
 // 偏輕的那幾點（強度 62–80）在手上根本感覺不到，所以聽起來「有的有震有的沒震」。
 // 改成 54ms：仍明顯短於板（78ms＝板還是最重的那一記，梆子的板/眼對比不能消失），
 // 但每一點都在協定範例的量級之上。**同時**要注意 sendHaptic 的 95ms 節流：
-// 最短的間隔是 880ms，遠大於節流窗，所以不會有點被節流吃掉（tmp/sim_bangzi_478.js [8] 有斷言）。
+// 等速化之後每個間隔都是 1374ms，遠大於節流窗，所以不會有點被節流吃掉
+//（tmp/sim_bangzi_478.js [8] 有斷言）。
 const BANGZI_TICK_MS = 54;
-const BANGZI_CURVE_MIN = Math.min(...BANGZI_CURVE);   // ＝1.00（最快）
-const BANGZI_CURVE_MAX = Math.max(...BANGZI_CURVE);   // ＝2.04（最長的那個起頭間隔）
 
 // 一段（4 或 7 或 8）的完整節拍時間表。回傳 [{ at, accent, intensity, duration, size, idx }]，
 // 純函式＝可以被對拍測試直接驗證（tmp/sim_bangzi_478.js），不需要真的球或 AudioContext。
-// 把 BANGZI_CURVE 重新取樣成 n 個間隔（線性內插）。n 隨段落而變（4→3、7→6、8→7），
-// 但曲線的**形狀**要一樣——所以是重新取樣，不是截斷。截斷的話短的段落只會拿到「長間隔＋漸快」
-// 那一半，聽不到漸慢，Pan 要的「漸快再漸慢」就只剩一半。
-function bangziGaps(n){
-  if(n <= 0) return [];
-  if(n === 1) return [BANGZI_CURVE[0]];
-  const last = BANGZI_CURVE.length - 1;
-  const out = [];
-  for(let i = 0; i < n; i++){
-    const p = i / (n - 1) * last;                   // 頭尾一定落在曲線的頭尾＝長間隔起、漸慢收
-    const lo = Math.floor(p), hi = Math.min(last, lo + 1), f = p - lo;
-    out.push(BANGZI_CURVE[lo] * (1 - f) + BANGZI_CURVE[hi] * f);
-  }
-  return out;
-}
-
+//
+// 2026-08-06 等速化（Pan：「還是用規律數數跟震動就好」）：每個間隔都是 BANGZI_UNIT_MS，
+// 所以 `bangziGaps` / `BANGZI_CURVE` / `BANGZI_CURVE_MIN` / `BANGZI_CURVE_MAX` 一起移除——
+// 留著一條沒人用的曲線，下一位接手的人會以為速度還在變（那份 MIDI 的分析留在註解與
+// AGENTS.md 裡，需要改回去時查得到，不需要留死碼）。
 function bangziPattern(count){
   const n = Math.max(1, count) - 1;                 // 減去起頭那一記重音 ⇒ 總點數＝count
   const out = [{ at: 0, accent: true, intensity: BANGZI_ACCENT.intensity, duration: BANGZI_ACCENT.duration, size: 0.85, idx: 0 }];
-  const gaps = bangziGaps(n);
-  let t = 0;
   for(let i = 0; i < n; i++){
-    t += gaps[i] * BANGZI_UNIT_MS;                  // 第一個間隔就是曲線的 2.04 倍＝「第一拍拍下去有個較長間隔」
-    // 強度跟著**當下的速度**走，不是單調遞減：MIDI 的力度在最快處附近回升（52→57→63→65），
-    // 尾端才明顯收掉（50→39）。密＝稍強、疏＝弱，這是梆子「緊起慢收」的語氣，
-    // 也是為什麼不能只用 i/(n-1) 當插值變數（那會忽略漸快那一段）。
-    const span = BANGZI_CURVE_MAX - BANGZI_CURVE_MIN;
-    const slow = span > 0 ? (gaps[i] - BANGZI_CURVE_MIN) / span : 0;   // 0＝最快、1＝最慢
-    const k = i / Math.max(1, n - 1);                                  // 段落內的位置（尾端再收一點）
+    // 等速：第 i 個點落在 (i+1) × UNIT。整數乘法（不是逐步累加）＝不會累積浮點誤差，
+    // 「規律」在時間表上是精確的，畫面倒數與聲音也就一定對得上。
+    const k = n > 1 ? i / (n - 1) : 0;              // 段落內的位置：0＝剛起頭、1＝最後一點
+    // 速度不再變，但**力度**仍然收（梆子的「慢收」語氣＝一段的結尾比起頭輕）。
+    // 這不違反「規律數數」：Pan 要的是拍子規律，不是每一下一模一樣重；
+    // 而且尾端漸輕讓段落是淡出、不是戛然而止（size 與 intensity 同向，見 sim [2]⑤）。
     out.push({
-      at: Math.round(t),
+      at: (i + 1) * BANGZI_UNIT_MS,
       accent: false,
-      intensity: Math.round(BANGZI_TICK_MAX - (BANGZI_TICK_MAX - BANGZI_TICK_MIN) * (0.65 * slow + 0.35 * k)),
+      intensity: Math.round(BANGZI_TICK_MAX - (BANGZI_TICK_MAX - BANGZI_TICK_MIN) * k),
       duration: BANGZI_TICK_MS,
-      size: 0.5 - 0.25 * (0.65 * slow + 0.35 * k),
+      size: 0.5 - 0.25 * k,
       idx: i + 1,
     });
   }
@@ -3891,17 +3878,23 @@ function bangziPattern(count){
 }
 
 // 一段梆子的總長度（ms）＝這一段要停留多久，之後自動進下一段。
+// 等速之後這正好是 count × UNIT（最後一點之後再留一拍的餘白，段落之間才不會擠在一起），
+// 所以段長比例就是 4 : 7 : 8——一輪 19 拍。
 function bangziDuration(count){
   const p = bangziPattern(count);
   const last = p[p.length - 1];
-  // 最後一點之後留一個「呼吸的餘白」：等於最後一個間隔，讓段落之間不會擠在一起
+  // 最後一點之後留一個「呼吸的餘白」：等於一個拍距（等速，所以就是 UNIT）
   const lastGap = p.length >= 3 ? last.at - p[p.length - 2].at : BANGZI_UNIT_MS;
   return last.at + lastGap;
 }
 
-// 擊發一段梆子：聲音（水中圓石）＋震動（梆子的板／眼）＋畫面明滅，三者同一個時間表。
+// 擊發一段梆子：聲音（頌缽的板／水中圓石的眼）＋震動＋畫面明滅，三者同一個時間表。
 // 震動是 Pan 2026-08-04 明確要求的（HAPTICS_ENABLED 的守則要 Pan 確認，這就是那個確認）；
 // 仍然遵守「震動絕不用作懲罰或催促」——這裡的震動只標記節拍，不因使用者做了什麼而觸發。
+//
+// 2026-08-06（Pan）：「除了開頭那一下頌缽不要震動之外每一下都要震動」。
+// 所以**板（accent）只有聲音、沒有震動**，其餘每一眼都震。注意這是「聲音留著、震動拿掉」，
+// 不是把板整個拿掉：頌缽仍然是每段的第一個音（Pan 2026-08-05 要的），只是不再打到手上。
 function playBangziPhase(phase){
   clearGuidedHaptics();
   const pattern = bangziPattern(phase.count);
@@ -3913,14 +3906,16 @@ function playBangziPhase(phase){
       // 每一段的**第一個音**用頌缽，其餘的點維持水中石頭（Pan 2026-08-05：「現在倒數這邊的
       // 聲音每段第一個音可以用頌缽的聲音嗎 其他聲音維持目前設定沒關係」）。
       // 頌缽的長衰減（decays 最長 7.0s）本來是「連擊會糊成一團」的理由（見 DESIGN.md §7.2），
-      // 這裡不衝突：一段裡只有**一記**板，段長 6.0–10.6s，而且點是低沉的水中石頭、
+      // 這裡不衝突：一段裡只有**一記**板，段長 5.5–11.0s，而且點是低沉的水中石頭、
       // 頻率完全分開（缽 f0 ~300Hz 起、石頭 f0 = 190 − 70·size），糊不到一起。
-      // singingBowl 自己有 0.35s 冷卻，而板與板的間隔至少 6 秒，不會被冷卻吃掉。
+      // singingBowl 自己有 0.35s 冷卻，而板與板的間隔至少 5.5 秒，不會被冷卻吃掉。
       if(engine){
         if(p.accent) engine.singingBowl(az, 2.2, 0.85);
         else engine.underwaterStone(az, 2.8, 0.55, p.size);
       }
-      sendHapticAll(p.intensity, p.duration, true);   // force：4-7-8 的引導震動是 Pan 要的
+      // 板不震（Pan 2026-08-06：「除了開頭那一下頌缽不要震動之外每一下都要震動」）；
+      // 其餘每一眼都震，force＝繞過 HAPTICS_ENABLED（4-7-8 的引導震動是 Pan 明確要的）。
+      if(!p.accent) sendHapticAll(p.intensity, p.duration, true);
       beatPulse(phase.rgb);
     }, p.at);
     state.guided.hapticTimers.push(timer);
@@ -4373,16 +4368,78 @@ const AFTER_ON = gripLevelForRaw(300);
 // OFF＝「放開了」。要比死區(222raw)高一點才偵測得到放開，又要和 ON 留足夠遲滯。
 // 250raw：距 ON 50raw，用真球紀錄重播 after 段是 5 次作答 / 5 次乾淨放開、沒有抖動打斷。
 const AFTER_OFF = gripLevelForRaw(250);
-const AFTER_HOLD_MS = 1100;  // 握著這麼久＝自動紀錄（900→1100，配合 ON 調高，避免路過的力道被記成答案）
+// AFTER_HOLD_MS 已移除（Pan 2026-08-06 的取樣改版）：它的角色由下面的 AFTER_SAMPLE_MS 接手。
+// 順帶修掉一個既有的不同步：zh 是 1100、en 一直是 900（沒有理由，就是漏了）。
+// 現在兩頁都只有 AFTER_SAMPLE_MS 一個數字，抄漏會被 test_answer_sampler.js 的兩頁一致性抓到。
 const AFTER_READ_MS = 900;
 const AFTER_RESPONSE_MS = 5200;
 const AFTER_FIXED_RELEASE_MS = 450;
+
+// ══ 握力作答的取樣（Pan 2026-08-06「球都太敏感 輕輕碰就全滿 也很容易滑動去其他區域」）══
+// 兩個常數與 `AnswerSampler` 由**兩處**問題共用：回顧的「有多貼近」與結束後問卷的四題。
+// Pan 說的是「用握力回答各種問題」，兩處原本就是同一份寫法、也就有同一個毛病。
+//
+// ⚠️ 這裡刻意**不動任何門檻**（ON / OFF / BAND_SOME / BAND_CLEAR 全部不變）。
+// 三個門檻在 2026-08-06 的 AE 才剛從「span 900 時代的裸水位」還原成 300/380/700raw，
+// 為的是修 Pan 的另一個抱怨「有一顆球幾乎沒有效用」（弱球刻意握只到 382raw，
+// 用舊門檻連「很明顯」都表達不出來）。把門檻再抬回去就是把 AE revert 掉。
+// 實測（用真正的 GripCalibrator 重播 Pan 2026-07-22 的紀錄）指出敏感的來源**不是門檻**：
+//   ① **峰值定案**：`a.peak` 記的是這段握壓的最高點。真球的 dev p99 是 811(ball1)／2372(ball2)、
+//      max 1643／3103——也就是一次「輕輕碰」裡本來就會有幾幀的尖峰，而峰值定案讓
+//      **任何一幀**都足以決定整題的答案 ⇒ 「輕輕碰就全滿」。實測 ball2 有 30% 的刻意握
+//      被記成 10/10（貼頂）。
+//   ② **換級歸零**：`if(a.band !== band){ a.heldMs = 0 }`。一次刻意握的水位在分級邊界上下
+//      游移是常態（實測一次握之中換級**中位 2 次、最多 18 次**），每換一次計時就重來
+//      ⇒ 使用者感覺「滑動去其他區域」而且答不出來（實測 ball2 43 次刻意握有 33 次
+//      根本湊不滿 1100ms）。
+// 所以改法是換「怎麼從一段握壓算出一個數」，不是換「多大力才算」：
+//   ・計時用**滯後**（≥ON 開始、只有 <OFF 才中斷），分級變化不再打斷計時；
+//   ・前 AFTER_SETTLE_MS 不計入取樣（手還在往目標爬，那一段不是答案）；
+//   ・取**中位數**而不是峰值 ⇒ 少數幀的尖峰完全影響不到結果（中位數的抗離群值就是為此）。
+// 實測結果：13/13 個穩定力道的**分級與現在完全相同**（AE 的弱球可達性一分不減），
+// 但「輕握 + 一次 3103raw 尖峰」從貼頂變回「沒有」，且 ball2 的貼頂率 30% → 0%。
+const AFTER_SETTLE_MS = 300;    // 握穩之前的這段不計入取樣（手還在爬，不是答案）
+const AFTER_SAMPLE_MS = 1100;   // 要累積這麼多**有效**取樣才定案（沿用舊 AFTER_HOLD_MS 的 1100ms）
+
+// 一段握壓 → 一個答案。狀態機（不是純函式）因為要跨幀累積，但沒有任何 DOM／時鐘依賴，
+// 所以對拍測試可以直接 new 一個來跑（tmp/test_answer_sampler.js）。
+class AnswerSampler{
+  constructor(){ this.reset(); }
+  reset(){
+    this.holding = false;   // 滯後狀態：≥ON 進、<OFF 出（分級變化**不會**影響它）
+    this.heldMs = 0;        // 這一段握了多久（含還在爬的前段）
+    this.buf = [];          // 已計入的取樣（settle 之後的每一幀）
+  }
+  // 回傳這一幀之後「可以定案了嗎」——要定案的值請讀 .value()。
+  // dtMs 由呼叫端給（真硬體 30Hz ⇒ 約 33ms；不要假設幀率）。
+  feed(level, dtMs){
+    if(level >= AFTER_ON) this.holding = true;
+    else if(level < AFTER_OFF) this.holding = false;
+    if(!this.holding){ this.heldMs = 0; this.buf = []; return false; }
+    this.heldMs += dtMs;
+    // 前 AFTER_SETTLE_MS 只計時、不取樣
+    if(this.heldMs > AFTER_SETTLE_MS) this.buf.push(level);
+    return this.sampledMs(dtMs) >= AFTER_SAMPLE_MS;
+  }
+  sampledMs(dtMs){ return this.buf.length * dtMs; }
+  // 中位數＝抗離群值。用峰值的話一幀的尖峰就能決定整題（Pan 的「輕輕碰就全滿」）。
+  value(){
+    if(!this.buf.length) return 0;
+    const s = [...this.buf].sort((a, b) => a - b);
+    const n = s.length;
+    return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+  }
+  // 畫面用的水位：取**目前的中位數**（沒有取樣時就用當下水位），所以水位跟著
+  // 「會被記下來的那個值」走，不會被一幀尖峰推到全滿再慢慢退。
+  display(level){ return this.buf.length ? this.value() : level; }
+}
 function beginAfter(){
   state.after = {
     stage: "survey", i: 0, armed: false, peak: 0, heldMs: 0, orbFill: 0, answers: {},
     fading: false, dismissed: false, lastT: performance.now(), stageAt: performance.now(),
     questionAt: performance.now(), fixed: false, fixedAt: 0, fixedValue: 0, band: null,
     armWaitFrom: null, afterFloor: 0, afterRest: null, armedAt: 0,   // 開窗逾時保險（Pan 2026-08-06：問卷卡住）
+    sampler: new AnswerSampler(),   // 一段握壓 → 一個答案（Pan 2026-08-06：太敏感）
     rounds: (state.guided.manual478 && state.guided.manual478.completedCycles) || 0,
     grips: state.grip478Count || 0,
   };
@@ -4463,25 +4520,20 @@ function afterSurveyStep(a, dt){
     return;
   }
 
-  if(held >= AFTER_ON){
-    const band = afterAnswerBand(held);
-    if(a.band !== band){
-      a.band = band;
-      a.heldMs = 0;
-      a.peak = held;
-    } else {
-      a.peak = Math.max(a.peak, held);
-      a.heldMs += dt * 1000;
-    }
-  } else {
-    a.band = null;
-    a.heldMs = 0;
-    a.peak = 0;
-  }
-  a.orbFill += (Math.max(held, a.peak * 0.7) - a.orbFill) * 0.25;   // 握越緊水越高
+  // 取樣（Pan 2026-08-06：太敏感／很容易滑動去其他區域）。舊寫法是
+  //   「分級變了 ⇒ heldMs 歸零」＋「定案用 a.peak」
+  // ——見 AnswerSampler 上面那段實測。現在計時只看滯後、定案取中位數，
+  // 所以分級邊界上的游移不再打斷作答，一幀的尖峰也不再決定整題。
+  if(!a.sampler) a.sampler = new AnswerSampler();
+  const ready = a.sampler.feed(held, dt * 1000);
+  a.band = held >= AFTER_ON ? afterAnswerBand(a.sampler.display(held)) : null;
+  a.peak = a.sampler.value();          // 保留欄位（紀錄與除錯在看），語意改成「目前的取樣值」
+  a.heldMs = a.sampler.heldMs;
+  // 水位跟著「會被記下來的那個值」走：不再用 peak*0.7 保持，否則尖峰會把水推到全滿再慢慢退
+  a.orbFill += (a.sampler.display(held) - a.orbFill) * 0.25;
   rs.setProperty("--cue-fill", clamp(a.orbFill).toFixed(3));
-  if(a.heldMs >= AFTER_HOLD_MS){
-    afterFixAnswer(a, clamp(a.peak));
+  if(ready){
+    afterFixAnswer(a, clamp(a.sampler.value()));
   } else if(held < AFTER_ON && now - windowFrom >= AFTER_RESPONSE_MS){
     afterFixAnswer(a, 0);
   }
@@ -4524,6 +4576,7 @@ function afterNextQuestion(a){
   a.armed = false; a.peak = 0; a.heldMs = 0; a.orbFill = 0; a.fading = false;
   a.questionAt = performance.now(); a.fixed = false; a.fixedAt = 0; a.fixedValue = 0; a.band = null;
   a.armWaitFrom = null; a.afterFloor = 0; a.afterRest = null; a.armedAt = 0;   // 每一題重新等「先放開」，逾時保險也重新起算
+  if(a.sampler) a.sampler.reset(); else a.sampler = new AnswerSampler();       // 取樣也要重新起算（不繼承上一題的握）
   $("afterOrbPrompt").classList.remove("fade");            // 下一題字幕淡入
 }
 function afterAnalysis(v){

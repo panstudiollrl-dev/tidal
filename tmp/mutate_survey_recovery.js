@@ -78,6 +78,13 @@ const MUTANTS = [
   ["換題不重設地板（上一題的殘壓地板被下一題繼承）",
    "  a.armWaitFrom = null; a.afterFloor = 0; a.afterRest = null; a.armedAt = 0;   // 每一題重新等「先放開」，逾時保險也重新起算",
    "  a.armWaitFrom = null;   // 每一題重新等「先放開」，逾時保險也重新起算"],
+  // 2026-08-06 的取樣器也屬於「每一題重新起算」（Pan：太敏感那一輪改版）
+  ["換題不重設取樣器（上一題還沒放開的那段握變成下一題的答案）",
+   "  if(a.sampler) a.sampler.reset(); else a.sampler = new AnswerSampler();       // 取樣也要重新起算（不繼承上一題的握）\n",
+   ""],
+  ["beginAfter 不建取樣器（靠 afterSurveyStep 的防禦路徑補＝正常路徑沒被走到）",
+   "    sampler: new AnswerSampler(),   // 一段握壓 → 一個答案（Pan 2026-08-06：太敏感）\n",
+   ""],
   ["beginAfter 沒初始化 afterRest（Math.min(undefined) ⇒ NaN 地板）",
    "    armWaitFrom: null, afterFloor: 0, afterRest: null, armedAt: 0,   // 開窗逾時保險（Pan 2026-08-06：問卷卡住）",
    "    armWaitFrom: null, afterFloor: 0,   // 開窗逾時保險（Pan 2026-08-06：問卷卡住）"],

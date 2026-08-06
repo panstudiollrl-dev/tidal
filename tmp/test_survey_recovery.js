@@ -73,6 +73,9 @@ function harness(src, e) {
   const bandFn = grab(/function afterAnswerBand\(v\)\{[\s\S]*?\n\}/, "afterAnswerBand");
   const labelFn = grab(/function afterAnswerLabel\(v\)\{[\s\S]*?\n\}/, "afterAnswerLabel");
   const fixFn = grab(/function afterFixAnswer\(a, value\)\{[\s\S]*?\n\}/, "afterFixAnswer");
+  // 2026-08-06：定案改由**真正的** AnswerSampler 負責（Pan：「太敏感 輕輕碰就全滿」），
+  // 所以它也要一起抽出來——重寫一份的話「取樣壞了」在這支測試裡就看不到（見檔頭 ⚠️）。
+  const samplerCls = grab(/class AnswerSampler\{[\s\S]*?\n\}/, "AnswerSampler");
 
   const box = { RAW: 0, NOW: 0, recorded: [], prompt: "", logs: [] };
   const env = {
@@ -80,7 +83,8 @@ function harness(src, e) {
     performance: { now: () => box.NOW },
     AFTER_ON: e.AFTER_ON, AFTER_OFF: e.AFTER_OFF,
     AFTER_BAND_SOME: e.AFTER_BAND_SOME, AFTER_BAND_CLEAR: e.AFTER_BAND_CLEAR,
-    AFTER_HOLD_MS: e.K.AFTER_HOLD_MS, AFTER_READ_MS: e.K.AFTER_READ_MS,
+    AFTER_SETTLE_MS: e.K.AFTER_SETTLE_MS, AFTER_SAMPLE_MS: e.K.AFTER_SAMPLE_MS,
+    AFTER_READ_MS: e.K.AFTER_READ_MS,
     AFTER_RESPONSE_MS: e.K.AFTER_RESPONSE_MS, AFTER_FIXED_RELEASE_MS: e.K.AFTER_FIXED_RELEASE_MS,
     AFTER_ARM_GRACE_MS: e.K.AFTER_ARM_GRACE_MS,
     AFTER_QUESTIONS: [{ key: "post", sub: "q" }],
@@ -97,16 +101,19 @@ function harness(src, e) {
     document: { documentElement: { style: { setProperty() {} } } },
     afterRecordAnswer: (a, q, v) => { box.recorded.push(Math.round(clamp(v) * 10)); a.fading = true; },
   };
-  const step = new Function(...Object.keys(env),
-    `${bandFn}\n${labelFn}\n${fixFn}\n${body}\nreturn afterSurveyStep;`)(...Object.values(env));
-  return { box, step };
+  const made = new Function(...Object.keys(env),
+    `${samplerCls}\n${bandFn}\n${labelFn}\n${fixFn}\n${body}\nreturn { afterSurveyStep, AnswerSampler };`)(...Object.values(env));
+  return { box, step: made.afterSurveyStep, AnswerSampler: made.AnswerSampler };
 }
 
-function freshState() {
+function freshState(AnswerSampler) {
   return { stage: "survey", i: 0, armed: false, peak: 0, heldMs: 0, orbFill: 0, answers: {},
     fading: false, dismissed: false, lastT: 0, stageAt: 0, questionAt: 0,
     fixed: false, fixedAt: 0, fixedValue: 0, band: null,
-    armWaitFrom: null, afterFloor: 0, afterRest: null, armedAt: 0 };
+    armWaitFrom: null, afterFloor: 0, afterRest: null, armedAt: 0,
+    // beginAfter() 真的會給一個 sampler，所以這裡也給——不給的話 afterSurveyStep 走的是
+    // 「沒有就補一個」那條防禦路徑，測到的就不是正常路徑了。
+    sampler: new AnswerSampler() };
 }
 
 /* 一題的模擬。使用者是**有反應的**：只有在開窗且讀題期過了（＝提示真的出現）之後
@@ -114,9 +121,9 @@ function freshState() {
    trialGrip=[from,to]：等待期間先試著握（畫面沒反應時很自然的行為）。 */
 function playQuestion(src, e, { stuckRaw, answerRaw, reactMs, holdMs = 1800, trialGrip = null,
                                live = true, maxMs = 60000 }) {
-  const { box, step } = harness(src, e);
+  const { box, step, AnswerSampler } = harness(src, e);
   box.live = live;
-  const a = freshState();
+  const a = freshState(AnswerSampler);
   const DT = 1000 / 30;                       // 真硬體是 30Hz
   let promptAt = null;
   for (let t = 0; t < maxMs && !a.fading; t += DT) {
@@ -258,8 +265,14 @@ PAGES.forEach((page, pi) => {
     for (const f of ["armWaitFrom", "afterFloor", "afterRest", "armedAt"]) {
       ok(new RegExp(`a\\.${f} = (null|0)`).test(body), `換題要重設 a.${f}`);
     }
-    ok(/afterRest/.test(src.match(/function beginAfter\(\)\{[\s\S]*?\n\}/)[0]),
+    // 2026-08-06 的取樣器也是「每一題重新起算」的一部分：不重設的話上一題還沒放開的那段
+    // 取樣會被下一題直接拿去定案（＝上一題的握變成下一題的答案）。
+    ok(/a\.sampler\.reset\(\)/.test(body), "換題要重設取樣器（不繼承上一題的握）");
+    const begin = src.match(/function beginAfter\(\)\{[\s\S]*?\n\}/)[0];
+    ok(/afterRest/.test(begin),
        "beginAfter 要初始化 afterRest（undefined 會讓 Math.min 變 NaN）");
+    ok(/sampler: new AnswerSampler\(\)/.test(begin),
+       "beginAfter 要建立取樣器（不要靠 afterSurveyStep 的防禦路徑補）");
   }
 
   // ─────────────────────────────────────────────────────────────────────
